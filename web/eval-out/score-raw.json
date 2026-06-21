@@ -1,0 +1,3735 @@
+{
+  "gt": [
+    {
+      "form": "baldwin_br",
+      "reviewer": 1,
+      "gt": [
+        {
+          "label": "buyer_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 'Buyer (Print or type):' write-in line."
+        },
+        {
+          "label": "seller_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 'Seller (Print or type):' write-in line."
+        },
+        {
+          "label": "effective_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 'DATE OF OFFER:' write-in line (offer/effective date)."
+        },
+        {
+          "label": "property_address",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 \u00a71 'Address:' write-in line (and repeated header on every page)."
+        },
+        {
+          "label": "property_city",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 \u00a71 'City: ____, Alabama' write-in line."
+        },
+        {
+          "label": "property_county",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No county blank anywhere; the form captures city/zip/PPIN but never asks for county."
+        },
+        {
+          "label": "property_zip",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 \u00a71 'Zip:' write-in line."
+        },
+        {
+          "label": "legal_description",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 \u00a71 'Legal Description:' write-in line (sample text 'asbdnfkel;ew' shows the fill area)."
+        },
+        {
+          "label": "ppin",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 \u00a71 'PPIN ____' write-in (sample '123456')."
+        },
+        {
+          "label": "mls_id",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No MLS/listing number field appears on this form."
+        },
+        {
+          "label": "purchase_price",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 'Purchase Price: ____ ($____)' write-in line."
+        },
+        {
+          "label": "listing_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1,
+            13
+          ],
+          "evidence": "p1 RECAD 'Listing Licensee, ____' name line; p13 LISTING BROKERAGE 'SALES ASSOCIATE NAME:' line."
+        },
+        {
+          "label": "buyer_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1,
+            13
+          ],
+          "evidence": "p1 RECAD 'Selling Licensee, ____' name line; p13 SELLING COMPANY 'SALES ASSOCIATE NAME:' line (buyer's agent)."
+        },
+        {
+          "label": "earnest_money_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            9
+          ],
+          "evidence": "p9 \u00a725 'Buyer agrees to provide $____ as Earnest Money' write-in."
+        },
+        {
+          "label": "loan_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B 'in the approximate amount of $____, or in the amount equal to ___% of the Purchase Price' write-ins."
+        },
+        {
+          "label": "other_financing_description",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B 'Other ____' write-in line beside the Other checkbox."
+        },
+        {
+          "label": "finance_contingency_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p2 \u00a72.B states a pre-qual deadline as 'within ___ Business days following Acceptance Date' (a business-day count), not a fillable date; no finance-contingency calendar-date blank."
+        },
+        {
+          "label": "seller_concession_amount",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Form has no seller-concession concept. p3 only has seller-paid Buyer's-Agent compensation (% or flat fee), not a seller credit/concession amount toward buyer costs."
+        },
+        {
+          "label": "buyer_broker_comp_percentage",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            3
+          ],
+          "evidence": "p3 'Seller-Paid Compensation of Buyer's Agent: ___% of the gross purchase price' write-in (and a flat-fee $___ alternative)."
+        },
+        {
+          "label": "closing_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            7
+          ],
+          "evidence": "p7 \u00a720 'shall be Closed and the Warranty Deed ... delivered on ____, 20__' write-in."
+        },
+        {
+          "label": "possession_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            7
+          ],
+          "evidence": "p7 \u00a720 'Possession is to be given to buyer at Closing, or ___ days after Closing' write-in plus AM/PM."
+        },
+        {
+          "label": "warranty_max_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "p5 \u00a712 Home Warranty 'at a cost not to exceed $____ ($600 if left blank)' write-in."
+        },
+        {
+          "label": "inspection_completion_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p4 \u00a77 inspection deadline is 'notified in writing within ___ Business days (10 if blank)' \u2014 a business-day count, not a fillable completion date."
+        },
+        {
+          "label": "warranty_deed_type",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            6,
+            7
+          ],
+          "evidence": "Deed type is pre-printed: p6 \u00a714 'via General Warranty Deed', p7 \u00a720 'Warranty Deed/Warranty Bill of Sale'. No blank to choose a deed type."
+        },
+        {
+          "label": "listing_agent_of_seller",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 RECAD checkbox 'An agent of the Seller' under Listing Licensee."
+        },
+        {
+          "label": "listing_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 RECAD checkbox 'Assisting the Seller as a transaction facilitator'."
+        },
+        {
+          "label": "listing_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 RECAD checkbox 'A dual agent.' under the Listing Licensee column."
+        },
+        {
+          "label": "buyer_agent_of_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 RECAD checkbox 'An agent of the Buyer' under Selling Licensee."
+        },
+        {
+          "label": "buyer_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 RECAD checkbox 'Assisting the Buyer as a transaction facilitator'."
+        },
+        {
+          "label": "buyer_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 RECAD checkbox 'A dual agent' under the Selling Licensee column."
+        },
+        {
+          "label": "cash_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.A 'CASH' checkbox to mark cash terms."
+        },
+        {
+          "label": "financing_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B 'NEW MORTGAGE' checkbox to mark financed terms."
+        },
+        {
+          "label": "conventional",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B loan-type checkbox 'Conventional'."
+        },
+        {
+          "label": "FHA",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B loan-type checkbox 'FHA'."
+        },
+        {
+          "label": "VA",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B loan-type checkbox 'VA'."
+        },
+        {
+          "label": "other_financing",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B loan-type checkbox 'Other ____' (also a separate 'Bank Loan' checkbox and a \u00a72.C 'SELLER FINANCING' checkbox)."
+        },
+        {
+          "label": "appraisal_contingency_is",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.A 'This offer is / is not subject to Property appraising for at least the Purchase Price' \u2014 the 'is' checkbox."
+        },
+        {
+          "label": "appraisal_contingency_not",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.A same toggle \u2014 the 'is not' checkbox ('is not if left blank')."
+        },
+        {
+          "label": "seller_concession_yes",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No seller-concession election on the form; only seller-paid buyer-agent compensation (a comp election, not a concession)."
+        },
+        {
+          "label": "Buyer_broker_comp_checkbox",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            3
+          ],
+          "evidence": "p3 two election checkboxes for Seller-paid buyer-agent comp: '___% of the gross purchase price' vs 'A flat fee of $___'."
+        },
+        {
+          "label": "buyer_sale_contingency_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p3 \u00a76 is prose only: sale of other real estate is 'not ... contingent ... unless a contingency ... is contained herein' \u2014 no is/is-not checkbox election."
+        },
+        {
+          "label": "buyer_sale_contingency_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p3 \u00a76 has no is-not checkbox; the no-contingency default is stated as printed prose."
+        },
+        {
+          "label": "warranty_does",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            5
+          ],
+          "evidence": "p5 \u00a711 'Seller does / does not (does if left blank) warrant that the heating, cooling ... shall be in proper working order' \u2014 the 'does' checkbox."
+        },
+        {
+          "label": "warranty_does_not",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            5
+          ],
+          "evidence": "p5 \u00a711 same toggle \u2014 the 'does not' checkbox."
+        },
+        {
+          "label": "warranty_paid_by_seller",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            5
+          ],
+          "evidence": "p5 \u00a712 home warranty is pre-printed 'furnished at the expense of Seller' \u2014 seller-paid is fixed, no buyer/seller payor checkbox. The shall/shall-not boxes elect whether a warranty is furnished, not who pays."
+        },
+        {
+          "label": "warranty_paid_by_buyer",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p5 \u00a712 names only the Seller as payor; there is no buyer-paid warranty checkbox."
+        },
+        {
+          "label": "paint_attached_yes",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p5 \u00a713 lead-paint toggle is 'This property was / was not built prior to 1978' (age election), not a 'disclosure attached: yes' checkbox."
+        },
+        {
+          "label": "paint_attached_no",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p5 \u00a713 has no 'disclosure attached: no' checkbox; the only boxes are was / was not built prior to 1978."
+        },
+        {
+          "label": "survey_is",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            7
+          ],
+          "evidence": "p7 \u00a718 'This agreement IS contingent upon Buyer obtaining a new survey' checkbox."
+        },
+        {
+          "label": "survey_is_not",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            7
+          ],
+          "evidence": "p7 \u00a718 'This agreement IS NOT contingent upon Buyer obtaining a new survey' checkbox."
+        },
+        {
+          "label": "contingent_upon_inspection_and_repairs",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p4 \u00a77 has only a single 'is / is not contingent on inspection(s)' toggle. There is no dedicated 'contingent with repairs' checkbox; this form does not split inspection three ways like FORM 300. The is/is-not toggle covers it."
+        },
+        {
+          "label": "contingent_upon_inspection_no_repair",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p4 \u00a77 \u2014 no 'contingent, no repair' checkbox; only the binary is/is-not inspection toggle exists."
+        },
+        {
+          "label": "not_contingent_upon_inspection",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p4 \u00a77 \u2014 the 'is not contingent' state is the 'is not' side of the single binary toggle, not a separate dedicated as-is checkbox. No FORM-300-style three-way split."
+        },
+        {
+          "label": "buyer_title_expense",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p2/p3 \u00a74 Buyer Costs and Seller Costs are fixed printed prose; there is no buyer/seller/split title-expense election checkbox."
+        },
+        {
+          "label": "seller_title_expense",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "p3 \u00a74 Seller Costs are pre-printed (Seller pays owner's title policy); no payor-election checkbox for title expense."
+        },
+        {
+          "label": "title_split",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No split-title-expense checkbox; cost allocation is fixed prose in \u00a74."
+        },
+        {
+          "label": "property_state",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 \u00a71 the state is pre-printed ', Alabama' next to the City line \u2014 no blank for state."
+        },
+        {
+          "label": "acceptance_binding_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "p1 'ACCEPTANCE DATE: ____ (to be completed by the final party to sign acceptance)' write-in, distinct from DATE OF OFFER."
+        },
+        {
+          "label": "earnest_money_holder",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            9
+          ],
+          "evidence": "p9 \u00a725 Holder election checkboxes: 'Buyer's Broker / Title Company / Listing Broker (herein referred to as Holder)'."
+        },
+        {
+          "label": "loan_type_usda",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "p2 \u00a72.B loan-type checkbox 'USDA' (alongside Conventional/FHA/VA/Bank Loan/Other)."
+        },
+        {
+          "label": "included_fixtures",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            3
+          ],
+          "evidence": "p3 \u00a75 free-text lines: 'attachments and fixtures ... unless specifically itemized below: ____' and 'No item of personal property shall be transferred ... except those listed below: ____', plus Will/Will-Not-Convey checkboxes for listed items."
+        },
+        {
+          "label": "additional_provisions",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            12
+          ],
+          "evidence": "p12 \u00a736 'Additional Provisions ... are set forth herein on the attached Addenda' \u2014 provisions go on a separate addendum; there is no free-text additional-provisions blank on the form itself."
+        },
+        {
+          "label": "title_vesting_names",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            6
+          ],
+          "evidence": "p6 \u00a714 'Title is to be taken in the name(s) of ____' write-in, plus 'with / without right of survivorship' checkboxes."
+        },
+        {
+          "label": "time_to_respond_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            8
+          ],
+          "evidence": "p8 \u00a723 TIME TO RESPOND 'until (Date): ____' write-in (offer expiration date)."
+        },
+        {
+          "label": "time_to_respond_time",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            8
+          ],
+          "evidence": "p8 \u00a723 '(Time): ____ AM/PM Central Time' write-in plus AM/PM checkboxes."
+        },
+        {
+          "label": "buyer1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 first 'BUYER ____' signature line in the execution block."
+        },
+        {
+          "label": "buyer1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 first BUYER row 'DATE: ____ TIME: ____ AM/PM' write-in."
+        },
+        {
+          "label": "buyer1_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 first BUYER 'Print Name: ____' write-in line."
+        },
+        {
+          "label": "buyer2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 second 'BUYER ____' signature line for a co-buyer."
+        },
+        {
+          "label": "buyer2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 second BUYER row 'DATE: ____ TIME: ____ AM/PM' write-in."
+        },
+        {
+          "label": "buyer2_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 second BUYER 'Print Name: ____' write-in line."
+        },
+        {
+          "label": "seller1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 first 'SELLER ____' signature line in the seller's-acceptance block."
+        },
+        {
+          "label": "seller1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 first SELLER row 'DATE: ____ TIME: ____ AM/PM' write-in."
+        },
+        {
+          "label": "seller1_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 first SELLER 'Print Name: ____' write-in line."
+        },
+        {
+          "label": "seller2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 second 'SELLER ____' signature line for a co-seller."
+        },
+        {
+          "label": "seller2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 second SELLER row 'DATE: ____ TIME: ____ AM/PM' write-in."
+        },
+        {
+          "label": "seller2_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 second SELLER 'Print Name: ____' write-in line."
+        },
+        {
+          "label": "buyer_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 'SELLING COMPANY: COMPANY NAME: ____' write-in (the buyer-side / selling brokerage)."
+        },
+        {
+          "label": "listing_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "p13 'LISTING BROKERAGE: COMPANY NAME: ____' write-in."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "reviewer": 2,
+      "gt": [
+        {
+          "label": "buyer_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Buyer (Print or type):' blank line."
+        },
+        {
+          "label": "seller_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Seller (Print or type):' blank line."
+        },
+        {
+          "label": "effective_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'DATE OF OFFER:' blank line (offer/effective date)."
+        },
+        {
+          "label": "property_address",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 1: 'Address:' blank under PROPERTY AND PURCHASE PRICE."
+        },
+        {
+          "label": "property_city",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'City: ____, Alabama  Zip:' line."
+        },
+        {
+          "label": "property_county",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No county blank anywhere; the form captures city/state/zip and PPIN but not county."
+        },
+        {
+          "label": "property_zip",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Zip:' blank on the City/State/Zip line."
+        },
+        {
+          "label": "legal_description",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Legal Description:' blank (sample text 'asbdnfkel;ew' shown in this filled copy)."
+        },
+        {
+          "label": "ppin",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'PPIN ____' blank below legal description (sample '123456')."
+        },
+        {
+          "label": "mls_id",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No MLS number field on the form; MLS is only referenced in para 29 (post-closing disclosure to MLS systems), not as a fillable field."
+        },
+        {
+          "label": "purchase_price",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2: 'Purchase Price: ____ ($____)' blanks."
+        },
+        {
+          "label": "listing_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13 LISTING BROKERAGE block: 'SALES ASSOCIATE NAME:' write-in line."
+        },
+        {
+          "label": "buyer_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13 SELLING COMPANY (buyer-side) block: 'SALES ASSOCIATE NAME:' write-in line."
+        },
+        {
+          "label": "earnest_money_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            9
+          ],
+          "evidence": "Page 9 para 25: 'Buyer agrees to provide $____ as Earnest Money' blank."
+        },
+        {
+          "label": "loan_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'in the approximate amount of $____, or in the amount equal to ___% of the Purchase Price' blanks."
+        },
+        {
+          "label": "other_financing_description",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'Other ____' write-in line next to the loan-type checkboxes."
+        },
+        {
+          "label": "finance_contingency_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'provide written loan pre-qualification letter ... within ___ Business days (5 if left blank) following Acceptance Date' blank for the loan pre-qual deadline."
+        },
+        {
+          "label": "seller_concession_amount",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No seller-concession-toward-buyer's-closing-costs field. Page 3's only seller-paid blanks are 'Seller-Paid Compensation of Buyer's Agent' (% or flat fee), which is broker comp, not a buyer-cost concession."
+        },
+        {
+          "label": "buyer_broker_comp_percentage",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            3
+          ],
+          "evidence": "Page 3 'Seller-Paid Compensation of Buyer's Agent': '____% of the gross purchase price' and 'A flat fee of $____' write-in lines."
+        },
+        {
+          "label": "closing_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            7
+          ],
+          "evidence": "Page 7 para 20: 'delivered on ____ ,20__' closing-date blank."
+        },
+        {
+          "label": "possession_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            7
+          ],
+          "evidence": "Page 7 para 20: 'Possession is to be given to buyer [ ] at Closing, or ___ days after Closing (0 if left blank) at __ AM/PM' \u2014 possession-timing blanks/checkboxes."
+        },
+        {
+          "label": "warranty_max_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 para 12: home warranty 'at a cost not to exceed $___ ($600 if left blank)' blank."
+        },
+        {
+          "label": "inspection_completion_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            4
+          ],
+          "evidence": "Page 4 para 7: 'Seller shall be notified in writing within ___ Business days (10 if left blank)' inspection-notice deadline blank."
+        },
+        {
+          "label": "warranty_deed_type",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6 para 14: deed type is pre-printed 'General Warranty Deed' \u2014 no blank to choose a deed type."
+        },
+        {
+          "label": "listing_agent_of_seller",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 RECAD, Listing Licensee column: 'An agent of the Seller' checkbox."
+        },
+        {
+          "label": "listing_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 RECAD, Listing Licensee column: 'Assisting the Seller as a transaction facilitator' checkbox."
+        },
+        {
+          "label": "listing_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 RECAD, Listing Licensee column: 'A dual agent.' checkbox."
+        },
+        {
+          "label": "buyer_agent_of_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 RECAD, Selling Licensee column: 'An agent of the Buyer' checkbox."
+        },
+        {
+          "label": "buyer_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 RECAD, Selling Licensee column: 'Assisting the Buyer as a transaction facilitator' checkbox."
+        },
+        {
+          "label": "buyer_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 RECAD, Selling Licensee column: 'A dual agent' checkbox."
+        },
+        {
+          "label": "cash_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.A: 'CASH' checkbox."
+        },
+        {
+          "label": "financing_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'NEW MORTGAGE' checkbox (financing/new mortgage election)."
+        },
+        {
+          "label": "conventional",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'Conventional' loan-type checkbox."
+        },
+        {
+          "label": "FHA",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'FHA' loan-type checkbox."
+        },
+        {
+          "label": "VA",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'VA' loan-type checkbox."
+        },
+        {
+          "label": "other_financing",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'Bank Loan' and 'Other' loan-type checkboxes (other-than-the-named-types financing)."
+        },
+        {
+          "label": "appraisal_contingency_is",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.A: 'This offer [ ] is [ ] is not subject to Property appraising for at least the Purchase Price' \u2014 the IS side. (Note: para 2.B states the financed offer 'is subject to property appraising' as pre-printed text.)"
+        },
+        {
+          "label": "appraisal_contingency_not",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.A: 'is not' side of the appraisal is/is-not checkbox pair."
+        },
+        {
+          "label": "seller_concession_yes",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No seller-concession election checkbox; the form has no buyer-closing-cost-concession concept (only buyer-agent compensation on page 3)."
+        },
+        {
+          "label": "Buyer_broker_comp_checkbox",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            3
+          ],
+          "evidence": "Page 3 buyer-agent compensation has no election checkbox; it is two separate write-in blanks (% line and flat-fee $ line) covered by buyer_broker_comp_percentage."
+        },
+        {
+          "label": "buyer_sale_contingency_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6 para 6 pre-prints that the contract is NOT contingent on sale of other real estate 'unless a contingency ... is contained herein' \u2014 there is no is/is-not checkbox to elect it."
+        },
+        {
+          "label": "buyer_sale_contingency_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6 para 6: no checkbox for the sale-of-other-property contingency election (default no-contingency is pre-printed)."
+        },
+        {
+          "label": "warranty_does",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 para 12: home warranty '[ ] shall [ ] shall not (shall not if left blank) be furnished' \u2014 the 'shall' (does furnish) checkbox."
+        },
+        {
+          "label": "warranty_does_not",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 para 12: the 'shall not' (does not furnish) checkbox."
+        },
+        {
+          "label": "warranty_paid_by_seller",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 para 12 pre-prints the warranty is furnished 'at the expense of Seller' \u2014 payer is fixed, no buyer/seller paid-by checkbox to elect."
+        },
+        {
+          "label": "warranty_paid_by_buyer",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 para 12 fixes warranty cost on Seller; there is no buyer-pays election checkbox."
+        },
+        {
+          "label": "paint_attached_yes",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 para 13 has only 'This property [ ] was [ ] was not built prior to 1978' \u2014 there is no 'lead-paint disclosure attached yes/no' checkbox."
+        },
+        {
+          "label": "paint_attached_no",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 para 13: no disclosure-attached yes/no election; only the pre-1978 was/was-not checkboxes."
+        },
+        {
+          "label": "survey_is",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            7
+          ],
+          "evidence": "Page 7 para 18: 'This agreement IS contingent upon Buyer obtaining a new survey' checkbox."
+        },
+        {
+          "label": "survey_is_not",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            7
+          ],
+          "evidence": "Page 7 para 18: 'This agreement IS NOT contingent upon Buyer obtaining a new survey' checkbox."
+        },
+        {
+          "label": "contingent_upon_inspection_and_repairs",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            4
+          ],
+          "evidence": "Page 4 para 7: 'This offer [ ] is [ ] is not contingent on inspection(s)' \u2014 the IS (contingent) checkbox. Note: the form has a single is/is-not pair, not three separate inspection options."
+        },
+        {
+          "label": "contingent_upon_inspection_no_repair",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            4
+          ],
+          "evidence": "Page 4 para 7 offers only is/is-not contingent on inspection; there is no separate 'contingent but no repair' checkbox (only the two boxes covered by contingent_upon_inspection_and_repairs and not_contingent_upon_inspection)."
+        },
+        {
+          "label": "not_contingent_upon_inspection",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            4
+          ],
+          "evidence": "Page 4 para 7: the 'is not' side of the inspection contingency is/is-not checkbox pair."
+        },
+        {
+          "label": "buyer_title_expense",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            3
+          ],
+          "evidence": "Page 3 pre-prints title-cost allocation: BUYER pays Mortgagee's title insurance, SELLER pays Owner's title insurance. No buyer/seller/split title-expense election checkboxes."
+        },
+        {
+          "label": "seller_title_expense",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            3
+          ],
+          "evidence": "Page 3 pre-prints SELLER pays Owner's Title Insurance Policy; no election checkbox for who bears title expense."
+        },
+        {
+          "label": "title_split",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            3
+          ],
+          "evidence": "No split-title-expense checkbox; title costs are pre-allocated in para 4 (buyer/seller costs)."
+        },
+        {
+          "label": "property_state",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: state is pre-printed 'Alabama' on the City/State/Zip line \u2014 no blank to fill."
+        },
+        {
+          "label": "acceptance_binding_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'ACCEPTANCE DATE: ____ (to be completed by the final party to sign acceptance)' blank \u2014 distinct binding/acceptance date."
+        },
+        {
+          "label": "earnest_money_holder",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            9
+          ],
+          "evidence": "Page 9 para 25: Earnest Money 'to be deposited in escrow by [ ] Buyer's Broker [ ] Title Company [ ] Listing Broker (herein referred to as Holder)' \u2014 holder election checkboxes."
+        },
+        {
+          "label": "loan_type_usda",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 para 2.B: 'USDA' loan-type checkbox (present alongside Conventional/FHA/VA/Bank Loan/Other)."
+        },
+        {
+          "label": "included_fixtures",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            3
+          ],
+          "evidence": "Page 3 para 5: two free-text blanks \u2014 'attachments and fixtures ... unless specifically itemized below: ____' and 'No item of personal property ... except those listed below: ____', plus Will/Will Not Convey checkboxes for listed items."
+        },
+        {
+          "label": "additional_provisions",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            12
+          ],
+          "evidence": "Page 12 para 36 ADDITIONAL PROVISIONS has no write-in blank \u2014 it states provisions 'are set forth herein on the attached Addenda.' No on-form free-text field."
+        },
+        {
+          "label": "title_vesting_names",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6 para 14: 'Title is to be taken in the name(s) of ____' write-in line, plus '[ ] with [ ] without right of survivorship'."
+        },
+        {
+          "label": "time_to_respond_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            8
+          ],
+          "evidence": "Page 8 para 23 TIME TO RESPOND: 'until (Date): ____' blank for offer expiration date."
+        },
+        {
+          "label": "time_to_respond_time",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            8
+          ],
+          "evidence": "Page 8 para 23: '(Time) ____ [ ]AM [ ]PM Central Time' blank for offer expiration time of day."
+        },
+        {
+          "label": "buyer1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: first 'BUYER' signature box/line in the execution block."
+        },
+        {
+          "label": "buyer1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'DATE: ____' (with TIME and AM/PM) next to the first BUYER signature line."
+        },
+        {
+          "label": "buyer1_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'Print Name:' line under the first BUYER signature."
+        },
+        {
+          "label": "buyer2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: second 'BUYER' signature box/line in the execution block."
+        },
+        {
+          "label": "buyer2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'DATE: ____' next to the second BUYER signature line."
+        },
+        {
+          "label": "buyer2_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'Print Name:' line under the second BUYER signature."
+        },
+        {
+          "label": "seller1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: first 'SELLER' signature box/line in the Seller's Acceptance block."
+        },
+        {
+          "label": "seller1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'DATE: ____' next to the first SELLER signature line."
+        },
+        {
+          "label": "seller1_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'Print Name:' line under the first SELLER signature."
+        },
+        {
+          "label": "seller2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: second 'SELLER' signature box/line in the Seller's Acceptance block."
+        },
+        {
+          "label": "seller2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'DATE: ____' next to the second SELLER signature line."
+        },
+        {
+          "label": "seller2_print_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'Print Name:' line under the second SELLER signature."
+        },
+        {
+          "label": "buyer_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'SELLING COMPANY: COMPANY NAME: ____' \u2014 the buyer-side (selling) brokerage company name write-in."
+        },
+        {
+          "label": "listing_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            13
+          ],
+          "evidence": "Page 13: 'LISTING BROKERAGE: COMPANY NAME: ____' write-in line."
+        }
+      ]
+    },
+    {
+      "form": "valleymls_financed",
+      "reviewer": 1,
+      "gt": [
+        {
+          "label": "buyer_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'The undersigned Purchaser(s) ________' blank line for buyer name."
+        },
+        {
+          "label": "seller_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'the undersigned Seller(s) ________' blank line for seller name."
+        },
+        {
+          "label": "effective_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No offer/effective-date blank at the top of this form. The dated anchor is the Confirmation Agreement Date (p5) and signature dates; there is no separate offer-date fill-in line."
+        },
+        {
+          "label": "property_address",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Address ________ City ____ County ____ State __ Zip ___' \u2014 Address blank."
+        },
+        {
+          "label": "property_city",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'City ____________' blank line."
+        },
+        {
+          "label": "property_county",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'County _______________' blank line."
+        },
+        {
+          "label": "property_zip",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Zip __________' blank line."
+        },
+        {
+          "label": "legal_description",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Legal Description: ________' full blank line (also Lot/Block/Subdivision/Addition above it)."
+        },
+        {
+          "label": "ppin",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No parcel/PPIN field. Property identified by Lot/Block/Subdivision/Addition + legal description, not a tax PPIN."
+        },
+        {
+          "label": "mls_id",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No MLS ID blank for the property/listing. 'MLS ID' appears only on page 6 in the agent/brokerage info block (the agent's MLS member ID), not a property MLS number."
+        },
+        {
+          "label": "purchase_price",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 1: 'TOTAL PURCHASE PRICE shall be ... $ __________'."
+        },
+        {
+          "label": "listing_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1,
+            6
+          ],
+          "evidence": "Page 1 Agency Disclosure: 'The Listing Licensee is ________'. Also 'LISTING SALESPERSON ____' on page 6."
+        },
+        {
+          "label": "buyer_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1,
+            6
+          ],
+          "evidence": "Page 1 Agency Disclosure: 'The Selling Licensee is: ________' (selling/buyer-side licensee). Also 'SELLING SALESPERSON ____' on page 6."
+        },
+        {
+          "label": "earnest_money_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Earnest money held by Selling Company ... $ __________' dollar blank."
+        },
+        {
+          "label": "loan_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'contingent upon Purchaser obtaining approval of a (i.e. Conventional, FHA, VA) ____ loan ... in the amount of ... $ __________' \u2014 loan amount blank."
+        },
+        {
+          "label": "other_financing_description",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No separate 'other financing' description blank. The single 'approval of a ___ loan' write-in (e.g. Conventional/FHA/VA) is the only loan-type descriptor; no dedicated other-financing line."
+        },
+        {
+          "label": "finance_contingency_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No finance-contingency calendar date. Page 1 instead gives a relative window: 'apply for said loan within ____ working days' \u2014 that is a day-count blank, not a contingency date."
+        },
+        {
+          "label": "seller_concession_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(b): 'Seller agrees to pay Purchaser a concession at closing in the amount of up to $__________(0 if left blank)'."
+        },
+        {
+          "label": "buyer_broker_comp_percentage",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(a): 'Seller agrees to pay to Buyer's Broker ____% of the gross sales price or $________'."
+        },
+        {
+          "label": "closing_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(g): 'The sale shall be closed, and the deed delivered on or before _____________'."
+        },
+        {
+          "label": "possession_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(g): 'Possession is to be given _____________'."
+        },
+        {
+          "label": "warranty_max_amount",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "This form has no home-warranty provision at all, so no warranty cost-cap blank."
+        },
+        {
+          "label": "inspection_completion_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No inspection-completion date blank. Section 4(d) is a Does/Does Not inspection election referencing an attached Inspection Addendum; section 4(f) final inspection has no date fill-in. The only dated inspection deadlines are the lead-paint day-count blanks in 4(b)."
+        },
+        {
+          "label": "warranty_deed_type",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(e): deed type is pre-printed 'a General Warranty deed' \u2014 no blank to choose deed type."
+        },
+        {
+          "label": "listing_agent_of_seller",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 Agency Disclosure, Listing Licensee column: checkbox 'An agent of the Seller.'"
+        },
+        {
+          "label": "listing_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 Agency Disclosure, Listing column: checkbox 'Assisting the Seller as a Transaction Facilitator.'"
+        },
+        {
+          "label": "listing_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 Agency Disclosure, Listing column: checkbox 'A dual agent.'"
+        },
+        {
+          "label": "buyer_agent_of_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 Agency Disclosure, Selling Licensee column: checkbox 'An agent of the Purchaser'."
+        },
+        {
+          "label": "buyer_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 Agency Disclosure, Selling column: checkbox 'Assisting the Purchaser as a Transaction Facilitator.'"
+        },
+        {
+          "label": "buyer_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 Agency Disclosure, Selling column: checkbox 'A dual agent.'"
+        },
+        {
+          "label": "cash_buyer",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "This is the 'FINANCED' Sales Contract; the whole instrument is premised on financing. There is no cash election checkbox."
+        },
+        {
+          "label": "financing_buyer",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'This contract is contingent upon Purchaser obtaining approval of a (i.e. Conventional, FHA, VA) ____ loan' \u2014 the financing/new-mortgage concept is the loan-type write-in line, not a checkbox."
+        },
+        {
+          "label": "conventional",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No dedicated Conventional checkbox. Loan type is one write-in: 'approval of a (i.e. Conventional, FHA, VA) ____ loan'. Covered by the loan write-in (loan_amount field)."
+        },
+        {
+          "label": "FHA",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No dedicated FHA checkbox; FHA is only a parenthetical example in the single 'approval of a ___ loan' write-in. (Section 6 FHA LOAN is descriptive prose with no checkbox.) Covered by the loan write-in."
+        },
+        {
+          "label": "VA",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No dedicated VA checkbox; VA is only a parenthetical example in the single 'approval of a ___ loan' write-in. (Section 6 VA LOAN is descriptive prose with no checkbox.) Covered by the loan write-in."
+        },
+        {
+          "label": "other_financing",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No 'other financing' checkbox. Any loan type is entered on the single 'approval of a ___ loan' write-in line. Covered by the loan write-in."
+        },
+        {
+          "label": "appraisal_contingency_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No appraisal-contingency election. Appraisal is only mentioned descriptively in section 6 CONVENTIONAL LOAN (lender uses appraisal to set max mortgage); no IS/IS-NOT checkbox."
+        },
+        {
+          "label": "appraisal_contingency_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No appraisal-contingency IS-NOT checkbox on this form (no appraisal election exists at all)."
+        },
+        {
+          "label": "seller_concession_yes",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(b): 'The Seller Concession, if available, is [checkbox] is not [checkbox] to be credited toward buyer broker compensation' \u2014 an IS/IS-NOT concession election pair."
+        },
+        {
+          "label": "Buyer_broker_comp_checkbox",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(a): leading checkbox 'BUYER BROKER COMPENSATION (Optional)' electing the buyer-broker-comp paragraph."
+        },
+        {
+          "label": "buyer_sale_contingency_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No buyer sale-of-property contingency on this form."
+        },
+        {
+          "label": "buyer_sale_contingency_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No buyer sale-of-property contingency election on this form."
+        },
+        {
+          "label": "warranty_does",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no does-furnish election."
+        },
+        {
+          "label": "warranty_does_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no does-not-furnish election."
+        },
+        {
+          "label": "warranty_paid_by_seller",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no warranty-paid-by-seller election."
+        },
+        {
+          "label": "warranty_paid_by_buyer",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no warranty-paid-by-buyer election."
+        },
+        {
+          "label": "paint_attached_yes",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No yes/no checkbox for whether a lead-paint disclosure is attached. Section 4(b) states the EPA/HUD Seller's Disclosure 'is required by Federal law to be attached' (pre-printed), with day-count write-ins and a removal-of-contingency initial line \u2014 no attached yes/no checkbox."
+        },
+        {
+          "label": "paint_attached_no",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No 'lead-paint disclosure attached: no' checkbox; attachment is mandated as pre-printed text in 4(b), not an election."
+        },
+        {
+          "label": "survey_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No survey-contingency election. Page 1 item 2(d) SURVEY is recommendation prose ('recommended that ... a new survey be obtained'); no IS/IS-NOT checkbox."
+        },
+        {
+          "label": "survey_is_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No survey-contingency IS-NOT checkbox; survey is descriptive only on this form."
+        },
+        {
+          "label": "contingent_upon_inspection_and_repairs",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No three-way inspection election. Section 4(d) offers only a binary 'Purchaser Does / Does Not require property inspections' (with an attached Inspection Addendum) \u2014 no 'contingent with repairs' option."
+        },
+        {
+          "label": "contingent_upon_inspection_no_repair",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No 'contingent, no repair' inspection option. The only inspection election here is Does/Does Not in 4(d)."
+        },
+        {
+          "label": "not_contingent_upon_inspection",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No as-is 'not contingent upon inspection' checkbox. The Does/Does Not election in 4(d) covers requiring inspections, but 'Does Not require inspections' is not phrased as an as-is/non-contingent term equivalent to FORM 300's option, so the specific sub-concept has no dedicated element. (Nearest: 4(d) 'Does Not' checkbox.)"
+        },
+        {
+          "label": "buyer_title_expense",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(f): title-insurance premium 'will be divided equally between the Seller and Purchaser' \u2014 pre-printed split, no payer election."
+        },
+        {
+          "label": "seller_title_expense",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(f): title cost is pre-printed as divided equally; no seller-pays election checkbox."
+        },
+        {
+          "label": "title_split",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 item 2(f): the equal split is the pre-printed default ('divided equally between the Seller and Purchaser'); there is no checkbox to elect a split \u2014 it is fixed, so no fillable element."
+        },
+        {
+          "label": "property_state",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'State ______' blank line in the address row (not prefilled; though the form is Alabama-specific, the state line is a fillable blank)."
+        },
+        {
+          "label": "acceptance_binding_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'CONFIRMATION DATE ... the date to begin contract performance is: Date: __________' \u2014 the binding/confirmation date blank."
+        },
+        {
+          "label": "earnest_money_holder",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Earnest money held by Selling Company (working with Purchaser) or ________, herein called the \"Holder\"' \u2014 write-in line for an alternate holder."
+        },
+        {
+          "label": "loan_type_usda",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No USDA option. The loan-type write-in only lists 'i.e. Conventional, FHA, VA' as examples; no USDA checkbox or dedicated element."
+        },
+        {
+          "label": "included_fixtures",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No free-text included-fixtures/personal-property blank. Section 10 lists conveyed items as fixed pre-printed prose and directs extra items into a separate 'Personal Property Conveyance' form \u2014 no write-in line on this contract."
+        },
+        {
+          "label": "additional_provisions",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            4
+          ],
+          "evidence": "Page 4: 'ADDITIONAL PROVISIONS:' followed by ~19 blank write-in lines."
+        },
+        {
+          "label": "title_vesting_names",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No manner-of-taking-title/vesting-names blank. Section 8 addresses joint tenancy in prose; there is no fill-in for how the purchaser takes title."
+        },
+        {
+          "label": "time_to_respond_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 Counter-Offer item 2: 'This Counter-Offer shall expire unless a signed copy of acceptance is delivered ... by ____ a.m./p.m. on ____________(date)' \u2014 a response-deadline date blank (counter-offer expiration)."
+        },
+        {
+          "label": "time_to_respond_time",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 Counter-Offer item 2: '____ [check] a.m. [check] p.m.' \u2014 time-of-day blank plus a.m./p.m. checkboxes for the response deadline."
+        },
+        {
+          "label": "buyer1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'PURCHASER ________ DATE' signature line (first of three purchaser signature rows)."
+        },
+        {
+          "label": "buyer1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'DATE' blank adjacent to the first PURCHASER signature line."
+        },
+        {
+          "label": "buyer1_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Page 5 purchaser signature blocks have signature + DATE only; no separate printed-name line under the purchaser signature."
+        },
+        {
+          "label": "buyer2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: a second 'PURCHASER ________ DATE' signature line (three purchaser rows provided)."
+        },
+        {
+          "label": "buyer2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'DATE' blank adjacent to the second PURCHASER signature line."
+        },
+        {
+          "label": "buyer2_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Page 5: no printed-name line for the second purchaser; signature + DATE only."
+        },
+        {
+          "label": "seller1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'SELLER ________ DATE' signature line (first of three seller signature rows)."
+        },
+        {
+          "label": "seller1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'DATE' blank adjacent to the first SELLER signature line."
+        },
+        {
+          "label": "seller1_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Page 5: no printed-name line for the seller; signature + DATE only."
+        },
+        {
+          "label": "seller2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: a second 'SELLER ________ DATE' signature line (three seller rows provided)."
+        },
+        {
+          "label": "seller2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'DATE' blank adjacent to the second SELLER signature line."
+        },
+        {
+          "label": "seller2_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Page 5: no printed-name line for the second seller; signature + DATE only."
+        },
+        {
+          "label": "buyer_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6: 'SELLING BROKERAGE ________' blank (the buyer-side / selling brokerage in Alabama parlance)."
+        },
+        {
+          "label": "listing_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6: 'LISTING BROKERAGE ________' blank line."
+        }
+      ]
+    },
+    {
+      "form": "valleymls_financed",
+      "reviewer": 2,
+      "gt": [
+        {
+          "label": "buyer_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'The undersigned Purchaser(s) ____' blank line."
+        },
+        {
+          "label": "seller_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'the undersigned Seller(s) ____' blank line."
+        },
+        {
+          "label": "effective_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No dedicated offer/effective-date blank. Dates on the form are closing (2g), possession (2g), signature dates (p5), and the Confirmation/binding date (p5) \u2014 covered by acceptance_binding_date, not a separate effective date."
+        },
+        {
+          "label": "property_address",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Address ____ City ____ County ____ State ___ Zip ____' line."
+        },
+        {
+          "label": "property_city",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'City ____' blank on the address line."
+        },
+        {
+          "label": "property_county",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'County ____' blank on the address line."
+        },
+        {
+          "label": "property_zip",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Zip ____' blank on the address line."
+        },
+        {
+          "label": "legal_description",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1: 'Legal Description: ____' blank line."
+        },
+        {
+          "label": "ppin",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Page 1 has Lot/Block/Subdivision/Addition blanks but no parcel/PPIN field. No PPIN blank anywhere on the form."
+        },
+        {
+          "label": "mls_id",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6 AGENT/BROKERAGE INFORMATION: 'MLS ID' blanks under both listing and selling salesperson/brokerage."
+        },
+        {
+          "label": "purchase_price",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 1: 'TOTAL PURCHASE PRICE shall be ... $ ____'."
+        },
+        {
+          "label": "listing_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1,
+            6
+          ],
+          "evidence": "Page 1 para 3: 'The Listing Licensee is ____'; page 6 'LISTING SALESPERSON ____'."
+        },
+        {
+          "label": "buyer_agent",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1,
+            6
+          ],
+          "evidence": "Page 1 para 3: 'The Selling Licensee is: ____' (buyer-side licensee); page 6 'SELLING SALESPERSON ____'."
+        },
+        {
+          "label": "earnest_money_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 1: 'Earnest money held by Selling Company ... herein called the Holder. .. $ ____'."
+        },
+        {
+          "label": "loan_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 1: 'contingent upon Purchaser obtaining approval of a ... loan ... in the amount of ... $ ____'."
+        },
+        {
+          "label": "other_financing_description",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 1: single write-in line 'approval of a (i.e. Conventional, FHA, VA) ____ loan' \u2014 the loan-type description is captured by this one blank (not separate checkboxes)."
+        },
+        {
+          "label": "finance_contingency_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Page 1 para 1 has 'apply for said loan within ___ working days' \u2014 a day-count, not a contingency date. No finance-contingency calendar-date blank."
+        },
+        {
+          "label": "seller_concession_amount",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 2(b): 'Seller agrees to pay Purchaser a concession at closing in the amount of up to $____ (0 if left blank)'."
+        },
+        {
+          "label": "buyer_broker_comp_percentage",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 2(a): 'Seller agrees to pay to Buyer's Broker ___% of the gross sales price or $____'."
+        },
+        {
+          "label": "closing_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 2(g): 'The sale shall be closed, and the deed delivered on or before ____'."
+        },
+        {
+          "label": "possession_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 2(g): 'Possession is to be given ____'."
+        },
+        {
+          "label": "warranty_max_amount",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section on this form; no warranty cost-cap blank."
+        },
+        {
+          "label": "inspection_completion_date",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "Inspection timeframes are expressed as day-counts (lead-paint 'calendar day', wood-infestation '7 working days prior') \u2014 no inspection-completion calendar-date blank. Page 2 4(d) is a Does/Does Not election with no date."
+        },
+        {
+          "label": "warranty_deed_type",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 2(e): 'Seller(s) will convey ... a General Warranty deed' \u2014 deed type is pre-printed, no blank to fill."
+        },
+        {
+          "label": "listing_agent_of_seller",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 3 AGENCY DISCLOSURE, Listing Licensee column: checkbox 'An agent of the Seller.'"
+        },
+        {
+          "label": "listing_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 3, Listing Licensee column: checkbox 'Assisting the Seller as a Transaction Facilitator.'"
+        },
+        {
+          "label": "listing_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 3, Listing Licensee column: checkbox 'A dual agent.'"
+        },
+        {
+          "label": "buyer_agent_of_buyer",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 3, Selling Licensee column: checkbox 'An agent of the Purchaser.'"
+        },
+        {
+          "label": "buyer_transaction_facilitator",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 3, Selling Licensee column: checkbox 'Assisting the Purchaser as a Transaction Facilitator.'"
+        },
+        {
+          "label": "buyer_dual_agent",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 3, Selling Licensee column: checkbox 'A dual agent.'"
+        },
+        {
+          "label": "cash_buyer",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "This is a 'Financed Sales Contract' \u2014 no cash checkbox. Financing is one write-in line in para 1 ('approval of a (i.e. Conventional, FHA, VA) ___ loan'); no cash election exists."
+        },
+        {
+          "label": "financing_buyer",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No financing-vs-cash election checkbox. The whole form is financed; the loan is captured by the para 1 write-in 'approval of a ___ loan' (covered by other_financing_description / loan_amount)."
+        },
+        {
+          "label": "conventional",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No separate Conventional checkbox. Para 1 single write-in 'a (i.e. Conventional, FHA, VA) ____ loan' is where the loan type (incl. Conventional) is hand-written; other_financing_description covers it."
+        },
+        {
+          "label": "FHA",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No FHA checkbox. Loan type written into the para 1 blank 'a (i.e. Conventional, FHA, VA) ____ loan'; FHA only triggers an addendum reference, not a checkbox. Covered by other_financing_description."
+        },
+        {
+          "label": "VA",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No VA checkbox. Loan type written into the para 1 blank 'a (i.e. Conventional, FHA, VA) ____ loan'. Covered by other_financing_description."
+        },
+        {
+          "label": "other_financing",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No 'other financing' checkbox. The para 1 write-in 'a ____ loan' is open-ended and accepts any loan type; captured by other_financing_description."
+        },
+        {
+          "label": "appraisal_contingency_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No appraisal-contingency election. Para 6 CONVENTIONAL LOAN only notes the lender uses an appraisal; no IS/IS NOT checkbox."
+        },
+        {
+          "label": "appraisal_contingency_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No appraisal-contingency IS-NOT checkbox anywhere on the form."
+        },
+        {
+          "label": "seller_concession_yes",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No 'concession elected' checkbox; the concession is just the $___ amount in 2(b). The only checkboxes there ('is \u2610 is not \u2610 to be credited toward buyer broker compensation') concern crediting the concession to broker comp, not electing a concession."
+        },
+        {
+          "label": "Buyer_broker_comp_checkbox",
+          "exists": true,
+          "form": "checkbox",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 2(a): checkbox '\u2610 BUYER BROKER COMPENSATION (Optional)' electing the buyer-broker-comp section."
+        },
+        {
+          "label": "buyer_sale_contingency_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No buyer's sale-of-property contingency on this form."
+        },
+        {
+          "label": "buyer_sale_contingency_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No buyer's sale-of-property contingency IS-NOT checkbox on this form."
+        },
+        {
+          "label": "warranty_does",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no 'does furnish' checkbox."
+        },
+        {
+          "label": "warranty_does_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no 'does not furnish' checkbox."
+        },
+        {
+          "label": "warranty_paid_by_seller",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no warranty-paid-by-seller checkbox."
+        },
+        {
+          "label": "warranty_paid_by_buyer",
+          "exists": false,
+          "form": "absent",
+          "pages": [],
+          "evidence": "No home-warranty section; no warranty-paid-by-buyer checkbox."
+        },
+        {
+          "label": "paint_attached_yes",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 4(b): the EPA/HUD Seller's Disclosure 'is required by Federal law to be attached' (pre-printed statement) with a 'removes this contingency' line \u2014 no yes/no 'attached' checkbox."
+        },
+        {
+          "label": "paint_attached_no",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 4(b): lead-based-paint disclosure attachment is stated as mandatory; there is no 'attached: no' checkbox."
+        },
+        {
+          "label": "survey_is",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 2(d) SURVEY is narrative-only ('recommended that ... a new survey be obtained'); no IS contingency checkbox."
+        },
+        {
+          "label": "survey_is_not",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 2(d) SURVEY narrative; no IS-NOT contingency checkbox."
+        },
+        {
+          "label": "contingent_upon_inspection_and_repairs",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 4(d) inspection election is only 'Purchaser \u2610 Does \u2610 Does Not require property inspections' \u2014 no 'contingent upon inspection AND repairs' option."
+        },
+        {
+          "label": "contingent_upon_inspection_no_repair",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 4(d) offers only Does/Does Not require inspections; no 'inspection, no repair' three-way option."
+        },
+        {
+          "label": "not_contingent_upon_inspection",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            2
+          ],
+          "evidence": "Page 2 4(d) has a 'Does Not require property inspections' checkbox, but that is the inspection-required election, not the FORM-300 'not contingent (as-is)' option in a three-way set. No dedicated as-is/not-contingent checkbox of that concept exists."
+        },
+        {
+          "label": "buyer_title_expense",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 2(f) TITLE INSURANCE: premium/binder fee 'will be divided equally between the Seller and Purchaser' \u2014 pre-printed split, no payer checkbox."
+        },
+        {
+          "label": "seller_title_expense",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 2(f): title premium divided equally (pre-printed); no seller-pays-title checkbox."
+        },
+        {
+          "label": "title_split",
+          "exists": false,
+          "form": "prefilled",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 2(f): 'divided equally between the Seller and Purchaser' is pre-printed text, not an electable split checkbox."
+        },
+        {
+          "label": "property_state",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 address line: 'State ___' \u2014 a blank to fill, NOT prefilled."
+        },
+        {
+          "label": "acceptance_binding_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 CONFIRMATION DATE: 'Date: ____ Confirmation Date' \u2014 the date contract performance begins (binding/confirmation date)."
+        },
+        {
+          "label": "earnest_money_holder",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "Page 1 para 1: 'Earnest money held by Selling Company (working with Purchaser) or ____, herein called the Holder'."
+        },
+        {
+          "label": "loan_type_usda",
+          "exists": false,
+          "form": "write_in",
+          "pages": [
+            1
+          ],
+          "evidence": "No USDA checkbox. Any loan type is hand-written into the para 1 blank 'a (i.e. Conventional, FHA, VA) ____ loan'; covered by other_financing_description."
+        },
+        {
+          "label": "included_fixtures",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            3
+          ],
+          "evidence": "Page 3 para 10 lists conveyed systems/fixtures as pre-printed text and refers any extra items to a separate 'Personal Property Conveyance' \u2014 there is no free-text fixtures blank on this form."
+        },
+        {
+          "label": "additional_provisions",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            4
+          ],
+          "evidence": "Page 4 'ADDITIONAL PROVISIONS:' followed by ~19 blank write-in lines."
+        },
+        {
+          "label": "title_vesting_names",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            3
+          ],
+          "evidence": "Page 3 para 8 LEGAL NOTICE discusses joint-tenancy/tenancy-in-common but provides no manner-of-taking-title / vesting-names blank."
+        },
+        {
+          "label": "time_to_respond_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 counter-offer clause 2: 'This Counter-Offer shall expire unless a signed copy of acceptance is delivered ... on ____ (date)'."
+        },
+        {
+          "label": "time_to_respond_time",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 counter-offer clause 2: 'by ____ \u2610 a.m. \u2610 p.m. on ____ (date)' \u2014 time-of-day blank plus a.m./p.m. checkboxes."
+        },
+        {
+          "label": "buyer1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'PURCHASER ____ DATE' signature lines (three purchaser lines)."
+        },
+        {
+          "label": "buyer1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'PURCHASER ____ DATE' \u2014 DATE blank next to each purchaser signature."
+        },
+        {
+          "label": "buyer1_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 purchaser block has only signature + DATE (and a WITNESS line); no separate printed-name blank."
+        },
+        {
+          "label": "buyer2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 provides three 'PURCHASER ____ DATE' signature lines, accommodating a second purchaser."
+        },
+        {
+          "label": "buyer2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: each of the three PURCHASER lines has its own DATE blank, covering a second buyer."
+        },
+        {
+          "label": "buyer2_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 purchaser signature lines have no separate printed-name blank."
+        },
+        {
+          "label": "seller1_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'SELLER ____ DATE' signature lines (three seller lines)."
+        },
+        {
+          "label": "seller1_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: 'SELLER ____ DATE' \u2014 DATE blank next to each seller signature."
+        },
+        {
+          "label": "seller1_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 seller block has only signature + DATE (and WITNESS line); no separate printed-name blank."
+        },
+        {
+          "label": "seller2_signature",
+          "exists": true,
+          "form": "signature",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 provides three 'SELLER ____ DATE' signature lines, accommodating a second seller."
+        },
+        {
+          "label": "seller2_signature_date",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5: each of the three SELLER lines has its own DATE blank, covering a second seller."
+        },
+        {
+          "label": "seller2_print_name",
+          "exists": false,
+          "form": "absent",
+          "pages": [
+            5
+          ],
+          "evidence": "Page 5 seller signature lines have no separate printed-name blank."
+        },
+        {
+          "label": "buyer_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6: 'SELLING BROKERAGE ____' (the buyer-side/selling brokerage) blank."
+        },
+        {
+          "label": "listing_brokerage_name",
+          "exists": true,
+          "form": "write_in",
+          "pages": [
+            6
+          ],
+          "evidence": "Page 6: 'LISTING BROKERAGE ____' blank."
+        }
+      ]
+    }
+  ],
+  "placement": [
+    {
+      "form": "baldwin_br",
+      "page": 1,
+      "boxes": [
+        {
+          "label": "buyer_name",
+          "verdict": "near",
+          "signerOk": true,
+          "note": "On the 'Buyer (Print or type):' blank but shifted right ~1/4 of the field; left start of the blank is uncovered. Correct line, correct buyer party."
+        },
+        {
+          "label": "seller_name",
+          "verdict": "near",
+          "signerOk": true,
+          "note": "On the 'Seller (Print or type):' blank, offset right like buyer_name. Correct seller line."
+        },
+        {
+          "label": "effective_date",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Sits on the blank after 'DATE OF OFFER:'. Correct."
+        },
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'Property located at:' blank line. Correct target for the street/property address."
+        },
+        {
+          "label": "property_city",
+          "verdict": "wrong_field",
+          "signerOk": null,
+          "note": "Box is one row too high \u2014 it sits on the 'Address:' blank, not the 'City:' blank directly below it. Landed on a different field's line."
+        },
+        {
+          "label": "property_zip",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Lower edge of the box lands on the 'Zip:' blank (right side of the City row); box extends slightly upward but covers the Zip blank. Only Zip target on the page."
+        },
+        {
+          "label": "legal_description",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Box hovers in the City/'Alabama' row gap, above the actual 'Legal Description:' blank (where the sample 'asbdnfkel;ew' sits one row lower). Right page, wrong blank."
+        },
+        {
+          "label": "ppin",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'PPIN' line, covering the blank to the right of the PPIN label (sample '123456')."
+        },
+        {
+          "label": "listing_agent",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the blank after 'Listing Licensee,' in the RECAD agency-disclosure section. Correct."
+        },
+        {
+          "label": "buyer_agent",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the blank after 'Selling Licensee,' (right column of RECAD). Correct line for the selling/buyer-side agent name."
+        },
+        {
+          "label": "listing_agent_of_seller",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Left-column top checkbox, 'An agent of the Seller'. Correct box, correct listing/seller-side column."
+        },
+        {
+          "label": "listing_transaction_facilitator",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Left-column bottom checkbox, 'Assisting the Seller as a transaction facilitator'. Correct."
+        },
+        {
+          "label": "listing_dual_agent",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Left-column middle checkbox, 'A dual agent.' (Seller side). Correct."
+        },
+        {
+          "label": "buyer_agent_of_buyer",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Right-column top checkbox, 'An agent of the Buyer'. Correct box, correct buyer-side column."
+        },
+        {
+          "label": "buyer_transaction_facilitator",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Right-column bottom checkbox, 'Assisting the Buyer as a transaction facilitator'. Correct."
+        },
+        {
+          "label": "buyer_dual_agent",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Right-column middle checkbox, 'A dual agent' (Buyer side). Correct."
+        },
+        {
+          "label": "acceptance_binding_date",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the blank after 'ACCEPTANCE DATE:'. Correct."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 2,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box sits on the 'Property Address ____' fill line at the top of page 2. Correct blank."
+        },
+        {
+          "label": "legal_description",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'see attached Exhibit ____' reference blank (the metes-and-bounds / legal description Exhibit line). Top edge aligns with the fill line."
+        },
+        {
+          "label": "purchase_price",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the numeric purchase-price blank '($ ____ )' in the Purchase Price section. Correct."
+        },
+        {
+          "label": "loan_amount",
+          "verdict": "near",
+          "signerOk": null,
+          "note": "Right target: the 'in the approximate amount of $ ____' loan-amount blank. Box top edge aligns with the $ fill line but body sags down ~one line onto 'INTEREST RATE NOT TO'. Horizontally correct."
+        },
+        {
+          "label": "other_financing_description",
+          "verdict": "wrong_field",
+          "signerOk": null,
+          "note": "Should sit on the 'Other ____' financing-description line. Instead drawn one line below on the '____ % of the Purchase Price' percentage blank \u2014 a different field."
+        },
+        {
+          "label": "finance_contingency_date",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The contingency blank is 'within ____ Business days'. Box is dropped ~one line below onto empty space / 'Loan pre-qualification' text, not on the days fill line."
+        },
+        {
+          "label": "cash_buyer",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed 'A. [ ] CASH' checkbox is one line UP. Box is shifted down onto 'Deed/Warranty Bill' text, not on the CASH checkbox."
+        },
+        {
+          "label": "financing_buyer",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed 'B. [ ] NEW MORTGAGE' checkbox is one line UP. Box is shifted down onto 'Warranty Deed/Warranty' text, not on the NEW MORTGAGE checkbox."
+        },
+        {
+          "label": "conventional",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed '[ ] Conventional' checkbox is on the 'year mortgage' line above. Box dropped ~1.5 lines down onto the word 'approximate'. Not on the checkbox."
+        },
+        {
+          "label": "FHA",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed '[ ] FHA' checkbox is on the mortgage line above. Box dropped down onto 'amount of $' on the next line. Not on the FHA checkbox."
+        },
+        {
+          "label": "VA",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed '[ ] VA' checkbox is on the mortgage line above. Box dropped down onto the loan-amount fill line. Not on the VA checkbox."
+        },
+        {
+          "label": "other_financing",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed '[ ] Other' checkbox is on the 'Bank Loan / Other' line above. Box dropped one line down onto 'amount equal to ____'. Not on the Other checkbox."
+        },
+        {
+          "label": "appraisal_contingency_is",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed 'This offer [ ] is' checkbox is one line up. Box shifted down onto 'the Purchase Price' text. Not on the 'is' checkbox."
+        },
+        {
+          "label": "appraisal_contingency_not",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed '[ ] is not' checkbox is one line up. Box shifted down onto blank space after 'Price.'. Not on the 'is not' checkbox."
+        },
+        {
+          "label": "loan_type_usda",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Printed '[ ] USDA' checkbox is on the line above. Box dropped one line down onto 'or in the amount...' text. Not on the USDA checkbox."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 3,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box sits on the long blank line directly after 'PROPERTY ADDRESS:' at the top of the page. Correct fillable blank."
+        },
+        {
+          "label": "buyer_broker_comp_percentage",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box covers the blank underline immediately before '% of the gross purchase price at the time of closing' under section 4 compensation. Correct blank."
+        },
+        {
+          "label": "Buyer_broker_comp_checkbox",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Blue checkbox box lands on the first printed checkbox square (the option for '___% of the gross purchase price'). Correct checkbox."
+        },
+        {
+          "label": "included_fixtures",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Top of box sits on the write-in blank under '...shall convey to Buyer unless specifically itemized below:'. The box is tall (h=32) and overshoots down onto the printed 'No item of personal property...paragraph 5 above:' line, but its top covers the correct itemize-below write-in space."
+        },
+        {
+          "label": "additional_provisions",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Box is drawn over the printed closing sentence of paragraph 5 ('Personal property listed herein...shall be conveyed at no value for appraisal purposes.') and runs into the bold 'SALE/SETTLEMENT OR LEASE OF OTHER REAL ESTATE:' section-6 heading. There is no 'additional provisions' write-in blank at this spot on page 3 (the real additional_provisions field is the large write-in area on page 13). Right page, wrong location, on printed text."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 4,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box (form x125-547, y36-53) sits directly on the 'PROPERTY ADDRESS:' blank underline, which runs x127-566 at y~39. Left edge and the line start coincide; box covers the writing area on the line. Correctly placed."
+        },
+        {
+          "label": "contingent_upon_inspection_and_repairs",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Correct field conceptually (the 'is' contingent checkbox on the inspection line), but the box (x244-261) lands on body prose text ('...decision to...'), not on the checkbox. The actual 'is' checkbox is at x~380-394 \u2014 about 135 form-units to the right. Box is on the right page/line but off the real checkbox."
+        },
+        {
+          "label": "not_contingent_upon_inspection",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Correct field conceptually (the 'is not' checkbox), but the box (x296-313) sits on body prose text ('purchase'/'diligen'), not the checkbox. The actual 'is not' checkbox is at x~417-431 \u2014 about 120 form-units to the right. On the right line but off the real checkbox."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 5,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Red box covers the blank line after 'PROPERTY ADDRESS:' at the top of the page. Box is slightly tall but clearly on the correct address blank."
+        },
+        {
+          "label": "warranty_paid_by_seller",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The real '[ ] Seller' checkbox is in the line 'cost of such repairs will be paid by [ ] Seller [ ] Buyer (Seller if left blank)'. The located box landed one full text line BELOW that, on the body words 'repairs', not on any checkbox."
+        },
+        {
+          "label": "warranty_paid_by_buyer",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Same line as paid_by_seller. The real '[ ] Buyer' checkbox is one line up; the box landed below it on the body text ('I have'), not on the Buyer checkbox."
+        },
+        {
+          "label": "warranty_does",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Section 11 'Seller [ ] does [ ] does not (does if left blank) warrant' \u2014 the real 'does' checkbox is in the header line. Box landed one line below on the body word 'shall', not on the checkbox."
+        },
+        {
+          "label": "warranty_does_not",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Section 11 'does not' checkbox is in the header line; box landed one line below on the body word 'proper', not on the checkbox."
+        },
+        {
+          "label": "warranty_max_amount",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The dollar blank is on the line 'at a cost not to exceed $ ___ ($600 if left blank)'. The box landed one line below on the words 'of Home' in 'responsible for selection of Home Warranty company', not on the $ blank."
+        },
+        {
+          "label": "paint_attached_yes",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Section 13 lead-paint disclosure 'This property [ ] was [ ] was not built prior to 1978'. Box sits squarely on the '[ ] was' checkbox."
+        },
+        {
+          "label": "paint_attached_no",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box sits squarely on the '[ ] was not' checkbox in the section 13 lead-paint line. Correct checkbox for the 'no/was not' choice."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 6,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box sits on the blank line to the right of the 'PROPERTY ADDRESS:' label at the page header; top edge aligns with the printed underline. Correct property-address fill line."
+        },
+        {
+          "label": "title_vesting_names",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Section 14 TITLE INSURANCE/CONVEYANCE. Box overlays the blank line after 'Title is to be taken in the name(s) of ____'. Sits a hair below the printed line but clearly on the correct vesting-names blank."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 7,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Sits squarely on the 'PROPERTY ADDRESS: ___' blank at the top of the page. Correct line."
+        },
+        {
+          "label": "closing_date",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The actual closing-date blank is the underscore line after 'delivered on ____, or'. The box is placed a full line below that, straddling the bold printed prose 'essence with respect to' (in 'Time is of the essence...'). It is on the right page but not on the blank."
+        },
+        {
+          "label": "possession_date",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Box lands on the printed body words 'to remain' (in '...if Seller is to remain in possession after Closing'), which is prose, not a fill-in. The possession blanks ('___ days if left blank', '___ AM/PM') are above. No blank under the box."
+        },
+        {
+          "label": "survey_is",
+          "verdict": "near",
+          "signerOk": null,
+          "note": "Correct target is the printed checkbox before 'This agreement IS contingent upon Buyer obtaining a new survey'. Box is offset down by roughly one line; its top edge still clips the bottom of the printed checkbox but the center sits on the 'expense that' line."
+        },
+        {
+          "label": "survey_is_not",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Correct target is the printed checkbox before 'This agreement IS NOT contingent...'. Box is shifted a full line down onto the 'opportunity to obtain a new survey' text line; the printed checkbox sits entirely above the box with no overlap."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 8,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Red box sits on the PROPERTY ADDRESS: blank line at the top of the page; the underline runs through the box. Correct target."
+        },
+        {
+          "label": "time_to_respond_date",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The correct blank is the underscored line right after 'until (Date):' at the top of section 23 (where the label text is printed). But the actual red box rectangle is drawn one text-line lower, over the running body words 'is offer and agrees'. The box does not sit on the date blank \u2014 it landed on body text. Off by a full line."
+        },
+        {
+          "label": "time_to_respond_time",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The correct blank is the underscored line right after '(Time)' (before the AM checkbox) in section 23. The blue box is drawn one text-line below that, over body text 'when signed by' / 'binding Agreement'. Same one-line downward offset as the date box; not on the time blank."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 9,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "RED box sits on the wide blank line directly under/beside the 'PROPERTY ADDRESS:' header at top of page. Correct property-address fill-in line."
+        },
+        {
+          "label": "earnest_money_amount",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "RED box in Section 25 sits on the blank immediately after the '$' in 'Buyer agrees to provide $______ as Earnest Money'. Correct earnest-money amount blank."
+        },
+        {
+          "label": "earnest_money_holder",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Small BLUE box lands on the word 'Holder' in the descriptive parenthetical '(herein referred to as Holder)' \u2014 not a fillable field. The actual earnest-money holder is selected via the three checkboxes (Buyer's Broker / Title Company / Listing Broker), and the box is on none of them. Right page/section but wrong target (descriptive text, not the holder checkboxes)."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 10,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "RED box sits on the running 'PROPERTY ADDRESS:' header line at the top of page 10, covering the fill blank after the printed label. Correct field."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 11,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Single box on this page. Red box sits on the blank line immediately right of the 'PROPERTY ADDRESS' label at the top of page 11 \u2014 the correct property-address fill-in line. Box height/position align with the printed underline."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 12,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box sits on the printed 'PROPERTY ADDRESS:' blank line at the top of page 12, starting just after the label and spanning the underline. Minor vertical offset (box extends slightly below the printed underline) but squarely on the correct fillable blank. Only one box drawn on this page; only one foundPage=12 entry in located.json."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 13,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box sits on the PROPERTY ADDRESS blank line at top of page; correct field."
+        },
+        {
+          "label": "listing_brokerage_name",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'LISTING BROKERAGE: COMPANY NAME:' blank; correct."
+        },
+        {
+          "label": "listing_agent",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the SALES ASSOCIATE NAME line under the LISTING BROKERAGE block; correct listing-side associate blank."
+        },
+        {
+          "label": "buyer_brokerage_name",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'SELLING COMPANY: COMPANY NAME:' blank (selling company = buyer's brokerage); correct."
+        },
+        {
+          "label": "buyer_agent",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the SALES ASSOCIATE NAME line under the SELLING COMPANY block; correct buyer-side associate blank."
+        },
+        {
+          "label": "buyer1_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Top edge on the first BUYER signature line (rectangle bottom ~y320), extends into gap; correct buyer-1 signature blank."
+        },
+        {
+          "label": "buyer1_signature_date",
+          "verdict": "near",
+          "signerOk": true,
+          "note": "Directly under the first DATE: blank but dropped a small amount below the underline; correct field, minor offset."
+        },
+        {
+          "label": "buyer1_print_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Top edge on the first 'Print Name:' line below BUYER #1; correct."
+        },
+        {
+          "label": "buyer2_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Top edge on the second BUYER signature line (~y377); correct buyer-2 signature blank."
+        },
+        {
+          "label": "buyer2_signature_date",
+          "verdict": "near",
+          "signerOk": true,
+          "note": "Under the second DATE: blank, dropped slightly below the underline; correct field, minor offset."
+        },
+        {
+          "label": "buyer2_print_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Top edge on the second 'Print Name:' line below BUYER #2; correct."
+        },
+        {
+          "label": "time_to_respond_date",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Counteroffer 'shall expire on: DATE:' blank is on the line above; box sits a full line below it inside the top of the provisions area, on empty space."
+        },
+        {
+          "label": "time_to_respond_time",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Counteroffer TIME: blank is on the line above; box dropped a full line below onto empty space, not on the TIME underline."
+        },
+        {
+          "label": "additional_provisions",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Large box covers the blank multi-line provisions/counteroffer write-in area; correct."
+        },
+        {
+          "label": "seller1_signature",
+          "verdict": "misplaced",
+          "signerOk": true,
+          "note": "Seller block shifted down a full line: box centers on the first 'Print Name:' line (~y643), not on the seller-1 signature line (~y617). On seller side but wrong blank."
+        },
+        {
+          "label": "seller1_signature_date",
+          "verdict": "misplaced",
+          "signerOk": true,
+          "note": "Seller-1 DATE: blank is on the ~y617 line; box sits far below in empty space under the print-name line. Wrong blank."
+        },
+        {
+          "label": "seller1_print_name",
+          "verdict": "misplaced",
+          "signerOk": true,
+          "note": "Box lands on the SECOND seller signature line (~y673), not the first 'Print Name:' line (~y643). Shifted down one line onto wrong blank."
+        },
+        {
+          "label": "seller2_signature",
+          "verdict": "misplaced",
+          "signerOk": true,
+          "note": "Box centers on the second 'Print Name:' line (~y705), not the seller-2 signature line (~y673). One line low, wrong blank."
+        },
+        {
+          "label": "seller2_signature_date",
+          "verdict": "misplaced",
+          "signerOk": true,
+          "note": "Seller-2 DATE: blank is on the ~y673 line; box dropped well below into empty space near the second print-name line. Wrong blank."
+        },
+        {
+          "label": "seller2_print_name",
+          "verdict": "misplaced",
+          "signerOk": true,
+          "note": "Box sits below the second 'Print Name:' line (~y705), down toward the SELLER(S)/BUYER(S) INITIALS row. One line low, wrong blank."
+        }
+      ]
+    },
+    {
+      "form": "baldwin_br",
+      "page": 14,
+      "boxes": [
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Red box sits on the PROPERTY ADDRESS line at top of page; correct blank."
+        },
+        {
+          "label": "time_to_respond_date",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the DATE: ____ blank after 'it shall expire on:' in BUYER'S ACCEPTANCE block. Correct."
+        },
+        {
+          "label": "time_to_respond_time",
+          "verdict": "near",
+          "signerOk": null,
+          "note": "Centered on the TIME: ____ blank in the expire-on line but bleeds slightly onto the adjacent AM checkbox; right field, small offset."
+        },
+        {
+          "label": "buyer1_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the first 'BUYER ____' signature line; correct buyer party."
+        },
+        {
+          "label": "buyer1_signature_date",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the DATE: ____ blank beside the buyer1 signature; correct."
+        },
+        {
+          "label": "buyer1_print_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the 'Print Name' blank under buyer1; correct buyer line."
+        },
+        {
+          "label": "buyer2_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the second 'BUYER ____' signature line; correct buyer party."
+        },
+        {
+          "label": "buyer2_signature_date",
+          "verdict": "near",
+          "signerOk": true,
+          "note": "Small box at far left anchored on the 'DATE:' label of the buyer2 DATE/Print Name row; correct buyer party, blank is short/ambiguous so slightly offset."
+        },
+        {
+          "label": "buyer2_print_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the 'Print Name' blank on the buyer2 row; correct buyer line."
+        },
+        {
+          "label": "seller1_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the first 'SELLER ____' signature line; correct seller party."
+        },
+        {
+          "label": "seller1_signature_date",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the DATE: ____ blank beside seller1 signature; correct."
+        },
+        {
+          "label": "seller1_print_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Top edge anchored on the seller1 'Print Name:' line (box draws tall but origin is the correct line); correct seller party."
+        },
+        {
+          "label": "seller2_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the second 'SELLER ____' signature line; correct seller party."
+        },
+        {
+          "label": "seller2_signature_date",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the DATE: ____ blank beside seller2 signature; correct."
+        },
+        {
+          "label": "seller2_print_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Anchored on the seller2 'Print Name:' line; correct seller party."
+        }
+      ]
+    },
+    {
+      "form": "valleymls_financed",
+      "page": 1,
+      "boxes": [
+        {
+          "label": "buyer_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the blank after 'The undersigned Purchaser(s)' \u2014 correct buyer line."
+        },
+        {
+          "label": "seller_name",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the 'undersigned Seller(s)' blank \u2014 correct seller line."
+        },
+        {
+          "label": "property_address",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'Address' blank."
+        },
+        {
+          "label": "property_city",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'City' blank."
+        },
+        {
+          "label": "property_county",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'County' blank; box droops slightly toward the Lot/Addition row below but anchored on the county fill line."
+        },
+        {
+          "label": "property_zip",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the blank after the printed 'Zip'."
+        },
+        {
+          "label": "legal_description",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'Legal Description:' blank."
+        },
+        {
+          "label": "purchase_price",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the '$ ___' blank at end of '1. TOTAL PURCHASE PRICE shall be'."
+        },
+        {
+          "label": "listing_agent",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the name blank after 'The Listing Licensee is' \u2014 correct (listing/seller agent side)."
+        },
+        {
+          "label": "buyer_agent",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the name blank after 'The Selling Licensee is:' \u2014 the buyer's agent side, correct."
+        },
+        {
+          "label": "earnest_money_amount",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the '$ ___' earnest-money blank on the 'Holder' line."
+        },
+        {
+          "label": "loan_amount",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the '$ ___' blank of '(Excluding any financed closing costs) in the amount of'."
+        },
+        {
+          "label": "other_financing_description",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the blank after '(i.e. Conventional, FHA, VA)' and before 'loan' \u2014 the loan-type fill blank."
+        },
+        {
+          "label": "seller_concession_amount",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Box sits to the RIGHT of the '$ ___' concession blank, covering printed text '(or if left blank)' and drooping onto 'Conventional requirements'; the writable blank is to its left."
+        },
+        {
+          "label": "buyer_broker_comp_percentage",
+          "verdict": "wrong_field",
+          "signerOk": null,
+          "note": "Box is on the alternative '$ ___' dollar blank, not the '___%' percentage blank (which sits well to the left before '% of the gross sales price'). Label says percentage."
+        },
+        {
+          "label": "closing_date",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the blank after 'deed delivered on or before' in CLOSING AND POSSESSION."
+        },
+        {
+          "label": "possession_date",
+          "verdict": "near",
+          "signerOk": null,
+          "note": "Top of box catches the 'Possession is to be given ___' blank, but the box is oversized and droops a full line down onto the NOTE text 'it is recommended that the parties'."
+        },
+        {
+          "label": "listing_agent_of_seller",
+          "verdict": "near",
+          "signerOk": null,
+          "note": "On the first listing checkbox ('An agent of the Seller'), sitting slightly high but within a checkbox height."
+        },
+        {
+          "label": "listing_transaction_facilitator",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the third listing checkbox ('Assisting the Seller as a Transaction Facilitator')."
+        },
+        {
+          "label": "listing_dual_agent",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the second listing checkbox ('A dual agent')."
+        },
+        {
+          "label": "buyer_agent_of_buyer",
+          "verdict": "near",
+          "signerOk": null,
+          "note": "On the first buyer/selling-licensee checkbox ('An agent of the Purchaser'), slightly high but within a checkbox height."
+        },
+        {
+          "label": "buyer_transaction_facilitator",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the third buyer checkbox ('Assisting the Purchaser as a Transaction Facilitator')."
+        },
+        {
+          "label": "buyer_dual_agent",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the second buyer checkbox ('A dual agent')."
+        },
+        {
+          "label": "seller_concession_yes",
+          "verdict": "wrong_field",
+          "signerOk": null,
+          "note": "Box sits on the word 'not' between the two checkboxes ('is [] is not []'), off the YES/'is' checkbox; nearer the 'is not' option. Wrong checkbox for a 'yes' label."
+        },
+        {
+          "label": "Buyer_broker_comp_checkbox",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the checkbox preceding '(a) BUYER BROKER COMPENSATION'; box is a touch large but centered on the printed checkbox."
+        },
+        {
+          "label": "property_state",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the blank after the printed 'State'."
+        },
+        {
+          "label": "earnest_money_holder",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "On the 'Selling Company (working with Purchaser) or ___' holder-name blank."
+        }
+      ]
+    },
+    {
+      "form": "valleymls_financed",
+      "page": 2,
+      "boxes": [
+        {
+          "label": "warranty_does",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The printed checkbox for 'Does' sits on the line 'Purchaser [ ] Does [ ] Does Not require property inspection' (~yTop 302-308). The located box (xTop 276, yTop 310) is drawn a FULL line below that, landing on the next text line over the word 'attached.' / 'Purchaser agrees to indemnify Seller'. Offset is a full line height (>half a line), so it is no longer on the correct checkbox. Right page, wrong line. (Also note: the form line is an inspection-requirement choice, not a 'warranty' choice, so the label name is questionable too.)"
+        },
+        {
+          "label": "warranty_does_not",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Mirror of warranty_does. The printed 'Does Not' checkbox is on the upper line (~yTop 302-308); the located box (xTop 330, yTop 310) is drawn a full line below it, sitting over the word 'agree[s]' on the 'Purchaser agrees to indemnify' line. Full-line vertical offset means it misses the actual checkbox. Right page, wrong line."
+        }
+      ]
+    },
+    {
+      "form": "valleymls_financed",
+      "page": 4,
+      "boxes": [
+        {
+          "label": "additional_provisions",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Large RED text box (xTop=31,yTop=321,w=551,h=440) covers the full free-text write-in area beneath the 'ADDITIONAL PROVISIONS:' heading at the bottom of page 4. The box top edge sits right at/just above the heading line and spans the entire blank region below it down to the footer \u2014 the correct target for a large multi-line provisions blank. Only minor quibble: the top edge slightly overlaps the heading text rather than starting just below it, but it clearly covers the intended blank. Non-party field, signerOk null."
+        }
+      ]
+    },
+    {
+      "form": "valleymls_financed",
+      "page": 5,
+      "boxes": [
+        {
+          "label": "listing_agent",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Box sits on the blank line before '(Listing Agent)' in the acceptance sentence \u2014 correct listing-agent name blank. Box is vertically oversized and wraps down over the next body line ('Agreement Date below'), but the actual underscore blank is squarely inside it."
+        },
+        {
+          "label": "time_to_respond_date",
+          "verdict": "near",
+          "signerOk": null,
+          "note": "Targets the '______(date)' blank at the end of item 2 ('...by ___ a.m. \u2610 p.m. ___ (date)'). The box reaches the date underscore but is oversized \u2014 its left edge starts on body text after 'p.m.' and it bleeds downward onto item 3's text ('Counter-Offer, if any, together'). Right field, sloppy bounds."
+        },
+        {
+          "label": "time_to_respond_time",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Box is on the blank right after 'by' and before 'a.m.' in item 2 \u2014 the time-to-respond blank. Correct target."
+        },
+        {
+          "label": "buyer1_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the first PURCHASER signature line (top-right block). Correct party \u2014 buyer/purchaser line, not the SELLER block."
+        },
+        {
+          "label": "buyer1_signature_date",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Shares the same full-width box as buyer1_signature; covers the first PURCHASER line including the DATE column at right. Buyer party, correct line. Box is wide (spans signature + date together)."
+        },
+        {
+          "label": "buyer2_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the second PURCHASER signature line. Correct buyer-2 party spot in the purchaser block."
+        },
+        {
+          "label": "buyer2_signature_date",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Shares the box with buyer2_signature; covers second PURCHASER line incl. DATE column. Correct buyer party/line."
+        },
+        {
+          "label": "seller1_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the first SELLER signature line (lower block). Correct party \u2014 seller line, not the purchaser block."
+        },
+        {
+          "label": "seller1_signature_date",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Shares the box with seller1_signature; covers first SELLER line incl. DATE column. Correct seller party/line."
+        },
+        {
+          "label": "seller2_signature",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "On the second SELLER signature line. Correct seller-2 party spot."
+        },
+        {
+          "label": "seller2_signature_date",
+          "verdict": "on_field",
+          "signerOk": true,
+          "note": "Shares the box with seller2_signature; covers second SELLER line incl. DATE column. Correct seller party/line."
+        }
+      ]
+    },
+    {
+      "form": "valleymls_financed",
+      "page": 6,
+      "boxes": [
+        {
+          "label": "listing_agent",
+          "verdict": "near",
+          "signerOk": true,
+          "note": "Box anchored on the blank directly under LISTING SALESPERSON header (the listing salesperson name line) \u2014 correct field and correct (listing) party, but oversized, extending down into the PHONE row."
+        },
+        {
+          "label": "mls_id",
+          "verdict": "on_field",
+          "signerOk": null,
+          "note": "Sits on the blank line beneath the 'MLS ID / AL LICENSE #' labels in the LISTING BROKERAGE block \u2014 correct MLS ID line."
+        },
+        {
+          "label": "listing_brokerage_name",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "The LISTING BROKERAGE name blank is higher up (under the 'LISTING BROKERAGE' header). This box is dropped well below it, straddling the SELLING SALESPERSON header line \u2014 not on the listing brokerage blank."
+        },
+        {
+          "label": "buyer_agent",
+          "verdict": "misplaced",
+          "signerOk": false,
+          "note": "Buyer's agent = the SELLING SALESPERSON line, but this box is drawn in empty white space well below the entire SELLING block. Not on the buyer/selling agent blank."
+        },
+        {
+          "label": "buyer_brokerage_name",
+          "verdict": "misplaced",
+          "signerOk": null,
+          "note": "Buyer brokerage = the SELLING BROKERAGE name blank, but this box is placed far down in blank white space below the form body, not on any field."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2374 @@
+{
+  "form": "Baldwin BR Residential Purchase Agreement",
+  "key": "baldwin_br",
+  "pageCount": 14,
+  "expectedCount": 79,
+  "coreCount": 38,
+  "locatedTotal": 99,
+  "locatedDistinctLabels": 66,
+  "located": [
+    {
+      "label": "buyer_name",
+      "type": "text",
+      "tier": "core",
+      "role": "Buyer1",
+      "core_key": "buyer_name",
+      "foundPage": 1,
+      "xTop": 187,
+      "yTop": 113,
+      "width": 379,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "seller_name",
+      "type": "text",
+      "tier": "core",
+      "role": "Seller1",
+      "core_key": null,
+      "foundPage": 1,
+      "xTop": 187,
+      "yTop": 143,
+      "width": 379,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "effective_date",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "offer_date",
+      "foundPage": 1,
+      "xTop": 125,
+      "yTop": 87,
+      "width": 101,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 1,
+      "xTop": 107,
+      "yTop": 630,
+      "width": 453,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "property_city",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "city",
+      "foundPage": 1,
+      "xTop": 83,
+      "yTop": 653,
+      "width": 226,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "property_zip",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "zip",
+      "foundPage": 1,
+      "xTop": 438,
+      "yTop": 653,
+      "width": 122,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "legal_description",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "legal_description",
+      "foundPage": 1,
+      "xTop": 217,
+      "yTop": 674,
+      "width": 343,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "ppin",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "parcel_or_ppin",
+      "foundPage": 1,
+      "xTop": 456,
+      "yTop": 696,
+      "width": 104,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "listing_agent",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 1,
+      "xTop": 113,
+      "yTop": 383,
+      "width": 168,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "buyer_agent",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agent_name",
+      "foundPage": 1,
+      "xTop": 383,
+      "yTop": 383,
+      "width": 168,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "listing_agent_of_seller",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "foundPage": 1,
+      "xTop": 32,
+      "yTop": 419,
+      "width": 21,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "listing_transaction_facilitator",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "foundPage": 1,
+      "xTop": 32,
+      "yTop": 462,
+      "width": 21,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "listing_dual_agent",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "foundPage": 1,
+      "xTop": 32,
+      "yTop": 440,
+      "width": 21,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "buyer_agent_of_buyer",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "foundPage": 1,
+      "xTop": 302,
+      "yTop": 419,
+      "width": 21,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "buyer_transaction_facilitator",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "foundPage": 1,
+      "xTop": 302,
+      "yTop": 462,
+      "width": 21,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "buyer_dual_agent",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "foundPage": 1,
+      "xTop": 302,
+      "yTop": 440,
+      "width": 21,
+      "height": 21,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "acceptance_binding_date",
+      "type": "date",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "acceptance_binding_date",
+      "foundPage": 1,
+      "xTop": 138,
+      "yTop": 162,
+      "width": 138,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-01.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 2,
+      "xTop": 113,
+      "yTop": 21,
+      "width": 435,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "legal_description",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "legal_description",
+      "foundPage": 2,
+      "xTop": 346,
+      "yTop": 70,
+      "width": 52,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "purchase_price",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "purchase_price",
+      "foundPage": 2,
+      "xTop": 346,
+      "yTop": 93,
+      "width": 184,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "loan_amount",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": "loan_amount_or_pct",
+      "foundPage": 2,
+      "xTop": 462,
+      "yTop": 345,
+      "width": 101,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "other_financing_description",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 2,
+      "xTop": 211,
+      "yTop": 345,
+      "width": 95,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "finance_contingency_date",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 2,
+      "xTop": 340,
+      "yTop": 404,
+      "width": 46,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "cash_buyer",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "foundPage": 2,
+      "xTop": 72,
+      "yTop": 193,
+      "width": 21,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "financing_buyer",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "foundPage": 2,
+      "xTop": 83,
+      "yTop": 303,
+      "width": 21,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "conventional",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "foundPage": 2,
+      "xTop": 364,
+      "yTop": 333,
+      "width": 18,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "FHA",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "foundPage": 2,
+      "xTop": 438,
+      "yTop": 333,
+      "width": 18,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "VA",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "foundPage": 2,
+      "xTop": 487,
+      "yTop": 333,
+      "width": 18,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "other_financing",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "foundPage": 2,
+      "xTop": 174,
+      "yTop": 345,
+      "width": 18,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "appraisal_contingency_is",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 2,
+      "xTop": 101,
+      "yTop": 266,
+      "width": 21,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "appraisal_contingency_not",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 2,
+      "xTop": 142,
+      "yTop": 266,
+      "width": 21,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "loan_type_usda",
+      "type": "checkbox",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "foundPage": 2,
+      "xTop": 58,
+      "yTop": 345,
+      "width": 18,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-02.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 3,
+      "xTop": 125,
+      "yTop": 34,
+      "width": 438,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-03.png"
+    },
+    {
+      "label": "buyer_broker_comp_percentage",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": "buyer_broker_comp",
+      "foundPage": 3,
+      "xTop": 132,
+      "yTop": 185,
+      "width": 70,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-03.png"
+    },
+    {
+      "label": "Buyer_broker_comp_checkbox",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 3,
+      "xTop": 113,
+      "yTop": 185,
+      "width": 13,
+      "height": 14,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-03.png"
+    },
+    {
+      "label": "included_fixtures",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": "included_fixtures",
+      "foundPage": 3,
+      "xTop": 59,
+      "yTop": 581,
+      "width": 502,
+      "height": 32,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-03.png"
+    },
+    {
+      "label": "additional_provisions",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": "additional_provisions",
+      "foundPage": 3,
+      "xTop": 59,
+      "yTop": 640,
+      "width": 502,
+      "height": 32,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-03.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 4,
+      "xTop": 125,
+      "yTop": 36,
+      "width": 422,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-04.png"
+    },
+    {
+      "label": "contingent_upon_inspection_and_repairs",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 4,
+      "xTop": 244,
+      "yTop": 90,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-04.png"
+    },
+    {
+      "label": "not_contingent_upon_inspection",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 4,
+      "xTop": 296,
+      "yTop": 90,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-04.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 125,
+      "yTop": 34,
+      "width": 435,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "warranty_max_amount",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 184,
+      "yTop": 592,
+      "width": 37,
+      "height": 14,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "warranty_does",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 291,
+      "yTop": 489,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "warranty_does_not",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 352,
+      "yTop": 489,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "warranty_paid_by_seller",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 258,
+      "yTop": 303,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "warranty_paid_by_buyer",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 390,
+      "yTop": 303,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "paint_attached_yes",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 257,
+      "yTop": 652,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "paint_attached_no",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 5,
+      "xTop": 297,
+      "yTop": 652,
+      "width": 17,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-05.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 6,
+      "xTop": 129,
+      "yTop": 32,
+      "width": 453,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-06.png"
+    },
+    {
+      "label": "title_vesting_names",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 6,
+      "xTop": 257,
+      "yTop": 135,
+      "width": 330,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-06.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 7,
+      "xTop": 125,
+      "yTop": 34,
+      "width": 435,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-07.png"
+    },
+    {
+      "label": "closing_date",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "closing_date",
+      "foundPage": 7,
+      "xTop": 428,
+      "yTop": 521,
+      "width": 83,
+      "height": 14,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-07.png"
+    },
+    {
+      "label": "possession_date",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "possession",
+      "foundPage": 7,
+      "xTop": 526,
+      "yTop": 615,
+      "width": 52,
+      "height": 14,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-07.png"
+    },
+    {
+      "label": "survey_is",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 7,
+      "xTop": 59,
+      "yTop": 259,
+      "width": 15,
+      "height": 14,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-07.png"
+    },
+    {
+      "label": "survey_is_not",
+      "type": "checkbox",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 7,
+      "xTop": 59,
+      "yTop": 365,
+      "width": 15,
+      "height": 14,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-07.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 8,
+      "xTop": 125,
+      "yTop": 34,
+      "width": 428,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-08.png"
+    },
+    {
+      "label": "time_to_respond_date",
+      "type": "date",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 8,
+      "xTop": 450,
+      "yTop": 356,
+      "width": 95,
+      "height": 16,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-08.png"
+    },
+    {
+      "label": "time_to_respond_time",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 8,
+      "xTop": 125,
+      "yTop": 379,
+      "width": 52,
+      "height": 16,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-08.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 9,
+      "xTop": 125,
+      "yTop": 34,
+      "width": 453,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-09.png"
+    },
+    {
+      "label": "earnest_money_amount",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "earnest_money_amount",
+      "foundPage": 9,
+      "xTop": 340,
+      "yTop": 70,
+      "width": 132,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-09.png"
+    },
+    {
+      "label": "earnest_money_holder",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": "earnest_money_holder",
+      "foundPage": 9,
+      "xTop": 364,
+      "yTop": 101,
+      "width": 15,
+      "height": 14,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-09.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 10,
+      "xTop": 125,
+      "yTop": 36,
+      "width": 435,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-10.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 11,
+      "xTop": 125,
+      "yTop": 32,
+      "width": 419,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-11.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 12,
+      "xTop": 132,
+      "yTop": 41,
+      "width": 428,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-12.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 132,
+      "yTop": 32,
+      "width": 438,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "listing_agent",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 193,
+      "yTop": 131,
+      "width": 211,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer_agent",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "agent_name",
+      "foundPage": 13,
+      "xTop": 187,
+      "yTop": 260,
+      "width": 248,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "additional_provisions",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": "additional_provisions",
+      "foundPage": 13,
+      "xTop": 44,
+      "yTop": 523,
+      "width": 539,
+      "height": 103,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "time_to_respond_date",
+      "type": "date",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 340,
+      "yTop": 507,
+      "width": 70,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "time_to_respond_time",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 438,
+      "yTop": 507,
+      "width": 67,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer1_signature",
+      "type": "signature",
+      "tier": "core",
+      "role": "Buyer1",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 88,
+      "yTop": 318,
+      "width": 231,
+      "height": 36,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer1_signature_date",
+      "type": "date",
+      "tier": "core",
+      "role": "Buyer1",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 352,
+      "yTop": 326,
+      "width": 64,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer1_print_name",
+      "type": "text",
+      "tier": "core",
+      "role": "Buyer1",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 101,
+      "yTop": 355,
+      "width": 483,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer2_signature",
+      "type": "signature",
+      "tier": "common",
+      "role": "Buyer2",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 88,
+      "yTop": 372,
+      "width": 231,
+      "height": 36,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer2_signature_date",
+      "type": "date",
+      "tier": "common",
+      "role": "Buyer2",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 352,
+      "yTop": 380,
+      "width": 64,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer2_print_name",
+      "type": "text",
+      "tier": "common",
+      "role": "Buyer2",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 104,
+      "yTop": 410,
+      "width": 480,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "seller1_signature",
+      "type": "signature",
+      "tier": "core",
+      "role": "Seller1",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 88,
+      "yTop": 626,
+      "width": 231,
+      "height": 36,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "seller1_signature_date",
+      "type": "date",
+      "tier": "core",
+      "role": "Seller1",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 352,
+      "yTop": 634,
+      "width": 64,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "seller1_print_name",
+      "type": "text",
+      "tier": "core",
+      "role": "Seller1",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 101,
+      "yTop": 661,
+      "width": 483,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "seller2_signature",
+      "type": "signature",
+      "tier": "common",
+      "role": "Seller2",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 88,
+      "yTop": 681,
+      "width": 231,
+      "height": 36,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "seller2_signature_date",
+      "type": "date",
+      "tier": "common",
+      "role": "Seller2",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 355,
+      "yTop": 689,
+      "width": 61,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "seller2_print_name",
+      "type": "text",
+      "tier": "common",
+      "role": "Seller2",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 101,
+      "yTop": 717,
+      "width": 483,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "buyer_brokerage_name",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": "brokerage_name",
+      "foundPage": 13,
+      "xTop": 257,
+      "yTop": 200,
+      "width": 327,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "listing_brokerage_name",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 13,
+      "xTop": 266,
+      "yTop": 65,
+      "width": 318,
+      "height": 20,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-13.png"
+    },
+    {
+      "label": "property_address",
+      "type": "text",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 129,
+      "yTop": 34,
+      "width": 435,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "time_to_respond_date",
+      "type": "date",
+      "tier": "core",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 327,
+      "yTop": 134,
+      "width": 70,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "time_to_respond_time",
+      "type": "text",
+      "tier": "common",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 483,
+      "yTop": 134,
+      "width": 31,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "buyer1_signature",
+      "type": "signature",
+      "tier": "core",
+      "role": "Buyer1",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 80,
+      "yTop": 242,
+      "width": 239,
+      "height": 32,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "buyer1_signature_date",
+      "type": "date",
+      "tier": "core",
+      "role": "Buyer1",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 327,
+      "yTop": 259,
+      "width": 70,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "buyer1_print_name",
+      "type": "text",
+      "tier": "core",
+      "role": "Buyer1",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 95,
+      "yTop": 290,
+      "width": 483,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "buyer2_signature",
+      "type": "signature",
+      "tier": "common",
+      "role": "Buyer2",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 80,
+      "yTop": 384,
+      "width": 239,
+      "height": 32,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "buyer2_signature_date",
+      "type": "date",
+      "tier": "common",
+      "role": "Buyer2",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 43,
+      "yTop": 413,
+      "width": 55,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "buyer2_print_name",
+      "type": "text",
+      "tier": "common",
+      "role": "Buyer2",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 125,
+      "yTop": 424,
+      "width": 453,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "seller1_signature",
+      "type": "signature",
+      "tier": "core",
+      "role": "Seller1",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 80,
+      "yTop": 566,
+      "width": 239,
+      "height": 32,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "seller1_signature_date",
+      "type": "date",
+      "tier": "core",
+      "role": "Seller1",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 358,
+      "yTop": 584,
+      "width": 70,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "seller1_print_name",
+      "type": "text",
+      "tier": "core",
+      "role": "Seller1",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 95,
+      "yTop": 615,
+      "width": 483,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "seller2_signature",
+      "type": "signature",
+      "tier": "common",
+      "role": "Seller2",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 80,
+      "yTop": 642,
+      "width": 239,
+      "height": 32,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "seller2_signature_date",
+      "type": "date",
+      "tier": "common",
+      "role": "Seller2",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 358,
+      "yTop": 659,
+      "width": 70,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    },
+    {
+      "label": "seller2_print_name",
+      "type": "text",
+      "tier": "common",
+      "role": "Seller2",
+      "core_key": null,
+      "foundPage": 14,
+      "xTop": 95,
+      "yTop": 690,
+      "width": 483,
+      "height": 17,
+      "pageW": 612,
+      "pageH": 792,
+      "pngFile": "p-14.png"
+    }
+  ],
+  "perField": [
+    {
+      "label": "buyer_name",
+      "tier": "core",
+      "type": "text",
+      "role": "Buyer1",
+      "core_key": "buyer_name",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "seller_name",
+      "tier": "core",
+      "type": "text",
+      "role": "Seller1",
+      "core_key": null,
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "effective_date",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "offer_date",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "property_address",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "property_city",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "city",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "property_county",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "property_zip",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "zip",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "legal_description",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "legal_description",
+      "locatedPages": [
+        1,
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "ppin",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "parcel_or_ppin",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "mls_id",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "purchase_price",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "purchase_price",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "listing_agent",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        1,
+        13
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer_agent",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "agent_name",
+      "locatedPages": [
+        1,
+        13
+      ],
+      "located": true
+    },
+    {
+      "label": "earnest_money_amount",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "earnest_money_amount",
+      "locatedPages": [
+        9
+      ],
+      "located": true
+    },
+    {
+      "label": "loan_amount",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "loan_amount_or_pct",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "other_financing_description",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "finance_contingency_date",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "seller_concession_amount",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "buyer_broker_comp_percentage",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "buyer_broker_comp",
+      "locatedPages": [
+        3
+      ],
+      "located": true
+    },
+    {
+      "label": "closing_date",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "closing_date",
+      "locatedPages": [
+        7
+      ],
+      "located": true
+    },
+    {
+      "label": "possession_date",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "possession",
+      "locatedPages": [
+        7
+      ],
+      "located": true
+    },
+    {
+      "label": "warranty_max_amount",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        5
+      ],
+      "located": true
+    },
+    {
+      "label": "inspection_completion_date",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "warranty_deed_type",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "listing_agent_of_seller",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "listing_transaction_facilitator",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "listing_dual_agent",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer_agent_of_buyer",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer_transaction_facilitator",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer_dual_agent",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "agency_role",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "cash_buyer",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "financing_buyer",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "conventional",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "FHA",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "VA",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "other_financing",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "appraisal_contingency_is",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "appraisal_contingency_not",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "seller_concession_yes",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "Buyer_broker_comp_checkbox",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        3
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer_sale_contingency_is",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "buyer_sale_contingency_not",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "warranty_does",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        5
+      ],
+      "located": true
+    },
+    {
+      "label": "warranty_does_not",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        5
+      ],
+      "located": true
+    },
+    {
+      "label": "warranty_paid_by_seller",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        5
+      ],
+      "located": true
+    },
+    {
+      "label": "warranty_paid_by_buyer",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        5
+      ],
+      "located": true
+    },
+    {
+      "label": "paint_attached_yes",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        5
+      ],
+      "located": true
+    },
+    {
+      "label": "paint_attached_no",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        5
+      ],
+      "located": true
+    },
+    {
+      "label": "survey_is",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        7
+      ],
+      "located": true
+    },
+    {
+      "label": "survey_is_not",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        7
+      ],
+      "located": true
+    },
+    {
+      "label": "contingent_upon_inspection_and_repairs",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        4
+      ],
+      "located": true
+    },
+    {
+      "label": "contingent_upon_inspection_no_repair",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "not_contingent_upon_inspection",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        4
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer_title_expense",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "seller_title_expense",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "title_split",
+      "tier": "common",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "property_state",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "state",
+      "locatedPages": [],
+      "located": false
+    },
+    {
+      "label": "acceptance_binding_date",
+      "tier": "core",
+      "type": "date",
+      "role": "BuyerAgent",
+      "core_key": "acceptance_binding_date",
+      "locatedPages": [
+        1
+      ],
+      "located": true
+    },
+    {
+      "label": "earnest_money_holder",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "earnest_money_holder",
+      "locatedPages": [
+        9
+      ],
+      "located": true
+    },
+    {
+      "label": "loan_type_usda",
+      "tier": "core",
+      "type": "checkbox",
+      "role": "BuyerAgent",
+      "core_key": "financing_type",
+      "locatedPages": [
+        2
+      ],
+      "located": true
+    },
+    {
+      "label": "included_fixtures",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "included_fixtures",
+      "locatedPages": [
+        3
+      ],
+      "located": true
+    },
+    {
+      "label": "additional_provisions",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "additional_provisions",
+      "locatedPages": [
+        3,
+        13
+      ],
+      "located": true
+    },
+    {
+      "label": "title_vesting_names",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        6
+      ],
+      "located": true
+    },
+    {
+      "label": "time_to_respond_date",
+      "tier": "core",
+      "type": "date",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        8,
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "time_to_respond_time",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        8,
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer1_signature",
+      "tier": "core",
+      "type": "signature",
+      "role": "Buyer1",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer1_signature_date",
+      "tier": "core",
+      "type": "date",
+      "role": "Buyer1",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer1_print_name",
+      "tier": "core",
+      "type": "text",
+      "role": "Buyer1",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer2_signature",
+      "tier": "common",
+      "type": "signature",
+      "role": "Buyer2",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer2_signature_date",
+      "tier": "common",
+      "type": "date",
+      "role": "Buyer2",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer2_print_name",
+      "tier": "common",
+      "type": "text",
+      "role": "Buyer2",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "seller1_signature",
+      "tier": "core",
+      "type": "signature",
+      "role": "Seller1",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "seller1_signature_date",
+      "tier": "core",
+      "type": "date",
+      "role": "Seller1",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "seller1_print_name",
+      "tier": "core",
+      "type": "text",
+      "role": "Seller1",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "seller2_signature",
+      "tier": "common",
+      "type": "signature",
+      "role": "Seller2",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "seller2_signature_date",
+      "tier": "common",
+      "type": "date",
+      "role": "Seller2",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "seller2_print_name",
+      "tier": "common",
+      "type": "text",
+      "role": "Seller2",
+      "core_key": null,
+      "locatedPages": [
+        13,
+        14
+      ],
+      "located": true
+    },
+    {
+      "label": "buyer_brokerage_name",
+      "tier": "core",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": "brokerage_name",
+      "locatedPages": [
+        13
+      ],
+      "located": true
+    },
+    {
+      "label": "listing_brokerage_name",
+      "tier": "common",
+      "type": "text",
+      "role": "BuyerAgent",
+      "core_key": null,
+      "locatedPages": [
+        13
+      ],
+      "located": true
+    }
+  ]
+}

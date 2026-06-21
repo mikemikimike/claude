@@ -1,0 +1,3 @@
+# Regenerable render artifacts — keep the json results + report, drop the heavy bits.
+*.png
+doc.pdf
