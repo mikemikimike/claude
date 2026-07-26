@@ -152,6 +152,15 @@ const shape = z.object({
   ANTHROPIC_API_KEY: z.string().default(""),
   FORM_AI_MODEL: z.string().default("claude-opus-4-8"),
 
+  // Cost gate for the Claude-vision property photo analysis (#375/#377). The
+  // feature is PARKED — no UI surfaces it — but its endpoint is still live and
+  // would spend on ANTHROPIC_API_KEY per call, so it is disabled by default:
+  // POST /deals/:id/properties/:propId/analyze-photos returns 503 unless this is
+  // set to a truthy value ("true"/"1"). Flip it in the Vercel env when photo-AI
+  // is re-surfaced (and build real caching/rate-limits then). Comps are
+  // unaffected — they run on the agent's own MLS credentials, not our AI bill.
+  PROPERTY_PHOTO_AI_ENABLED: z.string().default(""),
+
   // Notion-powered marketing blog (lib/notion.ts → /blog on realtourflow.com).
   // NOTION_TOKEN is an internal-integration secret that has been shared with the
   // "Blog Posts" database; NOTION_BLOG_DATABASE_ID is that database's id. Both

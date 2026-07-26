@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { resetEnvForTesting } from "./env";
 import {
   analyzePhotos,
   buildAnalysisRequest,
   parseAnalysisResponse,
   selectPhotoUrls,
+  isPhotoAnalysisEnabled,
   MAX_PHOTOS,
   PHOTO_ANALYSIS_MODEL,
   PHOTO_ANALYSIS_DISCLAIMER,
@@ -13,6 +15,39 @@ import {
 } from "./photo-analysis";
 
 afterEach(() => setPhotoAnalyzerForTesting(undefined));
+
+describe("isPhotoAnalysisEnabled — #377 cost gate", () => {
+  const orig = process.env.PROPERTY_PHOTO_AI_ENABLED;
+  afterEach(() => {
+    if (orig === undefined) delete process.env.PROPERTY_PHOTO_AI_ENABLED;
+    else process.env.PROPERTY_PHOTO_AI_ENABLED = orig;
+    resetEnvForTesting();
+  });
+
+  function check(value: string | undefined): boolean {
+    if (value === undefined) delete process.env.PROPERTY_PHOTO_AI_ENABLED;
+    else process.env.PROPERTY_PHOTO_AI_ENABLED = value;
+    resetEnvForTesting();
+    return isPhotoAnalysisEnabled();
+  }
+
+  it("is off by default (unset or empty)", () => {
+    expect(check(undefined)).toBe(false);
+    expect(check("")).toBe(false);
+  });
+
+  it("is on only for explicit truthy values", () => {
+    for (const v of ["true", "TRUE", "1", "yes", "on", " true "]) {
+      expect(check(v)).toBe(true);
+    }
+  });
+
+  it("is off for anything else", () => {
+    for (const v of ["false", "0", "no", "off", "enabled", "banana"]) {
+      expect(check(v)).toBe(false);
+    }
+  });
+});
 
 const SUBJECT: PhotoAnalysisSubject = {
   address: "500 Subject Ln",

@@ -19,6 +19,7 @@ import { prisma } from "@/lib/db";
 import { resolveUserId } from "@/lib/users";
 import {
   analyzePhotos,
+  isPhotoAnalysisEnabled,
   selectPhotoUrls,
   PhotoAnalysisError,
   PhotoAnalysisNotConfiguredError,
@@ -34,6 +35,12 @@ type Body = { photo_urls?: unknown };
 export async function POST(req: Request, ctx: Ctx): Promise<Response> {
   const { id: dealId, propId } = await ctx.params;
   return (await withAuth(req, async (claims): Promise<Response> => {
+    // Cost gate (#377): the feature is parked and disabled by default, so no
+    // work (and no paid model call) happens unless it's explicitly enabled.
+    if (!isPhotoAnalysisEnabled()) {
+      return error("photo analysis is disabled", 503);
+    }
+
     const userId = await resolveUserId(claims.sub);
     if (!userId) return error("user not found", 404);
     if (!UUID_RE.test(dealId) || !UUID_RE.test(propId)) {

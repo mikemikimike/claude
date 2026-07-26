@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { POST as analyzeRoute } from "@/app/api/deals/[id]/properties/[propId]/analyze-photos/route";
 import { GET as listPropsRoute } from "@/app/api/deals/[id]/properties/route";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
+import { resetEnvForTesting } from "@/lib/env";
 import {
   setPhotoAnalyzerForTesting,
   MAX_PHOTOS,
@@ -14,13 +15,25 @@ import { authHeader, getTestSigner } from "../helpers/jwt";
 import { truncateAll } from "../helpers/db";
 import { createUser, createDeal } from "../helpers/factories";
 
+/** Flip the #377 cost gate on/off for a test, honoring the env cache. */
+function setPhotoAiEnabled(on: boolean) {
+  if (on) process.env.PROPERTY_PHOTO_AI_ENABLED = "true";
+  else delete process.env.PROPERTY_PHOTO_AI_ENABLED;
+  resetEnvForTesting();
+}
+
 beforeAll(async () => {
   const { verifyOpts } = await getTestSigner();
   setVerifyOptionsForTesting(verifyOpts);
+  // The feature is disabled by default (#377); these tests exercise it enabled.
+  setPhotoAiEnabled(true);
 });
+
+afterAll(() => setPhotoAiEnabled(false));
 
 beforeEach(async () => {
   await truncateAll();
+  setPhotoAiEnabled(true);
 });
 
 afterEach(() => setPhotoAnalyzerForTesting(undefined));
@@ -185,6 +198,26 @@ describe("POST analyze-photos — access control (agent-only)", () => {
     fakeAnalyzer();
     expect((await analyze("nope", property.id, "auth0|agentA", {})).status).toBe(404);
     expect((await analyze(deal.id, "nope", "auth0|agentA", {})).status).toBe(404);
+  });
+});
+
+describe("POST analyze-photos — cost gate (#377)", () => {
+  it("503s and never touches the analyzer when the feature is disabled", async () => {
+    const { deal, property } = await seedProperty();
+    // A spy analyzer that would fail the test if the model were ever called.
+    let called = false;
+    setPhotoAnalyzerForTesting(async () => {
+      called = true;
+      return { content: [{ type: "text", text: "{}" }] };
+    });
+
+    setPhotoAiEnabled(false);
+    const res = await analyze(deal.id, property.id, "auth0|agentA", {
+      photo_urls: ["https://p/1.jpg"],
+    });
+    expect(res.status).toBe(503);
+    expect(await res.text()).toMatch(/disabled/i);
+    expect(called).toBe(false);
   });
 });
 

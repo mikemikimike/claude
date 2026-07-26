@@ -18,6 +18,18 @@ import { env } from "./env";
 /** Locked per the form-vision pipeline + #375 decision. */
 export const PHOTO_ANALYSIS_MODEL = "claude-opus-4-8";
 
+/**
+ * Cost gate (#377). Photo-AI is parked (no UI caller), but its endpoint is live
+ * and spends on our Anthropic account per call — so it is OFF unless
+ * PROPERTY_PHOTO_AI_ENABLED is explicitly truthy. A disabled endpoint spends $0;
+ * this is the cost guardrail for a parked paid feature (real caching/rate-limits
+ * come when it's re-surfaced). Comps are unaffected — they bill the agent's MLS.
+ */
+export function isPhotoAnalysisEnabled(): boolean {
+  const v = env().PROPERTY_PHOTO_AI_ENABLED.trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes" || v === "on";
+}
+
 /** Hard cap on images per analysis — extras are dropped (cost lever). */
 export const MAX_PHOTOS = 6;
 
