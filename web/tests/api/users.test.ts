@@ -10,7 +10,7 @@ import { ROLES, isValidRole, resolveRole } from "@/lib/roles";
 import { prisma } from "@/lib/db";
 import { authHeader, getTestSigner } from "../helpers/jwt";
 import { truncateAll } from "../helpers/db";
-import { createUser } from "../helpers/factories";
+import { createDeal, createUser } from "../helpers/factories";
 
 beforeAll(async () => {
   const { verifyOpts } = await getTestSigner();
@@ -250,6 +250,223 @@ describe("POST /api/users/sync", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { role: string };
     expect(body.role).toBe("seller");
+  });
+});
+
+/**
+ * The invited-client-becomes-an-agent bug. The Auth0 tenant hands every new
+ * signup a default `agent` roles claim (self-serve agent signup is intentional).
+ * /users/sync used to let that claim win unconditionally, so the `buyer` the
+ * invite claim had just written was overwritten on the very next sync and the
+ * client was dropped into agent onboarding. Precedence now lives in
+ * lib/roles.ts#decideRole; these cases pin it at the route level.
+ */
+describe("POST /api/users/sync — role precedence", () => {
+  async function syncAs(
+    sub: string,
+    roles: string[],
+    body: { email: string; name: string }
+  ): Promise<Response> {
+    return syncRoute(
+      new Request("http://localhost/api/users/sync", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: await authHeader(sub, roles),
+        },
+        body: JSON.stringify(body),
+      })
+    );
+  }
+
+  /** An unclaimed, unexpired invite addressed to `email`. */
+  async function seedOpenInvite(
+    email: string,
+    role: "buyer" | "seller",
+    opts: { claimed?: boolean; expired?: boolean } = {}
+  ): Promise<void> {
+    const agent = await createUser({ role: "agent" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.deal_invites.create({
+      data: {
+        deal_id: deal.id,
+        email,
+        name: "Invited Client",
+        role,
+        invited_by: agent.id,
+        claimed_at: opts.claimed ? new Date() : null,
+        expires_at: new Date(
+          Date.now() + (opts.expired ? -1 : 7 * 24 * 60 * 60) * 1000
+        ),
+      },
+    });
+  }
+
+  it("a default agent claim does not overwrite a persisted buyer role", async () => {
+    await createUser({
+      auth0_id: "auth0|client",
+      email: "client@example.com",
+      name: "Client",
+      role: "buyer",
+    });
+    const res = await syncAs("auth0|client", ["agent"], {
+      email: "client@example.com",
+      name: "Client",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("buyer");
+  });
+
+  it("a default agent claim does not overwrite a persisted seller role", async () => {
+    await createUser({
+      auth0_id: "auth0|seller",
+      email: "seller@example.com",
+      name: "Seller",
+      role: "seller",
+    });
+    const res = await syncAs("auth0|seller", ["agent"], {
+      email: "seller@example.com",
+      name: "Seller",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("seller");
+  });
+
+  // The documented promotion path (CLAUDE.md): assign the role in Auth0 RBAC,
+  // log out, log back in. Must keep working.
+  it("an explicit admin claim still promotes an existing agent", async () => {
+    await createUser({
+      auth0_id: "auth0|promoted",
+      email: "promoted@example.com",
+      name: "Promoted",
+      role: "agent",
+    });
+    const res = await syncAs("auth0|promoted", ["admin"], {
+      email: "promoted@example.com",
+      name: "Promoted",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("admin");
+  });
+
+  it("an explicit admin claim wins over a persisted buyer role", async () => {
+    await createUser({
+      auth0_id: "auth0|client-admin",
+      email: "client-admin@example.com",
+      name: "Client Admin",
+      role: "buyer",
+    });
+    const res = await syncAs("auth0|client-admin", ["admin"], {
+      email: "client-admin@example.com",
+      name: "Client Admin",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("admin");
+  });
+
+  it("a tc claim wins over a persisted agent role", async () => {
+    await createUser({
+      auth0_id: "auth0|to-tc",
+      email: "to-tc@example.com",
+      name: "To TC",
+      role: "agent",
+    });
+    const res = await syncAs("auth0|to-tc", ["tc"], {
+      email: "to-tc@example.com",
+      name: "To TC",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("tc");
+  });
+
+  // decideRole rule 3 — the safety net for when the invite-claim POST never ran
+  // (different device, transient failure, localStorage cleared).
+  it("an open buyer invite beats a default agent claim for a brand-new user", async () => {
+    await seedOpenInvite("fresh-buyer@example.com", "buyer");
+    const res = await syncAs("auth0|fresh-buyer", ["agent"], {
+      email: "fresh-buyer@example.com",
+      name: "Fresh Buyer",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("buyer");
+  });
+
+  it("matches the invited email case-insensitively", async () => {
+    await seedOpenInvite("Mixed.Case@Example.com", "seller");
+    const res = await syncAs("auth0|mixed-case", ["agent"], {
+      email: "mixed.case@example.com",
+      name: "Mixed Case",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("seller");
+  });
+
+  it("a claimed invite does not override the agent claim", async () => {
+    await seedOpenInvite("used@example.com", "buyer", { claimed: true });
+    const res = await syncAs("auth0|used", ["agent"], {
+      email: "used@example.com",
+      name: "Used",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("agent");
+  });
+
+  it("an expired invite does not override the agent claim", async () => {
+    await seedOpenInvite("stale@example.com", "buyer", { expired: true });
+    const res = await syncAs("auth0|stale", ["agent"], {
+      email: "stale@example.com",
+      name: "Stale",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("agent");
+  });
+
+  // Rule 3 is gated on "no users row" so an agent who happens to hold a client
+  // invite for their own email is never demoted (cf. #174).
+  it("an open buyer invite does not demote an established agent", async () => {
+    await createUser({
+      auth0_id: "auth0|agent-with-invite",
+      email: "agent-invite@example.com",
+      name: "Agent With Invite",
+      role: "agent",
+    });
+    await seedOpenInvite("agent-invite@example.com", "buyer");
+    const res = await syncAs("auth0|agent-with-invite", ["agent"], {
+      email: "agent-invite@example.com",
+      name: "Agent With Invite",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("agent");
+  });
+
+  // Self-serve agent signup with no invite is intentional — must not regress.
+  it("a brand-new signup with no invite still becomes an agent", async () => {
+    const res = await syncAs("auth0|self-serve", ["agent"], {
+      email: "self-serve@example.com",
+      name: "Self Serve",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("agent");
+  });
+
+  // #173 — the deactivation guard moved from getPersistedRole into
+  // resolveSyncRole and must still fire.
+  it("still returns 403 for a deactivated user", async () => {
+    const user = await createUser({
+      auth0_id: "auth0|gone",
+      email: "gone@example.com",
+      name: "Gone",
+      role: "agent",
+    });
+    await prisma.users.update({
+      where: { id: user.id },
+      data: { deactivated_at: new Date() },
+    });
+    const res = await syncAs("auth0|gone", ["agent"], {
+      email: "gone@example.com",
+      name: "Gone",
+    });
+    expect(res.status).toBe(403);
   });
 });
 

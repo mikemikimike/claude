@@ -15,6 +15,16 @@ let cachedVerified: boolean | null = null;
 let dismissedThisSession = false;
 
 /**
+ * Clears the per-tab cache. Called on logout so the next account to sign in on
+ * this tab re-checks its OWN verification state instead of inheriting the
+ * previous user's answer (or their dismissal).
+ */
+export function resetVerifyEmailBannerCache(): void {
+  cachedVerified = null;
+  dismissedThisSession = false;
+}
+
+/**
  * Unverified-email prompt (FF2 #20). Mounted in every AppLayout variant; checks
  * the caller's verification state via GET /api/auth/verification once per tab
  * and offers a "Resend verification" action (POST, caller-scoped server-side).

@@ -26,6 +26,7 @@ import {
 import { GET as getInviteRoute } from "@/app/api/invites/[token]/route";
 import { POST as claimInviteRoute } from "@/app/api/invites/[token]/claim/route";
 import { GET as getInviteRoleRoute } from "@/app/api/invites/role/route";
+import { POST as syncRoute } from "@/app/api/users/sync/route";
 import { GET as myDealsRoute } from "@/app/api/me/deals/route";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
 import { resetEnvForTesting } from "@/lib/env";
@@ -669,10 +670,90 @@ describe("Deal invites", () => {
 
       const r2 = await getInviteRoleRoute(withToken("nobody@example.com"));
       expect((await r2.json()).role).toBe("");
+
+      // The middle branch the name promises: no users row, but an OPEN invite
+      // addressed to that email resolves to the invited role.
+      const agent = await createUser({ role: "agent" });
+      const deal = await createDeal({ agent_id: agent.id });
+      await prisma.deal_invites.create({
+        data: {
+          deal_id: deal.id,
+          email: "pending@example.com",
+          name: "Pending Client",
+          role: "seller",
+          invited_by: agent.id,
+        },
+      });
+      const r3 = await getInviteRoleRoute(withToken("pending@example.com"));
+      expect((await r3.json()).role).toBe("seller");
     } finally {
       delete process.env.INVITE_ROLE_SECRET;
       resetEnvForTesting();
     }
+  });
+
+  // The reported bug, end to end across both routes: an invited buyer creates
+  // their account, the claim writes `buyer`, and then the very next
+  // /users/sync — carrying the tenant's default `agent` claim — used to
+  // overwrite it and drop them into the agent app.
+  it("a later sync with a default agent claim does not undo the claimed buyer role", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|inviter" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.deal_invites.create({
+      data: {
+        deal_id: deal.id,
+        email: "newbuyer@example.com",
+        name: "New Buyer",
+        role: "buyer",
+        invited_by: agent.id,
+      },
+    });
+    const invite = await prisma.deal_invites.findFirstOrThrow({
+      where: { email: "newbuyer@example.com" },
+    });
+
+    // 1. Brand-new Auth0 identity claims the invite (JWT has no roles yet).
+    const claimRes = await claimInviteRoute(
+      new Request(`http://localhost/api/invites/${invite.token}/claim`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: await authHeader("auth0|new-buyer", []),
+        },
+        body: JSON.stringify({
+          email: "newbuyer@example.com",
+          name: "New Buyer",
+        }),
+      }),
+      ctx({ token: invite.token })
+    );
+    expect(claimRes.status).toBe(200);
+    const claimed = (await claimRes.json()) as { id: string; role: string };
+    expect(claimed.role).toBe("buyer");
+
+    // 2. Any later page load syncs the SAME sub — now with the tenant's
+    //    default agent claim baked into the token.
+    const syncRes = await syncRoute(
+      new Request("http://localhost/api/users/sync", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: await authHeader("auth0|new-buyer", ["agent"]),
+        },
+        body: JSON.stringify({
+          email: "newbuyer@example.com",
+          name: "New Buyer",
+        }),
+      })
+    );
+    expect(syncRes.status).toBe(200);
+    expect(((await syncRes.json()) as { role: string }).role).toBe("buyer");
+
+    // 3. And they are still on the deal.
+    const participantCount = await prisma.deal_participants.count({
+      where: { deal_id: deal.id, user_id: claimed.id },
+    });
+    expect(participantCount).toBe(1);
   });
 });
 

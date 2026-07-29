@@ -6,6 +6,39 @@
 
 ---
 
+## ⛔ FIRST, EVERY SESSION: sync with `origin/main`
+
+**Before reading code, planning, or writing a line — fetch and work from `origin/main`.**
+The local checkout is routinely far behind (this has bitten us: a session once planned an
+entire fix against a local `main` that was **85 commits stale**, and half the "missing" code
+it set out to write already existed on the remote).
+
+```bash
+git fetch origin && git log --oneline -1 origin/main
+git rev-list --left-right --count main...origin/main   # left=local-only, right=behind
+```
+
+Then, before touching anything:
+
+1. **Branch off `origin/main`, not local `main`:**
+   `git checkout -b <branch> origin/main` (stash unrelated working-tree edits first).
+   Already on a branch? `git fetch origin && git rebase origin/main`.
+2. **Verify every file you plan to change against `origin/main`** — not against what's on
+   disk, and not against a stale memory of it. `git show origin/main:<path>` /
+   `git diff main origin/main -- <paths>`. Line numbers and helpers move.
+3. **Check whether the thing already exists.** Search `origin/main` before building a
+   utility, endpoint, or guard — recent PRs may already have shipped it.
+4. **After switching branches, regenerate the Prisma client:** `cd web && npm run prisma:generate`.
+   A stale `web/app/generated/prisma` shows up as a wall of bogus typecheck errors in test
+   files (`Property 'x' does not exist on type dealsSelect`), not as a schema error.
+
+Caveats seen in this repo (iCloud-synced `.git`): `git fetch` sometimes hangs — retry it in
+the background rather than assuming the refs are current. And if `next build` dies with
+`ENOENT … .next/cache`, that symlink points at `/tmp/rtf-cache`, which macOS clears:
+`mkdir -p /tmp/rtf-cache`.
+
+---
+
 ## The App: `web/` (Next.js 16 + Prisma 7 on Vercel)
 
 **RealTourFlow is a single Next.js 16 app under `web/`** — one project serving both the UI
@@ -189,6 +222,28 @@ https://realtourflow.com/roles: ["agent"]  // or buyer, seller, admin, tc, lendi
 ```
 `SyncUser` reads this claim. A user with no role gets 403.
 
+### Role precedence — the JWT claim does NOT always win
+
+The tenant grants every brand-new signup a default `agent` role (self-serve agent signup is
+intentional). That made the claim unreliable as a statement of identity: an invited buyer's
+role was written correctly by the invite claim, then overwritten with `agent` by the very next
+`/users/sync`, dropping them into the agent app. `POST /api/users/sync` now resolves the role
+through **`decideRole()` in `web/lib/roles.ts`** — the single place this rule lives (don't add
+a second guard in `upsertUser` or the route):
+
+1. An explicit **non-default** claim (`admin`, `tc`, `seller`, `buyer`, `lending_partner`) wins.
+2. A persisted **`buyer`/`seller`** is never overwritten by a default `agent` claim.
+3. For a user with **no row yet**, an open (unclaimed, unexpired) `deal_invites` row for their
+   email beats the default claim — the safety net when the claim POST never ran.
+4. Otherwise the claim, else the persisted role. No role anywhere = 403.
+
+**To make someone an admin or TC:** unchanged — assign the role in the Auth0 prod tenant
+(User Management → Users → *Roles* tab), then have them log out and back in. Rule 1 honours it.
+
+**To move a client to agent:** the `agent` claim alone will not do it (rule 2). Update the row
+(`UPDATE users SET role='agent' WHERE …`) **and then** have them re-login — once `users.role`
+is no longer a client role, rule 4 honours the claim again.
+
 ---
 
 ## Auth Architecture
@@ -200,9 +255,17 @@ Auth0 JWT is the source of truth end-to-end.
 - Server routes validate every protected request via JWKS — `web/lib/auth.ts` plus
   `withAuth` in `web/lib/http.ts`.
 - Roles: `agent`, `buyer`, `seller`, `admin`, `tc`, `lending_partner`. Server-side scoping
-  is the security boundary; client-side role gating is UX only.
+  is the security boundary; client-side role gating is UX only. See **Role precedence** above
+  for how `/users/sync` picks one.
 - Forgot-password and resend-verification live under `web/app/api/auth/*`
   (`web/lib/auth0.ts` wraps the public change-password endpoint + the Management API).
+- **Logout:** `useLogout()` (`web/hooks/useLogout.ts`) is the single exit for every role,
+  surfaced by `UserMenu` (`web/components/layout/UserMenu.tsx`) in all four shells, the
+  onboarding wizard, and the `RootRedirect` error screens. It tears down local state (auth
+  store, token getter, pending-invite keys) *before* redirecting. `returnTo` must be listed in
+  the Auth0 application's **Allowed Logout URLs** — `https://app.realtourflow.com`,
+  `http://localhost:3000`, and the preview origins — or Auth0 strands the user on its own
+  error page.
 
 ---
 

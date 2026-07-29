@@ -39,6 +39,8 @@ type AuthStore = {
   setFromAuth0: (id: string, name: string, email: string, role: string, onboardingComplete: boolean, avatar?: string) => void;
   setSyncError: (err: string) => void;
   markOnboardingComplete: () => void;
+  /** Back to the signed-out state. Called on logout (hooks/useLogout.ts). */
+  reset: () => void;
 };
 
 export const useAuthStore = create<AuthStore>((set) => ({
@@ -63,4 +65,5 @@ export const useAuthStore = create<AuthStore>((set) => ({
   setSyncError: (err: string) => set({ syncError: err, isLoaded: true }),
   markOnboardingComplete: () =>
     set((s) => s.activeUser ? { activeUser: { ...s.activeUser, onboardingComplete: true } } : {}),
+  reset: () => set({ activeUser: undefined, isLoaded: false, syncError: null }),
 }));

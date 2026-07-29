@@ -1,5 +1,5 @@
 import { error, json, withAuth } from "@/lib/http";
-import { EmailConflictError, getPersistedRole, upsertUser } from "@/lib/users";
+import { EmailConflictError, resolveSyncRole, upsertUser } from "@/lib/users";
 import { ROLES, resolveRole, type Role } from "@/lib/roles";
 
 type SyncBody = {
@@ -18,27 +18,31 @@ export async function POST(req: Request): Promise<Response> {
     const email = typeof body.email === "string" ? body.email : "";
     const name = typeof body.name === "string" ? body.name : "";
 
-    // Prefer the JWT roles claim; fall back to whatever role the agent invite
-    // claim previously persisted. No role anywhere = 403.
-    let role: Role | null = null;
-    if (claims.roles.length > 0) {
-      // Resolve the claim to the single most-privileged RECOGNIZED role
-      // (precedence documented in lib/roles.ts). A claim carrying only
-      // unrecognized roles is a misconfigured/typo'd Auth0 role — reject it
-      // with a clear 400 instead of casting it straight to Role and letting the
-      // user_role enum reject it downstream as an opaque 500 (#308).
-      role = resolveRole(claims.roles);
-      if (!role) {
-        return error(
-          `unrecognized role claim (${JSON.stringify(
-            claims.roles
-          )}); expected one of: ${ROLES.join(", ")}`,
-          400
-        );
-      }
-    } else {
-      role = await getPersistedRole(claims.sub);
+    // A claim carrying ONLY unrecognized roles is a misconfigured/typo'd Auth0
+    // role. Reject it with a clear 400 up front rather than letting it fall
+    // through to the DB/invite fallbacks and silently succeed with a stale role
+    // (#308). Checked here, before resolveSyncRole, because only the route can
+    // tell "the claim was present but junk" apart from "there was no claim".
+    if (claims.roles.length > 0 && !resolveRole(claims.roles)) {
+      return error(
+        `unrecognized role claim (${JSON.stringify(
+          claims.roles
+        )}); expected one of: ${ROLES.join(", ")}`,
+        400
+      );
     }
+
+    // Role precedence lives in lib/roles.ts#decideRole — one place. Do NOT
+    // reintroduce a role guard here or in upsertUser. In particular the JWT
+    // claim no longer wins unconditionally: the tenant hands every new signup a
+    // default `agent` role, and that used to overwrite the `buyer`/`seller` an
+    // invite claim had just written, dropping invited clients into the agent
+    // app. No role anywhere = 403.
+    const role: Role | null = await resolveSyncRole({
+      auth0Id: claims.sub,
+      claimRoles: claims.roles,
+      email,
+    });
     if (!role) {
       return error(
         "no role assigned — request an invite from your administrator",

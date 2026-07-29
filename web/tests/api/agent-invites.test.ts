@@ -3,6 +3,7 @@ import { GET as listRoute, POST as createRoute } from "@/app/api/admin/agent-inv
 import { DELETE as deleteRoute } from "@/app/api/admin/agent-invites/[inviteId]/route";
 import { GET as getByTokenRoute } from "@/app/api/agent-invites/[token]/route";
 import { POST as claimRoute } from "@/app/api/agent-invites/[token]/claim/route";
+import { POST as syncRoute } from "@/app/api/users/sync/route";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
 import { setEmailForTesting } from "@/lib/email";
 import { prisma } from "@/lib/db";
@@ -260,6 +261,36 @@ describe("POST /api/agent-invites/[token]/claim — claim", () => {
       select: { role: true },
     });
     expect(dbUser?.role).toBe("agent");
+  });
+
+  // Counterpart to the client-invite regression: the new role-precedence rule
+  // must not disturb the agent path. Claim writes `agent`, and the next sync
+  // (default agent claim) leaves it exactly as it was.
+  it("8b. a later sync with the default agent claim keeps the claimed agent role", async () => {
+    const admin = await createUser({ role: "admin", auth0_id: "auth0|admin" });
+    const seeded = await seedInvite(admin.id, { email: "stays@example.com" });
+
+    const claimRes = await claimRoute(
+      await claimReq(seeded.token, "auth0|stays-agent", ["agent"], {
+        email: "stays@example.com",
+        name: "Stays Agent",
+      }),
+      tokenCtx(seeded.token)
+    );
+    expect(claimRes.status).toBe(200);
+
+    const syncRes = await syncRoute(
+      new Request("http://localhost/api/users/sync", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: await authHeader("auth0|stays-agent", ["agent"]),
+        },
+        body: JSON.stringify({ email: "stays@example.com", name: "Stays Agent" }),
+      })
+    );
+    expect(syncRes.status).toBe(200);
+    expect(((await syncRes.json()) as { role: string }).role).toBe("agent");
   });
 
   it("9. omitting the email → 400 (claim is bound to the invited email, #272)", async () => {

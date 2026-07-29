@@ -2,6 +2,7 @@
 
 import { ReactNode } from 'react';
 import { ChevronLeft } from 'lucide-react';
+import UserMenu from '@/components/layout/UserMenu';
 
 type Props = {
   progress: number; // 0–100
@@ -22,9 +23,14 @@ export default function OnboardingLayout({ progress, onBack, label, stepLabel, c
       {/* Top bar */}
       <div className="flex items-center justify-between px-8 py-4">
         <span className="text-lg font-bold tracking-tight text-brand-navy">RealTour Flow</span>
-        <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${labelStyle}`}>
-          {label}
-        </span>
+        {/* Escape hatch: without it, someone who signed up with the wrong
+            account is stuck in the wizard with no way to switch. */}
+        <div className="flex items-center gap-3">
+          <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${labelStyle}`}>
+            {label}
+          </span>
+          <UserMenu showName={false} />
+        </div>
       </div>
 
       {/* Card */}

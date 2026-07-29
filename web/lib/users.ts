@@ -1,7 +1,8 @@
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./auth";
-import type { Role } from "./roles";
+import { decideRole, resolveRole, type Role } from "./roles";
+import { pendingInviteRole } from "./invite-role";
 
 export type SyncedUser = {
   id: string;
@@ -33,6 +34,11 @@ export class EmailConflictError extends Error {
 /**
  * Upserts a user from JWT data. Preserves a hand-edited name when Auth0 is
  * about to clobber it with the email (Auth0 sometimes defaults name=email).
+ *
+ * `role` is decided by the CALLER — resolveSyncRole for /users/sync, the invite
+ * row for claim routes — and this deliberately writes whatever it is given. Do
+ * not add role precedence here; it lives in exactly one place (lib/roles.ts
+ * #decideRole) so the two claim routes can still set a role legitimately.
  *
  * Mirrors upsertUser in the legacy Go backend.
  */
@@ -194,18 +200,35 @@ export async function resolveUserId(auth0Id: string): Promise<string | null> {
 }
 
 /**
- * Looks up just the persisted role for an auth0 subject. Returns null if no
- * row exists. Used when the JWT has no roles claim (e.g. brand-new agent
- * who claimed an invite before the Auth0 action fired).
- * Throws AuthError(403) for a deactivated user (#173).
+ * Resolves the role POST /api/users/sync writes for a caller. Owns the IO only
+ * — the precedence rule itself is decideRole() in lib/roles.ts, and that is the
+ * single place it lives.
+ *
+ * Throws AuthError(403) for a deactivated user — defense in depth on top of the
+ * withAuth choke point (#173).
  */
-export async function getPersistedRole(auth0Id: string): Promise<Role | null> {
+export async function resolveSyncRole(input: {
+  auth0Id: string;
+  claimRoles: readonly string[];
+  email: string;
+}): Promise<Role | null> {
   const row = await prisma.users.findUnique({
-    where: { auth0_id: auth0Id },
+    where: { auth0_id: input.auth0Id },
     select: { role: true, deactivated_at: true },
   });
   if (row?.deactivated_at) {
     throw new AuthError("account deactivated", 403);
   }
-  return (row?.role as Role | undefined) ?? null;
+  const dbRole = (row?.role as Role | undefined) ?? null;
+
+  // The invite lookup can only change the answer when there is no row yet
+  // (decideRole rule 3), so skip the query entirely for returning users — this
+  // costs one extra read on first login and nothing after that.
+  const inviteRole = row ? null : await pendingInviteRole(input.email);
+
+  return decideRole({
+    claimedRole: resolveRole(input.claimRoles),
+    dbRole,
+    inviteRole,
+  });
 }
