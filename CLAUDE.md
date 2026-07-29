@@ -72,9 +72,9 @@ The legacy Go + chi backend and React + Vite frontend have been removed.
 | App hosting | Vercel — production domain `app.realtourflow.com` |
 | Database | Neon serverless Postgres — DB `neondb`, endpoint `ep-winter-fire-apcnrqsw` (us-east-1); injected via the Vercel Production `DATABASE_URL` (a **Sensitive** var — not readable through the CLI) |
 | Document storage | Vercel Blob **private** store (`BLOB_STORE_ID` set in Prod; OIDC auth at runtime). S3 retired — see the storage note below |
-| Auth0 Tenant | dev-30md8ukv8qd3u27c.us.auth0.com |
+| Auth0 Tenant | `realtourflow-prod.us.auth0.com` (production). The old `dev-30md8ukv8qd3u27c.us.auth0.com` is the **dev** tenant — the live app authenticates against the prod tenant |
 | Auth0 Audience | https://api.realtourflow.com |
-| Auth0 SPA Client ID | JMIZVqGbZ6KRmJGHyowg5kopHRmHGVhe |
+| Auth0 SPA Client ID | `lEvAKBEQW00LEiUySQiIawrlu0q32tvJ` (prod tenant; the dev-tenant id was `JMIZVqGbZ6KRmJGHyowg5kopHRmHGVhe`) |
 | Secrets | Vercel project env vars (Production / Preview) |
 
 **Legacy AWS (pending decommission — no longer deployed to):** the ECS service
@@ -189,6 +189,19 @@ https://realtourflow.com/roles: ["agent"]  // or buyer, seller, admin, tc, lendi
 ```
 `SyncUser` reads this claim. A user with no role gets 403.
 
+**Where roles actually come from:** the Post-Login Action reads `event.authorization.roles`
+— i.e. **Auth0 RBAC role assignments** (the user's *Roles* tab in the Auth0 dashboard), NOT
+`app_metadata`. `web/` never writes roles to Auth0; it only mirrors the claim into
+`users.role` on sync. So the assignment lives in Auth0 RBAC (or, for a freshly-invited agent
+whose token has no claim yet, the DB role persisted by the invite-claim path).
+
+**To change someone's role (e.g. make an admin):** assign the role in the Auth0 prod tenant
+(User Management → Users → *Roles* tab), then have them **log out and back in** — the role is
+baked into the JWT at login, and `POST /api/users/sync` overwrites `users.role` from the
+fresh claim (`web/lib/users.ts` — `role = EXCLUDED.role`). There is **no in-app admin
+promotion and no email allowlist**; admin is granted only via Auth0 RBAC. A DB-only
+`UPDATE users SET role=...` is not durable — the next login's JWT claim overwrites it.
+
 ---
 
 ## Auth Architecture
@@ -269,8 +282,13 @@ fast-follow milestone, now live:
 Settings → Integrations lets agents connect Google Calendar / Outlook so RealTourFlow
 pushes closing dates + task deadlines into their calendar. The code path is built
 (`oauth_tokens` table, refresh-on-expiry, fan-out from stage advance / ARIVE sync / task
-create+update via the pg-boss queue). What's left is registering the OAuth apps + adding
-credentials.
+create+update via the pg-boss queue).
+
+> ✅ **DONE / LIVE (configured ~June 2026).** The Google Cloud OAuth client and the Microsoft
+> Azure app registration are both created and their credentials (`GOOGLE_OAUTH_*`,
+> `MICROSOFT_OAUTH_*`) are set in the Vercel Production env. Calendar connect works in
+> production — do **not** tell anyone this is still "pending." The setup steps below are kept
+> only as reference for reproducing it in a new environment.
 
 ### Google Cloud — OAuth client
 1. https://console.cloud.google.com/apis/credentials → Create OAuth 2.0 Client ID, **Web application**
@@ -323,3 +341,7 @@ MICROSOFT_OAUTH_TENANT=common
 - **UUIDs only:** the database uses UUIDs; never send placeholder/mock IDs to the API.
 - **Migration discipline:** never alter a production table by hand — every schema change is
   a numbered migration in `migrations/`, then `npm run prisma:pull`.
+- **Debug via Vercel logs:** whenever there's a bug or a reported issue, check the Vercel
+  logs first (runtime logs / build logs for the affected deployment) before guessing — the
+  app runs on Vercel, so the real error and stack trace are there. Use the Vercel MCP
+  (`get_runtime_logs` / `get_runtime_errors` / `get_deployment_build_logs`) or `vercel logs`.
