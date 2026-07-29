@@ -6,6 +6,39 @@
 
 ---
 
+## ⛔ FIRST, EVERY SESSION: sync with `origin/main`
+
+**Before reading code, planning, or writing a line — fetch and work from `origin/main`.**
+The local checkout is routinely far behind (this has bitten us: a session once planned an
+entire fix against a local `main` that was **85 commits stale**, and half the "missing" code
+it set out to write already existed on the remote).
+
+```bash
+git fetch origin && git log --oneline -1 origin/main
+git rev-list --left-right --count main...origin/main   # left=local-only, right=behind
+```
+
+Then, before touching anything:
+
+1. **Branch off `origin/main`, not local `main`:**
+   `git checkout -b <branch> origin/main` (stash unrelated working-tree edits first).
+   Already on a branch? `git fetch origin && git rebase origin/main`.
+2. **Verify every file you plan to change against `origin/main`** — not against what's on
+   disk, and not against a stale memory of it. `git show origin/main:<path>` /
+   `git diff main origin/main -- <paths>`. Line numbers and helpers move.
+3. **Check whether the thing already exists.** Search `origin/main` before building a
+   utility, endpoint, or guard — recent PRs may already have shipped it.
+4. **After switching branches, regenerate the Prisma client:** `cd web && npm run prisma:generate`.
+   A stale `web/app/generated/prisma` shows up as a wall of bogus typecheck errors in test
+   files (`Property 'x' does not exist on type dealsSelect`), not as a schema error.
+
+Caveats seen in this repo (iCloud-synced `.git`): `git fetch` sometimes hangs — retry it in
+the background rather than assuming the refs are current. And if `next build` dies with
+`ENOENT … .next/cache`, that symlink points at `/tmp/rtf-cache`, which macOS clears:
+`mkdir -p /tmp/rtf-cache`.
+
+---
+
 ## The App: `web/` (Next.js 16 + Prisma 7 on Vercel)
 
 **RealTourFlow is a single Next.js 16 app under `web/`** — one project serving both the UI
