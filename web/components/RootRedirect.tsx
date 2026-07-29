@@ -4,7 +4,22 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useAuthStore } from "@/lib/store/authStore";
+import { useLogout } from "@/hooks/useLogout";
 import { GroupId } from "@/permissions/groups";
+
+// Both error screens below use inline styles rather than Tailwind, so the
+// escape-hatch button matches them instead of importing UserMenu.
+const logoutButtonStyle: React.CSSProperties = {
+  marginTop: 20,
+  padding: "10px 18px",
+  borderRadius: 10,
+  border: "1px solid #cbd5e1",
+  background: "#fff",
+  color: "#0f172a",
+  fontSize: 14,
+  fontWeight: 600,
+  cursor: "pointer",
+};
 
 /**
  * Smart root redirect based on active user group.
@@ -22,6 +37,7 @@ export default function RootRedirect() {
   const syncError = useAuthStore((s) => s.syncError);
   const activeUser = useAuthStore((s) => s.activeUser);
   const router = useRouter();
+  const logout = useLogout();
 
   useEffect(() => {
     if (!auth0Loading && !isAuthenticated && !auth0Error) {
@@ -53,6 +69,9 @@ export default function RootRedirect() {
       <div style={{ padding: 32, fontFamily: "monospace" }}>
         <h2 style={{ color: "red" }}>Auth0 error</h2>
         <pre>{auth0Error.message}</pre>
+        <button onClick={logout} style={logoutButtonStyle}>
+          Log out
+        </button>
       </div>
     );
   }
@@ -81,6 +100,11 @@ export default function RootRedirect() {
               ? "Open the invite link your agent sent you to finish creating your account — or ask them to resend it."
               : "Something went wrong reaching your account. Please refresh the page. If this keeps happening, contact your agent or support."}
           </p>
+          {/* Without this the screen is a hard dead-end: signed in, no role, no
+              way to reach another account. */}
+          <button onClick={logout} style={logoutButtonStyle}>
+            Log out
+          </button>
         </div>
       </div>
     );

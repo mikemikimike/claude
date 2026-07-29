@@ -189,6 +189,28 @@ https://realtourflow.com/roles: ["agent"]  // or buyer, seller, admin, tc, lendi
 ```
 `SyncUser` reads this claim. A user with no role gets 403.
 
+### Role precedence — the JWT claim does NOT always win
+
+The tenant grants every brand-new signup a default `agent` role (self-serve agent signup is
+intentional). That made the claim unreliable as a statement of identity: an invited buyer's
+role was written correctly by the invite claim, then overwritten with `agent` by the very next
+`/users/sync`, dropping them into the agent app. `POST /api/users/sync` now resolves the role
+through **`decideRole()` in `web/lib/roles.ts`** — the single place this rule lives (don't add
+a second guard in `upsertUser` or the route):
+
+1. An explicit **non-default** claim (`admin`, `tc`, `seller`, `buyer`, `lending_partner`) wins.
+2. A persisted **`buyer`/`seller`** is never overwritten by a default `agent` claim.
+3. For a user with **no row yet**, an open (unclaimed, unexpired) `deal_invites` row for their
+   email beats the default claim — the safety net when the claim POST never ran.
+4. Otherwise the claim, else the persisted role. No role anywhere = 403.
+
+**To make someone an admin or TC:** unchanged — assign the role in the Auth0 prod tenant
+(User Management → Users → *Roles* tab), then have them log out and back in. Rule 1 honours it.
+
+**To move a client to agent:** the `agent` claim alone will not do it (rule 2). Update the row
+(`UPDATE users SET role='agent' WHERE …`) **and then** have them re-login — once `users.role`
+is no longer a client role, rule 4 honours the claim again.
+
 ---
 
 ## Auth Architecture
@@ -200,9 +222,17 @@ Auth0 JWT is the source of truth end-to-end.
 - Server routes validate every protected request via JWKS — `web/lib/auth.ts` plus
   `withAuth` in `web/lib/http.ts`.
 - Roles: `agent`, `buyer`, `seller`, `admin`, `tc`, `lending_partner`. Server-side scoping
-  is the security boundary; client-side role gating is UX only.
+  is the security boundary; client-side role gating is UX only. See **Role precedence** above
+  for how `/users/sync` picks one.
 - Forgot-password and resend-verification live under `web/app/api/auth/*`
   (`web/lib/auth0.ts` wraps the public change-password endpoint + the Management API).
+- **Logout:** `useLogout()` (`web/hooks/useLogout.ts`) is the single exit for every role,
+  surfaced by `UserMenu` (`web/components/layout/UserMenu.tsx`) in all four shells, the
+  onboarding wizard, and the `RootRedirect` error screens. It tears down local state (auth
+  store, token getter, pending-invite keys) *before* redirecting. `returnTo` must be listed in
+  the Auth0 application's **Allowed Logout URLs** — `https://app.realtourflow.com`,
+  `http://localhost:3000`, and the preview origins — or Auth0 strands the user on its own
+  error page.
 
 ---
 

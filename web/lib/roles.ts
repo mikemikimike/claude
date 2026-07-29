@@ -65,6 +65,63 @@ export function resolveRole(claimRoles: readonly string[]): Role | null {
   return null;
 }
 
+/**
+ * The role the Auth0 tenant hands every brand-new signup. Self-serve agent
+ * signup is intentional — someone who signs up with no invite SHOULD become an
+ * agent — but that makes the claim a DEFAULT rather than a statement of
+ * identity, so it must lose to a role an invite already established. See
+ * decideRole.
+ */
+export const DEFAULT_TENANT_ROLE: Role = "agent";
+
+/**
+ * Client-portal roles. These only ever come from a deal invite — Auth0 RBAC
+ * never assigns them — which is why decideRole treats them as authoritative.
+ */
+export function isClientRole(role: string | null | undefined): role is Role {
+  return role === "buyer" || role === "seller";
+}
+
+/**
+ * THE role-precedence rule for POST /api/users/sync. Pure — all IO lives in
+ * resolveSyncRole (lib/users.ts). This is the ONLY place the rule lives: do not
+ * add a second guard in upsertUser or in the route handler.
+ *
+ * Fixes the invited-client-becomes-an-agent bug: the claim route wrote `buyer`,
+ * then the very next /users/sync overwrote it with the tenant's default `agent`
+ * claim and dropped the client into agent onboarding.
+ *
+ * Returns null when nothing anywhere assigns a role — the caller turns that
+ * into a 403.
+ */
+export function decideRole(input: {
+  claimedRole: Role | null;
+  dbRole: Role | null;
+  inviteRole: Role | null;
+}): Role | null {
+  const { claimedRole, dbRole, inviteRole } = input;
+
+  // 1. An explicit (non-default) claim always wins. This is the documented
+  //    promotion path: assign the role in Auth0 RBAC → log out → log back in.
+  if (claimedRole && claimedRole !== DEFAULT_TENANT_ROLE) return claimedRole;
+
+  // 2. An established buyer/seller is NEVER overwritten by the tenant's default
+  //    `agent` claim. Escape hatch for a genuine client→agent move: update
+  //    users.role directly, then re-login — dbRole is no longer a client role,
+  //    so rule 4 takes over and the claim is honoured again.
+  if (isClientRole(dbRole)) return dbRole;
+
+  // 3. No row yet — the invite claim POST is slow, failed, or they logged in on
+  //    a device that never saw the invite link. An OPEN invite addressed to
+  //    them is better evidence than the tenant default. Gated on !dbRole so an
+  //    agent who happens to hold a client invite for their own email is never
+  //    demoted (cf. #174).
+  if (!dbRole && isClientRole(inviteRole)) return inviteRole;
+
+  // 4. Normal path — including self-serve agent signup with no invite at all.
+  return claimedRole ?? dbRole;
+}
+
 export function hasRole(
   userRoles: readonly string[],
   allowed: readonly string[]

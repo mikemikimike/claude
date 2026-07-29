@@ -43,16 +43,39 @@ export default function InvitePage() {
       ? 'Invite not found or has expired.'
       : null;
 
-  function accept() {
-    if (!token || !invite) return;
+  // AuthSetup reads these back after the Auth0 round-trip and claims the invite.
+  function persistPending() {
+    if (!token || !invite) return false;
     localStorage.setItem('pendingInvite', token);
     localStorage.setItem('pendingInviteEmail', invite.email);
-    if (isAuthenticated) {
-      // Already logged in — navigate to root to trigger claim in AuthSetup
-      window.location.href = '/';
-    } else {
-      loginWithRedirect({ appState: { returnTo: '/' } });
-    }
+    return true;
+  }
+
+  // Brand-new client — go straight to Auth0's SIGN-UP screen with the invited
+  // email prefilled. Without screen_hint they landed on the LOG-IN form and had
+  // to find "Create new account" themselves, which is where the onboarding
+  // dead-ended. Mirrors AgentSignupPage.
+  function signUp() {
+    if (!persistPending()) return;
+    loginWithRedirect({
+      authorizationParams: { screen_hint: 'signup', login_hint: invite!.email },
+      appState: { returnTo: '/' },
+    });
+  }
+
+  // Client who already has a RealTourFlow account (e.g. a second deal).
+  function logIn() {
+    if (!persistPending()) return;
+    loginWithRedirect({
+      authorizationParams: { login_hint: invite!.email },
+      appState: { returnTo: '/' },
+    });
+  }
+
+  // Already signed in — root triggers the claim in AuthSetup.
+  function acceptAsCurrentUser() {
+    if (!persistPending()) return;
+    window.location.href = '/';
   }
 
   if (auth0Loading || loading) {
@@ -97,7 +120,12 @@ export default function InvitePage() {
           <h1 className="text-lg font-bold text-brand-navy mb-2">Already accepted</h1>
           <p className="text-sm text-gray-400">This invite has already been claimed. Log in to access your deal.</p>
           <button
-            onClick={() => loginWithRedirect({ appState: { returnTo: '/' } })}
+            onClick={() =>
+              loginWithRedirect({
+                authorizationParams: { login_hint: invite.email },
+                appState: { returnTo: '/' },
+              })
+            }
             className="mt-5 w-full rounded-xl bg-brand-navy py-3 text-sm font-bold text-white hover:bg-brand-navy/90 transition-colors"
           >
             Log in
@@ -183,12 +211,34 @@ export default function InvitePage() {
               By accepting, you&apos;ll get access to your deal file, tasks, messages, and documents through the client portal.
             </p>
 
-            <button
-              onClick={accept}
-              className="w-full rounded-xl bg-brand-navy py-3 text-sm font-bold text-white hover:bg-brand-navy/90 active:scale-[0.98] transition-all shadow-sm"
-            >
-              {isAuthenticated ? 'Accept invitation →' : 'Accept & create account →'}
-            </button>
+            {isAuthenticated ? (
+              <button
+                onClick={acceptAsCurrentUser}
+                className="w-full rounded-xl bg-brand-navy py-3 text-sm font-bold text-white hover:bg-brand-navy/90 active:scale-[0.98] transition-all shadow-sm"
+              >
+                Accept invitation →
+              </button>
+            ) : (
+              <div className="space-y-2.5">
+                <button
+                  onClick={signUp}
+                  className="w-full rounded-xl bg-brand-navy py-3 text-sm font-bold text-white hover:bg-brand-navy/90 active:scale-[0.98] transition-all shadow-sm"
+                >
+                  Create my account →
+                </button>
+                <button
+                  onClick={logIn}
+                  className="w-full rounded-xl border border-gray-200 bg-white py-3 text-sm font-semibold text-brand-navy hover:bg-gray-50 transition-colors"
+                >
+                  I already have an account
+                </button>
+                <p className="text-center text-xs text-gray-400">
+                  <Link href="/forgot-password" className="font-semibold text-brand-navy hover:underline">
+                    Forgot password?
+                  </Link>
+                </p>
+              </div>
+            )}
 
             <p className="text-[11px] text-gray-300 text-center">
               Expires {new Date(invite.expires_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}

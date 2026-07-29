@@ -1,6 +1,6 @@
 import { env } from "@/lib/env";
 import { error, json } from "@/lib/http";
-import { prisma } from "@/lib/db";
+import { roleForEmail } from "@/lib/invite-role";
 
 // Called by the Auth0 Post-Login Action to resolve a role for a given email.
 // Returns "" if no role applies (which the Action then surfaces as a 403 the
@@ -19,20 +19,8 @@ export async function GET(req: Request): Promise<Response> {
     return error("unauthorized", 401);
   }
 
-  const url = new URL(req.url);
-  const email = url.searchParams.get("email");
-  if (!email) return json({ role: "" });
-
-  const user = await prisma.users.findUnique({
-    where: { email },
-    select: { role: true },
-  });
-  if (user) return json({ role: user.role });
-
-  const invite = await prisma.deal_invites.findFirst({
-    where: { email, claimed_at: null, expires_at: { gt: new Date() } },
-    orderBy: { created_at: "desc" },
-    select: { role: true },
-  });
-  return json({ role: invite?.role ?? "" });
+  // Lookup itself lives in lib/invite-role.ts — shared with resolveSyncRole so
+  // the Action and /users/sync can never disagree about what an email's role is.
+  const email = new URL(req.url).searchParams.get("email");
+  return json({ role: email ? await roleForEmail(email) : "" });
 }

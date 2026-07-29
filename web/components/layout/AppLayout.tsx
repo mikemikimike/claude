@@ -2,7 +2,6 @@
 
 import { ReactNode, useState, useRef, useEffect } from 'react';
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useAgentSetupStore } from "@/lib/store/agentSetupStore";
@@ -36,6 +35,7 @@ import {
 } from 'lucide-react';
 import InviteModal from '../InviteModal';
 import VerifyEmailBanner from '../VerifyEmailBanner';
+import UserMenu from './UserMenu';
 import { useNotifications } from "@/hooks/useNotifications";
 
 function NotificationBell() {
@@ -283,8 +283,6 @@ function TopHeader({
   roleLabel: string;
   roleBgClass: string;
 }) {
-  const activeUser = useAuthStore((s) => s.activeUser);
-
   return (
     <header className="flex h-14 flex-shrink-0 items-center justify-between bg-brand-navy px-6 shadow-md">
       <div className="flex items-center gap-2">
@@ -294,19 +292,7 @@ function TopHeader({
         </span>
       </div>
       <div className="flex items-center gap-3">
-        {activeUser && (
-          <>
-            <span className="text-sm text-white/70">{activeUser.name}</span>
-            <Image
-              src={activeUser.avatar}
-              alt={activeUser.name}
-              width={32}
-              height={32}
-              unoptimized
-              className="h-8 w-8 rounded-full ring-2 ring-brand-gold/50"
-            />
-          </>
-        )}
+        <UserMenu variant="dark" avatarRingClass="ring-brand-gold/50" />
       </div>
     </header>
   );
@@ -406,6 +392,7 @@ function AgentLayout({ children }: { children: ReactNode }) {
         <UserPlus size={15} />
         <span className="hidden sm:inline">Invite Client</span>
       </button>
+      <UserMenu avatarRingClass="ring-blue-200" />
     </div>
   );
 
@@ -431,19 +418,12 @@ function AgentLayout({ children }: { children: ReactNode }) {
 // Admin Layout
 
 function AdminLayout({ children }: { children: ReactNode }) {
-  const activeUser = useAuthStore((s) => s.activeUser);
-
   const topBar = (
     <>
       <span className="text-xs font-semibold text-gray-400">Admin Console</span>
       <div className="ml-auto flex items-center gap-3">
         <NotificationBell />
-        {activeUser && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500 hidden sm:block">{activeUser.name}</span>
-            <Image src={activeUser.avatar} alt={activeUser.name} width={28} height={28} unoptimized className="h-7 w-7 rounded-full ring-2 ring-red-200" />
-          </div>
-        )}
+        <UserMenu avatarRingClass="ring-red-200" />
       </div>
     </>
   );
@@ -458,19 +438,12 @@ function AdminLayout({ children }: { children: ReactNode }) {
 // TC Layout
 
 function TCLayout({ children }: { children: ReactNode }) {
-  const activeUser = useAuthStore((s) => s.activeUser);
-
   const topBar = (
     <>
       <span className="text-xs font-semibold text-gray-400">Transaction Coordinator</span>
       <div className="ml-auto flex items-center gap-3">
         <NotificationBell />
-        {activeUser && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500 hidden sm:block">{activeUser.name}</span>
-            <Image src={activeUser.avatar} alt={activeUser.name} width={28} height={28} unoptimized className="h-7 w-7 rounded-full ring-2 ring-amber-200" />
-          </div>
-        )}
+        <UserMenu avatarRingClass="ring-amber-200" />
       </div>
     </>
   );

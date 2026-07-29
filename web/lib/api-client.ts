@@ -5,7 +5,8 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api';
 
 let tokenGetter: (() => Promise<string>) | null = null;
 
-export function setTokenGetter(fn: () => Promise<string>) {
+/** Pass null on logout so a stale getter can't mint a token for the next user. */
+export function setTokenGetter(fn: (() => Promise<string>) | null) {
   tokenGetter = fn;
 }
 
