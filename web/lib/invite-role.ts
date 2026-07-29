@@ -20,8 +20,11 @@ export async function pendingInviteRole(email: string): Promise<Role | null> {
     orderBy: { created_at: "desc" },
     select: { role: true },
   });
-  // deal_invites.role is a plain text column, not the user_role enum — validate
-  // rather than casting so a bad row can't reach the enum as a 500.
+  // deal_invites.role is a plain text column, not the user_role enum. The DB
+  // check constraint (deal_invites_role_check) keeps it to buyer/seller; this
+  // validates rather than casting so that if the constraint is ever relaxed, a
+  // bad value can't reach the user_role enum as an opaque 500 — or worse, hand
+  // out a role nobody was invited to.
   return isValidRole(invite?.role) ? invite.role : null;
 }
 
@@ -32,10 +35,14 @@ export async function pendingInviteRole(email: string): Promise<Role | null> {
  */
 export async function roleForEmail(email: string): Promise<Role | ""> {
   if (!email) return "";
-  const user = await prisma.users.findUnique({
-    where: { email },
+  // findFirst, not findUnique: matching has to be case-insensitive for the same
+  // reason as above, and a unique-where clause only takes an exact string. A
+  // case-sensitive miss here would silently fall through to the invite lookup
+  // and report an invited role for someone whose account already exists.
+  const user = await prisma.users.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
     select: { role: true },
   });
-  if (user) return user.role as Role;
+  if (user) return isValidRole(user.role) ? user.role : "";
   return (await pendingInviteRole(email)) ?? "";
 }
