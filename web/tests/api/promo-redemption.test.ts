@@ -37,7 +37,9 @@ function ctx(id: string) {
 }
 
 // No upsells → subtotal is just the base fee. Keeps the discount math obvious.
-const SUBTOTAL = FAST_PASS_BASE_PRICE_CENTS; // 297700
+const SUBTOTAL = FAST_PASS_BASE_PRICE_CENTS;
+// Derived, never hardcoded: a base-price change should not need edits here.
+const TEN_PCT_DISCOUNT = Math.round(SUBTOTAL * 0.1);
 
 type PromoSeed = {
   code: string;
@@ -109,9 +111,8 @@ describe("Fast Pass promo redemption (#281)", () => {
     const deal = await createDeal({ agent_id: agent.id, title: "1 Discount Way" });
     const promoId = await seedPromo({ code: "SAVE10", discount_type: "pct", discount_value: 10 });
 
-    // 10% of 297700 = 29770 → total 267930.
-    const expectedDiscount = 29770;
-    const expectedTotal = SUBTOTAL - expectedDiscount; // 267930
+    const expectedDiscount = TEN_PCT_DISCOUNT;
+    const expectedTotal = SUBTOTAL - expectedDiscount;
 
     let captured: Stripe.Checkout.SessionCreateParams | undefined;
     setStripeForTesting({
@@ -158,8 +159,8 @@ describe("Fast Pass promo redemption (#281)", () => {
     const promoId = await seedPromo({ code: "FLAT100", discount_type: "fixed", discount_value: 100 });
     // Composed order (#281 + #280): discount the subtotal FIRST, then apply the
     // at_closing +15% premium on the already-discounted basket.
-    const discounted = SUBTOTAL - 10000; // 287700
-    const expectedTotal = Math.round(discounted * 1.15); // 330855
+    const discounted = SUBTOTAL - 10000;
+    const expectedTotal = Math.round(discounted * 1.15);
 
     const res = await enroll(deal.id, "auth0|a", ["agent"], {
       payment_option: "at_closing",
@@ -185,7 +186,7 @@ describe("Fast Pass promo redemption (#281)", () => {
     });
     expect(res.status).toBe(200);
     const fp = await readFastPass(deal.id);
-    // No code → #280's plain at_closing premium: round(subtotal × 1.15) = 342355.
+    // No code → #280's plain at_closing premium: round(subtotal × 1.15).
     expect(fp.total_cents).toBe(String(Math.round(SUBTOTAL * 1.15)));
     expect(fp.promo_code).toBeNull();
   });
@@ -313,10 +314,12 @@ describe("Fast Pass promo redemption (#281)", () => {
     expect(await usesCount(promoId)).toBe(1);
 
     // Exactly one deal ended up enrolled, at the composed discounted at_closing
-    // price: (subtotal − 10% discount) × 1.15 = round(267930 × 1.15) = 308120.
+    // price: (subtotal − 10% discount) × 1.15.
     const fps = await Promise.all([readFastPass(dealA.id), readFastPass(dealB.id)]);
     const enrolled = fps.filter((f) => f.total_cents != null);
     expect(enrolled).toHaveLength(1);
-    expect(enrolled[0].total_cents).toBe(String(Math.round((SUBTOTAL - 29770) * 1.15)));
+    expect(enrolled[0].total_cents).toBe(
+      String(Math.round((SUBTOTAL - TEN_PCT_DISCOUNT) * 1.15))
+    );
   });
 });

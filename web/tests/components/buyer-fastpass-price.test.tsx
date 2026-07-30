@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 /**
  * Issue #279 — the buyer-portal Fast Pass pitch card (FastPassPitch) hardcoded
- * "$1,497 · pay now or at closing" while the catalog / server / survey all
- * charge the real Fast Pass base price ($2,977) sourced from
- * lib/fast-pass-catalog.ts via lib/fast-pass-display.ts (#78). A buyer was
- * quoted $1,497 on the pitch card but charged $2,977 at checkout.
+ * "$1,497 · pay now or at closing" while the catalog / server / survey charged
+ * whatever lib/fast-pass-catalog.ts said, surfaced via lib/fast-pass-display.ts
+ * (#78). A buyer was quoted one price on the pitch card and charged another at
+ * checkout. (The charged figure was $2,977 at the time; it is $1,787 now — the
+ * catalog was itself overcharging against the advertised price. That is exactly
+ * why nothing here hardcodes a number.)
  *
  * After the fix the pitch card must render the single-sourced base price — the
  * same value POST /deals/[id]/fastpass charges — and must track that constant
@@ -178,7 +180,7 @@ describe("FastPassPitch price (#279)", () => {
     renderView(<BuyerView />);
 
     const badge = screen.getByText(/pay now or at closing/i);
-    // Assert against the imported binding (not a "$2,977" literal): if the
+    // Assert against the imported binding (never a dollar literal): if the
     // shared constant changes, this expectation — and the card — move with it.
     expect(badge).toHaveTextContent(
       `$${FAST_PASS_BASE_PRICE.toLocaleString()} · pay now or at closing`

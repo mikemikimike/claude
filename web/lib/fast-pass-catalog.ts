@@ -14,7 +14,17 @@
  * derives its displayed dollar prices from these cents, so what the user sees
  * is what the server charges.
  */
-export const FAST_PASS_BASE_PRICE_CENTS = 297700;
+/**
+ * $1,787 — the advertised price. The server previously charged $2,977 while
+ * marketing quoted $1,787, so every buyer who enrolled was billed ~$1,190 over
+ * the number they were sold on (flagged in the 2026-07 audit as three
+ * conflicting Fast Pass prices). Confirmed with Paul 2026-07-30: $1,787 is the
+ * real one, and this constant is what Stripe charges.
+ *
+ * Enrollment stores its computed total on the deal, so changing this only
+ * affects NEW enrollments — anyone already enrolled keeps their agreed amount.
+ */
+export const FAST_PASS_BASE_PRICE_CENTS = 178700;
 
 /**
  * "Pay at closing" defers the Fast Pass charge to the closing table, and buyers

@@ -18,6 +18,7 @@ import FastPassSurvey, {
   HANDOFF_KEY,
 } from "@/components/pages/onboarding/FastPassSurvey";
 import { api } from "@/lib/api-client";
+import { FAST_PASS_BASE_PRICE_CENTS } from "@/lib/fast-pass-catalog";
 
 // Mutable so individual tests can simulate a ?dealId= entry point. The `mock`
 // prefix is what lets Vitest's hoisted vi.mock factory close over it.
@@ -41,8 +42,9 @@ vi.mock("@/lib/store/authStore", () => ({
 const mockPost = api.post as Mock;
 
 const DEAL_ID = "5f0f6f6a-9b1c-4f6e-8a2d-3c4b5a697e01";
-// base price (2977) + Utility Setup Concierge ($97) = 3074
-const STASHED_TOTAL = 3074;
+// Base price + Utility Setup Concierge ($97), in dollars. Derived from the
+// catalog so a base-price change doesn't need an edit here.
+const STASHED_TOTAL = FAST_PASS_BASE_PRICE_CENTS / 100 + 97;
 
 function seedHandoff() {
   sessionStorage.setItem(
@@ -125,8 +127,8 @@ describe("FastPassSurvey handoff", () => {
     const [path, body] = mockPost.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe(`/deals/${OTHER_DEAL}/fastpass`);
     expect(body.selected_upsells).toEqual([]);
-    // Base price only (2977), in cents — none of the stale upsell dollars.
-    expect(body.total_cents).toBe(297700);
+    // Base price only, in cents — none of the stale upsell dollars.
+    expect(body.total_cents).toBe(FAST_PASS_BASE_PRICE_CENTS);
   });
 
   it("shows an error — never the success screen — when the enrollment POST fails", async () => {
