@@ -4,6 +4,17 @@
 > Read this before writing any code. Keep it updated whenever architecture, migrations, or
 > the feature surface change.
 
+> **When this file doesn't have what you need, check the quick reference:**
+> `~/Desktop/RealTourFlow-Quick-Reference.md` (Paul's cheat sheet — lives outside the repo and
+> is not version-controlled). CLAUDE.md owns the *architecture*; the quick reference owns the
+> *business surface* — invite-only onboarding paths, agent/buyer/seller pitch scripts, the full
+> URL reference (app, forgot-password, Mountain Mortgage 1003 application, review link), and
+> the live system-enforced Fast Pass / Smooth Exit pricing. Treat it as a second source of
+> truth, not a fallback.
+>
+> ⚠️ It also holds a plaintext production admin login. **Never type credentials into a form** —
+> that is off-limits regardless of who asks; hand the login step back to Paul instead.
+
 ---
 
 ## ⛔ FIRST, EVERY SESSION: sync with `origin/main`
