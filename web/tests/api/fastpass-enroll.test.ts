@@ -33,8 +33,10 @@ function ctx(id: string) {
   return { params: Promise.resolve({ id }) };
 }
 
-// Base 297700 + utility_setup 9700 + staging_consult 24700 = 332100.
-const EXPECTED_TOTAL = 332100;
+// Base + utility_setup 9700 + staging_consult 24700. Derived from the catalog
+// so a base-price change doesn't need an edit here — the upsells stay literal
+// so a wrong upsell amount is still caught.
+const EXPECTED_TOTAL = FAST_PASS_BASE_PRICE_CENTS + 9700 + 24700;
 // "Pay at closing" defers the charge and adds a 15% premium to the FULL basket
 // (base + upsells) exactly once. "now" / "seller_concession" carry no premium.
 // Literal 1.15 here (not the catalog constant) so a wrong multiplier is caught.
@@ -118,9 +120,9 @@ describe("POST /api/deals/[id]/fastpass", () => {
       SELECT fast_pass->>'total_cents' AS total_cents
       FROM deals WHERE id = ${deal.id}::uuid
     `;
-    // Pre-fix this equalled the un-marked base (297700) — the revenue leak.
+    // Pre-fix this equalled the un-marked base — the revenue leak.
     expect(rows[0].total_cents).toBe(
-      String(Math.round(FAST_PASS_BASE_PRICE_CENTS * 1.15)) // 342355
+      String(Math.round(FAST_PASS_BASE_PRICE_CENTS * 1.15))
     );
     expect(rows[0].total_cents).not.toBe(String(FAST_PASS_BASE_PRICE_CENTS));
   });
@@ -321,7 +323,7 @@ describe("POST /api/deals/[id]/fastpass", () => {
           status: "active",
           payment_option: "at_closing",
           selected_upsells: [],
-          total_cents: 297700,
+          total_cents: FAST_PASS_BASE_PRICE_CENTS,
           paid: false,
           enrolled_at: "2026-01-01T00:00:00.000Z",
         },
