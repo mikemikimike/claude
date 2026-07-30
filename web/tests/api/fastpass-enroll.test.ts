@@ -40,7 +40,7 @@ const EXPECTED_TOTAL = FAST_PASS_BASE_PRICE_CENTS + 9700 + 24700;
 // "Pay at closing" defers the charge and adds a 15% premium to the FULL basket
 // (base + upsells) exactly once. "now" / "seller_concession" carry no premium.
 // Literal 1.15 here (not the catalog constant) so a wrong multiplier is caught.
-const EXPECTED_AT_CLOSING_TOTAL = Math.round(EXPECTED_TOTAL * 1.15); // 381915
+const EXPECTED_AT_CLOSING_TOTAL = Math.round(EXPECTED_TOTAL * 1.15);
 
 describe("POST /api/deals/[id]/fastpass", () => {
   it("owner enrolls deferred (at_closing) → 200 {ok:true}, persisted with server total (+15% premium) + deduped upsells", async () => {
@@ -203,7 +203,7 @@ describe("POST /api/deals/[id]/fastpass", () => {
     // once, not the upsell marked up separately.
     const expected = Math.round(
       (FAST_PASS_BASE_PRICE_CENTS + FAST_PASS_UPSELL_PRICE_CENTS.utility_setup) * 1.15
-    ); // 353510
+    );
     const rows = await prisma.$queryRaw<{ total_cents: string }[]>`
       SELECT fast_pass->>'total_cents' AS total_cents
       FROM deals WHERE id = ${deal.id}::uuid

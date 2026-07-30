@@ -159,8 +159,8 @@ describe("Fast Pass promo redemption (#281)", () => {
     const promoId = await seedPromo({ code: "FLAT100", discount_type: "fixed", discount_value: 100 });
     // Composed order (#281 + #280): discount the subtotal FIRST, then apply the
     // at_closing +15% premium on the already-discounted basket.
-    const discounted = SUBTOTAL - 10000; // 287700
-    const expectedTotal = Math.round(discounted * 1.15); // 330855
+    const discounted = SUBTOTAL - 10000;
+    const expectedTotal = Math.round(discounted * 1.15);
 
     const res = await enroll(deal.id, "auth0|a", ["agent"], {
       payment_option: "at_closing",
