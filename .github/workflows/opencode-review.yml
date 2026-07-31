@@ -24,7 +24,11 @@ jobs:
          github.event.comment.author_association == 'MEMBER' ||
          github.event.comment.author_association == 'COLLABORATOR'))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The other false-red seen on 2026-07-30: a run was killed at exactly 10m
+    # mid-review. Observed successful reviews take ~1–6.5m, so 10 left almost no
+    # headroom on a large diff. 20 still bounds a runaway without failing honest
+    # work.
+    timeout-minutes: 20
     permissions:
       id-token: write
       contents: read
@@ -49,6 +53,19 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git init --bare --quiet "$RUNNER_TEMP/push-sink.git"
+          # The sink must accept ANY push, because a rejected one fails the step
+          # and turns the whole check red — after the review has already been
+          # written. That is exactly what happened: 3 of 6 runs on 2026-07-30
+          # died on "shallow update not allowed" having already produced (and in
+          # one case posted) a verdict.
+          #
+          # Our own checkout is full (fetch-depth: 0), but the opencode action
+          # fetches its own refs shallowly, so the auto-push can carry shallow
+          # boundary info — and a bare repo refuses that unless told otherwise.
+          # Nothing ever reads this repo; it exists only to swallow the push.
+          git --git-dir="$RUNNER_TEMP/push-sink.git" config receive.shallowUpdate true
+          git --git-dir="$RUNNER_TEMP/push-sink.git" config receive.denyNonFastForwards false
+          git --git-dir="$RUNNER_TEMP/push-sink.git" config receive.denyCurrentBranch ignore
           git remote set-url --push origin "$RUNNER_TEMP/push-sink.git"
 
       - name: Resolve base ref
