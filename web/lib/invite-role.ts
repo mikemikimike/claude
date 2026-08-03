@@ -40,14 +40,23 @@ export async function pendingInviteRole(email: string): Promise<Role | null> {
  */
 export async function roleForEmail(email: string): Promise<Role | ""> {
   if (!email) return "";
-  // findFirst, not findUnique: matching has to be case-insensitive for the same
-  // reason as above, and a unique-where clause only takes an exact string. A
-  // case-sensitive miss here would silently fall through to the invite lookup
-  // and report an invited role for someone whose account already exists.
-  const user = await prisma.users.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-    select: { role: true },
-  });
+  // Raw SQL for the same two reasons as pendingInviteRole: the match has to be
+  // case-insensitive (a miss here would fall through to the invite lookup and
+  // report an invited role for someone whose account already exists), and
+  // Prisma's `mode: "insensitive"` emits ILIKE, which no btree can serve —
+  // including users_email_key. Matches the functional index in 000062.
+  //
+  // ORDER BY created_at: users.email is unique only case-SENSITIVELY, so
+  // `alice@x.com` and `Alice@X.com` could both exist. There are none today, but
+  // if one ever appears the original account should win rather than whichever
+  // row the planner happened to reach first.
+  const rows = await prisma.$queryRaw<{ role: string }[]>`
+    SELECT role FROM users
+     WHERE lower(email) = lower(${email})
+     ORDER BY created_at ASC
+     LIMIT 1
+  `;
+  const user = rows[0];
   if (user) return isValidRole(user.role) ? user.role : "";
   return (await pendingInviteRole(email)) ?? "";
 }

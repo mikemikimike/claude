@@ -1,0 +1,19 @@
+-- Sibling of 000061, for the other half of lib/invite-role.ts.
+--
+-- roleForEmail() looks an account up by email case-insensitively, for the same
+-- reason pendingInviteRole() does: Auth0 returns a normalized address and a case
+-- miss would silently fall through to the invite lookup and report an invited
+-- role for someone whose account already exists. The existing users_email_key
+-- unique btree cannot serve that — `lower(email) = lower($1)` needs an index on
+-- the expression, not on the column.
+--
+-- Deliberately NOT unique. Making it unique would enforce case-insensitive
+-- account uniqueness, which is arguably right, but it is a semantic change to
+-- signup rather than an index fix: a colliding signup would start failing on a
+-- constraint whose name isEmailUniqueViolation() (lib/users.ts) does not
+-- recognize, so #277's clean 409 would regress to an opaque 500. Prod has 10
+-- users and zero case-collisions today, so nothing is being papered over —
+-- enforcing that invariant is just a separate decision.
+--
+-- Not partial: unlike deal_invites, every users row is a candidate.
+CREATE INDEX IF NOT EXISTS users_lower_email_idx ON users (lower(email));
