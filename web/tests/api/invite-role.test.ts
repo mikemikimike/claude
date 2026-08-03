@@ -115,6 +115,21 @@ describe("roleForEmail", () => {
     expect(await roleForEmail("caps@example.com")).toBe("tc");
   });
 
+  // users.email is unique only case-SENSITIVELY, so two rows differing only by
+  // case are possible (none exist today). The lookup must then be deterministic
+  // — the original account wins — rather than returning whichever row the
+  // planner reached first.
+  it("returns the OLDEST account when two differ only by case", async () => {
+    const first = await createUser({ email: "Dup@Example.com", role: "admin" });
+    await prisma.users.update({
+      where: { id: first.id },
+      data: { created_at: new Date("2020-01-01T00:00:00Z") },
+    });
+    await createUser({ email: "dup@example.com", role: "buyer" });
+
+    expect(await roleForEmail("DUP@EXAMPLE.COM")).toBe("admin");
+  });
+
   it("falls back to an open invite when no account exists", async () => {
     await seedInvite("invited-only@example.com", "seller");
     expect(await roleForEmail("invited-only@example.com")).toBe("seller");
