@@ -130,8 +130,16 @@ and deleting that infra is an open ops task that needs AWS credentials. **File s
 has been migrated off S3 to Vercel Blob** (a private store; uploads/downloads flow through
 HMAC capability-URL proxy routes — `web/lib/blob-storage.ts`). The old
 `realtourflow-documents` S3 bucket + AWS SDK are retired: `web/` no longer touches S3, so
-the bucket is now a decommission candidate too (any documents uploaded before the cutover
-still live only in that bucket — migrate or re-upload them before deleting it).
+the bucket is now a decommission candidate too.
+> 🚨 **Open data gap — pre-cutover documents are unreachable.** The cutover commit
+> (`93f15574e`, 2026-07-08T04:57:17Z) made every read resolve the stored key against Blob,
+> but nothing copied the existing objects across. Any `documents` row created before that
+> timestamp still points at an S3-only object, so opening it fails — same for
+> `docusign_signed_s3_key` and every `getObjectBytes` consumer (`lib/remember-form.ts`,
+> disclosure-packet merging). **Do not delete the bucket** until this is closed.
+> Remediation: `web/scripts/backfill-s3-to-blob.ts` copies each object into Blob under the
+> identical key (so no DB change). Run it report-only first; it needs prod `DATABASE_URL`,
+> `BLOB_READ_WRITE_TOKEN`, and AWS read credentials for the old bucket. **Not yet run.**
 ⚠️ The production **database is Neon, not RDS**
 (verified 2026-06-24 by a runtime probe — `current_database()` returned `neondb`). The AWS
 RDS in account 508859666048 is **not used by the live app** and is itself a decommission
