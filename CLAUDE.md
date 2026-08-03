@@ -50,6 +50,42 @@ the background rather than assuming the refs are current. And if `next build` di
 
 ---
 
+## Known state (updated 2026-08-03)
+
+Read this before reporting a "bug" — these are already understood, so you can tell a new
+problem from a known one.
+
+**Prod is genuinely small.** 5 deals, 10 users, 1 document. Almost any "this would be slow /
+this would break at scale" concern is theoretical today — say so rather than implying users
+are affected. Equally, a bug that only shows up under load will not reproduce here.
+
+**Known-open, all deliberately not fixed:**
+- **One stranded document** — a single pre-cutover PDF (see the storage note below). Fix is
+  re-uploading it, not code.
+- **`roleForEmail` / `pendingInviteRole` use raw SQL** — deliberate, index-related. See the
+  Key Files table before "cleaning it up".
+- **`users.email` is unique only case-SENSITIVELY** while the app matches case-insensitively
+  everywhere. No collisions exist (checked 2026-08-03); the lookups order by `created_at` so
+  a future one can't return an arbitrary row. Enforcing case-insensitive uniqueness is a
+  deliberate non-change — it would regress #277's clean 409 to an opaque 500.
+- **Legacy AWS is still billing** — ECS/ALB/ECR/RDS/S3 all undeployed but not deleted.
+
+**Recently fixed — don't "re-discover" these:**
+- Invited clients becoming agents (role precedence — `decideRole`, #388)
+- No logout anywhere (#388)
+- Fast Pass charging $2,977 against an advertised $1,787 (#389) — nobody was ever billed the
+  wrong amount; it was caught before any enrollment
+- Both email lookups falling back to sequential scans (#393, #394)
+
+**The environment will fight you.** This repo lives on an iCloud-synced volume:
+`git fetch` intermittently hangs or dies on duplicate `refs/remotes/origin/main 2` files
+(delete them and retry), `tsc`/`eslint` sometimes take >10 minutes or stall entirely, and
+`next build` fails with `ENOENT .next/cache` whenever macOS clears `/tmp/rtf-cache`
+(`mkdir -p /tmp/rtf-cache`). None of these are code problems. When a local check stalls, CI
+is the reliable verifier.
+
+---
+
 ## The App: `web/` (Next.js 16 + Prisma 7 on Vercel)
 
 **RealTourFlow is a single Next.js 16 app under `web/`** — one project serving both the UI
@@ -116,9 +152,10 @@ The legacy Go + chi backend and React + Vite frontend have been removed.
 | App hosting | Vercel — production domain `app.realtourflow.com` |
 | Database | Neon serverless Postgres — DB `neondb`, endpoint `ep-winter-fire-apcnrqsw` (us-east-1); injected via the Vercel Production `DATABASE_URL` (a **Sensitive** var — not readable through the CLI) |
 | Document storage | Vercel Blob **private** store (`BLOB_STORE_ID` set in Prod; OIDC auth at runtime). S3 retired — see the storage note below |
-| Auth0 Tenant | dev-30md8ukv8qd3u27c.us.auth0.com |
+| Auth0 Tenant | **`realtourflow-prod.us.auth0.com`** — the live app authenticates here (verified 2026-08-01 by driving `app.realtourflow.com` in a browser). `dev-30md8ukv8qd3u27c.us.auth0.com` is the **dev** tenant; a local `npm run dev` uses it, so a login working locally proves nothing about prod |
 | Auth0 Audience | https://api.realtourflow.com |
-| Auth0 SPA Client ID | JMIZVqGbZ6KRmJGHyowg5kopHRmHGVhe |
+| Auth0 SPA Client ID | **`lEvAKBEQW00LEiUySQiIawrlu0q32tvJ`** (prod tenant). The dev-tenant id is `JMIZVqGbZ6KRmJGHyowg5kopHRmHGVhe` |
+| Auth0 Allowed Logout URLs | `https://app.realtourflow.com`, `http://localhost:3000` — **required**; a `returnTo` not on this list strands the user on an Auth0 error page instead of returning them to the app |
 | Secrets | Vercel project env vars (Production / Preview) |
 
 **Legacy AWS (pending decommission — no longer deployed to):** the ECS service
@@ -131,15 +168,16 @@ has been migrated off S3 to Vercel Blob** (a private store; uploads/downloads fl
 HMAC capability-URL proxy routes — `web/lib/blob-storage.ts`). The old
 `realtourflow-documents` S3 bucket + AWS SDK are retired: `web/` no longer touches S3, so
 the bucket is now a decommission candidate too.
-> 🚨 **Open data gap — pre-cutover documents are unreachable.** The cutover commit
-> (`93f15574e`, 2026-07-08T04:57:17Z) made every read resolve the stored key against Blob,
-> but nothing copied the existing objects across. Any `documents` row created before that
-> timestamp still points at an S3-only object, so opening it fails — same for
-> `docusign_signed_s3_key` and every `getObjectBytes` consumer (`lib/remember-form.ts`,
-> disclosure-packet merging). **Do not delete the bucket** until this is closed.
-> Remediation: `web/scripts/backfill-s3-to-blob.ts` copies each object into Blob under the
-> identical key (so no DB change). Run it report-only first; it needs prod `DATABASE_URL`,
-> `BLOB_READ_WRITE_TOKEN`, and AWS read credentials for the old bucket. **Not yet run.**
+> 📌 **Open, but tiny — exactly ONE stranded document.** The cutover (`93f15574e`,
+> 2026-07-08T04:57:17Z) made every read resolve the stored key against Blob, but nothing
+> copied the existing objects across, so any `documents` row older than that points at an
+> S3-only object and fails to open. **Measured against prod 2026-08-03: 1 document row in the
+> entire database, and it is the affected one** — a 398KB "Buyer Agency Agreement" PDF from
+> 2026-06-09. Nobody is realistically hitting this.
+> Fix: re-upload that one PDF through the app. Then the `realtourflow-documents` bucket can
+> be deleted. `web/scripts/backfill-s3-to-blob.ts` exists for the general case (copies each
+> object into Blob under the identical key, so no DB change; report-only by default) but is
+> overkill for a single file and **has never been run** — it needs AWS read credentials.
 ⚠️ The production **database is Neon, not RDS**
 (verified 2026-06-24 by a runtime probe — `current_database()` returned `neondb`). The AWS
 RDS in account 508859666048 is **not used by the live app** and is itself a decommission
@@ -186,16 +224,26 @@ Vercel project env.
 > **Engine:** golang-migrate (a standalone SQL runner), NOT `prisma migrate`. The SQL in
 > `migrations/` is the schema source of truth; Prisma is introspection-only here.
 
-> ⚠️ **Production application is a known gap.** The retired ECS server used to auto-run
-> `migrate.Up()` on startup; with ECS no longer deployed to (`deploy.yml` deleted), **new**
-> migrations no longer reach prod Neon automatically. Until a replacement exists (a CI /
-> Vercel deploy step, or the deferred switch to `prisma migrate deploy`), apply new
-> migrations to prod manually:
-> `migrate -path migrations -database "$PROD_DATABASE_URL" up` — where `$PROD_DATABASE_URL`
-> is the Neon `neondb` connection string (pull it from the Neon console; the Vercel var is
-> Sensitive and can't be read via the CLI). **As of 2026-06-24, prod Neon is at version 45**
-> — migrations 000034–000045 were applied manually that day (prod had drifted behind to 33,
-> so 34–37, which back already-shipped launch features, were applied alongside 38–45).
+> ✅ **Prod migrations are AUTOMATIC — do not apply them by hand.** The
+> `.github/workflows/prod-migrate.yml` action (#208) runs `golang-migrate up` against prod
+> Neon on every push to `main` that touches `migrations/**`, and prints the schema version
+> before and after. Merging a PR with a migration applies it within a minute or so.
+> **As of 2026-08-03 prod Neon is at version 62.**
+>
+> Two consequences worth internalising before you touch `migrations/`:
+> - **Merging = migrating.** There is no separate "deploy the migration" step to forget, and
+>   equally no chance to review it against prod first. A destructive migration reaches
+>   production the moment the PR merges.
+> - **Check the next free number against `origin/main`, not your local tree.** Two branches
+>   open at once will both pick the same number, and golang-migrate refuses to load a
+>   directory containing a duplicate version — which takes down *every* CI job before a
+>   single test runs, on every open PR. This has already happened once (see the fetch-first
+>   rule at the top of this file).
+>
+> A one-off manual run is still possible with
+> `migrate -path migrations -database "$PROD_DATABASE_URL" up`. The Neon connection string
+> lives in `web/.env.neon` as `NEON_DIRECT_URL` (gitignored); the Vercel var is Sensitive and
+> unreadable via the CLI.
 
 ---
 
@@ -317,7 +365,9 @@ fast-follow milestone, now live:
 | `web/app/api/**/route.ts` | API route handlers (one directory per resource) |
 | `web/lib/http.ts` | `withAuth`, `json`, `error` helpers |
 | `web/lib/db.ts` | Prisma client (lazy driver-adapter) |
-| `web/lib/users.ts` / `web/lib/roles.ts` / `web/lib/auth.ts` | `resolveUserId`/`upsertUser`, `hasRole`, JWKS verification |
+| `web/lib/users.ts` / `web/lib/roles.ts` / `web/lib/auth.ts` | `resolveUserId`/`upsertUser`/`resolveSyncRole`, `hasRole`/`decideRole`, JWKS verification |
+| `web/lib/invite-role.ts` | Email→role lookups (`pendingInviteRole`, `roleForEmail`). ⚠️ **Raw SQL on purpose** — `lower(email) = lower($1)` matches the functional indexes in migrations 000061/000062. Prisma's `mode: "insensitive"` emits `ILIKE`, which no btree can serve; "simplifying" it back silently restores a sequential scan on the login path |
+| `web/hooks/useLogout.ts` / `web/components/layout/UserMenu.tsx` | The only logout path, in every role shell + onboarding + the RootRedirect error screens |
 | `web/lib/s3.ts` | Storage facade (Blob-backed) — capability URLs + get/put/delete object; `setStorageForTesting` seam lives in `blob-storage.ts` |
 | `web/lib/blob-storage.ts` | Vercel Blob backend + HMAC capability signing; `/api/storage/blob-{put,get}` proxy the private-store uploads/downloads |
 | `web/lib/{stripe,arive,docusign,simplyrets,auth0,email}.ts` | External clients (each with a `setXForTesting()` seam) |
@@ -339,7 +389,8 @@ fast-follow milestone, now live:
 2. **PR → CI** (`web-ci.yml`): typecheck → lint → Vitest → production build, plus the
    Playwright E2E job. Merge on green.
 3. **Vercel** builds + deploys `web/` on merge to `main`.
-4. **Migrations:** apply to prod Neon per the Database Migrations note (not automatic).
+4. **Migrations:** applied to prod Neon **automatically** by `prod-migrate.yml` on merge —
+   nothing to do, but see the Database Migrations note: merging *is* migrating.
 5. **Smoke test** on `app.realtourflow.com`: log in (Auth0 → `/api/users/sync` 200), create
    a deal, advance a stage, reload to confirm persistence.
 6. **Update this file** when architecture, migrations, or the feature surface change.
