@@ -47,6 +47,14 @@ const execFileAsync = promisify(execFile);
 const BUCKET = process.env.S3_LEGACY_BUCKET ?? "realtourflow-documents";
 const APPLY = process.argv.includes("--apply");
 
+/**
+ * Cap on a single object streamed through the CLI's stdout. Comfortably above
+ * the app's own 25MB upload limit (MAX_UPLOAD_BYTES), but the pre-cap era could
+ * in principle hold something larger — such an object surfaces as a fetch
+ * error, never as "absent", so it gets reported rather than silently written off.
+ */
+const MAX_OBJECT_BYTES = 128 * 1024 * 1024;
+
 /** The commit that retired S3 — anything older than this can only be in S3. */
 const CUTOVER = new Date("2026-07-08T04:57:17Z");
 
@@ -84,37 +92,86 @@ async function inBlob(key: string): Promise<boolean> {
   }
 }
 
-/** Streams the object as bytes. Returns null when S3 doesn't have it either. */
-async function fromS3(key: string): Promise<Uint8Array | null> {
+/**
+ * Fails fast when the environment can't actually reach S3.
+ *
+ * Without this, a missing CLI / bad credentials / denied bucket makes EVERY
+ * fromS3() call fail, and the run cheerfully reports every document as "missing
+ * in both" — i.e. it claims total data loss when nothing is wrong. For a tool
+ * whose whole job is reporting on data loss, that false positive is worse than
+ * crashing, so prove access once up front instead.
+ */
+async function preflight(): Promise<void> {
+  try {
+    await execFileAsync("aws", ["--version"]);
+  } catch {
+    throw new Error("the `aws` CLI is not on PATH — install it, or this run would report every document as lost");
+  }
+  try {
+    await execFileAsync("aws", ["s3api", "head-bucket", "--bucket", BUCKET]);
+  } catch (err) {
+    throw new Error(
+      `cannot read s3://${BUCKET} — check AWS credentials, AWS_REGION, and bucket access. ` +
+        `Refusing to run, because every key would otherwise be misreported as missing. ` +
+        `Underlying error: ${String(err)}`
+    );
+  }
+  console.log(`Preflight OK: aws CLI present, s3://${BUCKET} readable.\n`);
+}
+
+type S3Result =
+  | { kind: "found"; bytes: Uint8Array }
+  | { kind: "absent" }
+  | { kind: "error"; message: string };
+
+/**
+ * Streams the object as bytes.
+ *
+ * Distinguishes "S3 says this key doesn't exist" from "the fetch itself broke"
+ * (throttling, a >maxBuffer object, a transient network fault). Only the former
+ * means the bytes are gone; conflating them is how a transient blip turns into
+ * a bogus data-loss report.
+ */
+async function fromS3(key: string): Promise<S3Result> {
   try {
     const { stdout } = await execFileAsync(
       "aws",
       ["s3", "cp", `s3://${BUCKET}/${key}`, "-"],
-      { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 }
+      { encoding: "buffer", maxBuffer: MAX_OBJECT_BYTES }
     );
-    return new Uint8Array(stdout as unknown as Buffer);
-  } catch {
-    return null;
+    return { kind: "found", bytes: new Uint8Array(stdout as unknown as Buffer) };
+  } catch (err) {
+    const text = err instanceof Error ? `${err.message}` : String(err);
+    // The CLI reports a genuine miss as 404 / "Not Found" / "does not exist";
+    // anything else is a fetch failure and must NOT be read as absence.
+    if (/404|Not Found|does not exist|NoSuchKey/i.test(text)) return { kind: "absent" };
+    return { kind: "error", message: text };
   }
 }
 
 async function main(): Promise<void> {
+  await preflight();
   const rows = await loadKeys();
   if (rows.length === 0) {
     console.log("No stored document keys at all — nothing to back fill.");
     return;
   }
 
+  // Informational only. Every key is still checked, because "created after the
+  // cutover" is an assumption about where the bytes ended up, not a guarantee —
+  // and a post-cutover key that is somehow absent is exactly what we'd want to
+  // hear about. The count just frames how much of the set is theoretically at risk.
   const preCutover = rows.filter((r) => r.created_at < CUTOVER);
   console.log(
     `${rows.length} stored key(s); ${preCutover.length} predate the ` +
-      `${CUTOVER.toISOString()} cutover and are the ones at risk.`
+      `${CUTOVER.toISOString()} cutover. Checking all of them.`
   );
   console.log(APPLY ? "Mode: APPLY (copying)\n" : "Mode: dry run (no writes)\n");
 
   const present: Row[] = [];
   const needsCopy: Row[] = [];
   const missingEverywhere: Row[] = [];
+  const fetchErrors: { row: Row; err: string }[] = [];
   const failed: { row: Row; err: string }[] = [];
 
   for (const row of rows) {
@@ -123,17 +180,23 @@ async function main(): Promise<void> {
       continue;
     }
     // Absent from Blob — the only other place it can be is the old bucket.
-    const bytes = await fromS3(row.key);
-    if (!bytes) {
+    const res = await fromS3(row.key);
+    if (res.kind === "absent") {
       missingEverywhere.push(row);
+      continue;
+    }
+    if (res.kind === "error") {
+      // Couldn't determine — deliberately NOT counted as missing.
+      fetchErrors.push({ row, err: res.message });
+      console.error(`  FETCH ERROR ${row.key}: ${res.message}`);
       continue;
     }
     needsCopy.push(row);
     if (!APPLY) continue;
 
     try {
-      await putBlob(row.key, bytes, row.mime_type || "application/octet-stream");
-      console.log(`  copied ${row.key} (${bytes.byteLength} bytes)`);
+      await putBlob(row.key, res.bytes, row.mime_type || "application/octet-stream");
+      console.log(`  copied ${row.key} (${res.bytes.byteLength} bytes)`);
     } catch (err) {
       failed.push({ row, err: err instanceof Error ? err.message : String(err) });
       console.error(`  FAILED ${row.key}: ${String(err)}`);
@@ -144,6 +207,7 @@ async function main(): Promise<void> {
   console.log(`already in Blob      : ${present.length}`);
   console.log(`${APPLY ? "copied from S3     " : "would copy from S3 "}  : ${needsCopy.length}`);
   console.log(`missing in BOTH      : ${missingEverywhere.length}`);
+  console.log(`undetermined (fetch) : ${fetchErrors.length}`);
   if (APPLY) console.log(`failed to copy       : ${failed.length}`);
 
   // These are the genuinely lost ones: a DB row whose bytes exist nowhere. They
@@ -153,6 +217,13 @@ async function main(): Promise<void> {
     for (const r of missingEverywhere) {
       console.log(`  document ${r.id} [${r.column}] ${r.key} (${r.created_at.toISOString()})`);
     }
+  }
+  if (fetchErrors.length > 0) {
+    console.log(
+      "\nCould not be read from S3 — status UNKNOWN, not lost. Re-run to retry:"
+    );
+    for (const f of fetchErrors) console.log(`  ${f.row.key}: ${f.err}`);
+    process.exitCode = 1;
   }
   if (failed.length > 0) {
     console.log("\nCopy failures (re-run to retry — the script is idempotent):");
