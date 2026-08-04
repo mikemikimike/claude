@@ -19,12 +19,40 @@ const getIsClient = () => true;
 const getIsServer = () => false;
 
 /**
+ * The half of the stack that genuinely needs `window`. Auth0Provider reads
+ * `window.location.origin` for `redirect_uri`, so it can only render on the
+ * client — see the `isClient` gate in Providers below.
+ */
+function ClientAuthProviders({ children }: { children: ReactNode }) {
+  const origin = window.location.origin;
+
+  // E2E: seeded session via cookie, no Auth0Provider. The E2E flow only visits
+  // protected pages (which read identity from the auth store), so nothing calls
+  // useAuth0 and we can drop the provider safely.
+  if (E2E_AUTH) return <TestAuthSetup>{children}</TestAuthSetup>;
+
+  return (
+    <Auth0Provider
+      domain={process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? ""}
+      clientId={process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID ?? ""}
+      authorizationParams={{
+        redirect_uri: origin,
+        audience: process.env.NEXT_PUBLIC_AUTH0_AUDIENCE,
+      }}
+    >
+      <AuthSetup>{children}</AuthSetup>
+    </Auth0Provider>
+  );
+}
+
+/**
  * Client-side provider stack. Wraps everything in Auth0Provider so React Router
  * pages can call useAuth0(); also fires /users/sync via AuthSetup.
  *
- * The provider stack is deferred until the client (see the `isClient` flag) so
- * the first client render matches the server-rendered HTML — otherwise the
- * client-only Auth0Provider subtree triggers a hydration mismatch.
+ * The Auth0 half of the stack is deferred until the client (see the `isClient`
+ * flag) so the first client render matches the server-rendered HTML — otherwise
+ * the client-only Auth0Provider subtree triggers a hydration mismatch.
+ * QueryClientProvider is NOT deferred; see below.
  */
 export function Providers({ children }: { children: ReactNode }) {
   // Defer the entire client-only provider stack until after the first client
@@ -58,36 +86,21 @@ export function Providers({ children }: { children: ReactNode }) {
       }),
   );
 
-  // First client render matches the server (children only) → clean hydration.
-  // Once we're on the client we know `window` exists, so the providers can
-  // read the redirect origin.
-  if (!isClient) return <>{children}</>;
-
-  const origin = window.location.origin;
-
-  // E2E: seeded session via cookie, no Auth0Provider. The E2E flow only visits
-  // protected pages (which read identity from the auth store), so nothing calls
-  // useAuth0 and we can drop the provider safely.
-  if (E2E_AUTH) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <TestAuthSetup>{children}</TestAuthSetup>
-      </QueryClientProvider>
-    );
-  }
-
+  // QueryClientProvider sits OUTSIDE the `isClient` gate on purpose (issue
+  // #398). A QueryClient is inert during SSR — it touches no `window`, starts
+  // no fetch, and emits no DOM — so it renders identically on the server and on
+  // the first client render, which is all #102 requires. Keeping it behind the
+  // gate meant `"use client"` pages that call useQuery at the top level (the
+  // two invite landing pages) threw "No QueryClient set" on every server
+  // render: React recovered by client-rendering the whole route, so users saw
+  // the right page, but those routes lost SSR and logged an error per request.
+  //
+  // Only the Auth0 subtree below still waits for the client, so the first
+  // client render is `QueryClientProvider > children` — exactly what the server
+  // produced — and the providers swap in once `window` is guaranteed.
   return (
     <QueryClientProvider client={queryClient}>
-      <Auth0Provider
-        domain={process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? ""}
-        clientId={process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID ?? ""}
-        authorizationParams={{
-          redirect_uri: origin,
-          audience: process.env.NEXT_PUBLIC_AUTH0_AUDIENCE,
-        }}
-      >
-        <AuthSetup>{children}</AuthSetup>
-      </Auth0Provider>
+      {isClient ? <ClientAuthProviders>{children}</ClientAuthProviders> : children}
     </QueryClientProvider>
   );
 }
