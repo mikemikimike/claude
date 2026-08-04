@@ -13,6 +13,29 @@ type SyncUserResponse = {
   onboarding_complete: boolean;
 };
 
+/**
+ * Turn a `/users/sync` rejection into the marker `RootRedirect` branches on.
+ *
+ * Two statuses are PERMANENT states rather than outages, and each earns its own
+ * actionable screen — telling either of them to "refresh the page" is advice
+ * that cannot possibly work:
+ *
+ *   403 → no role assigned yet (signed in without accepting an invite).
+ *   409 → a second Auth0 identity reusing an existing user's email. The
+ *         collision is in the database, so every retry returns the same 409
+ *         (#277 added the readable status precisely so we could say this).
+ *
+ * Anything else — network blip, timeout, 5xx — IS transient, so it keeps the
+ * stringified error and falls through to the generic "please refresh" screen.
+ */
+export function classifySyncError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 403) return 'no-access';
+    if (err.status === 409) return 'email-conflict';
+  }
+  return String(err);
+}
+
 export default function AuthSetup({ children }: { children: React.ReactNode }) {
   const { getAccessTokenSilently, user, isAuthenticated } = useAuth0();
   const setFromAuth0 = useAuthStore((state) => state.setFromAuth0);
@@ -39,10 +62,10 @@ export default function AuthSetup({ children }: { children: React.ReactNode }) {
         name: user.name ?? '',
       }).then(adopt).catch((err) => {
         console.error('users/sync failed:', err);
-        // A 403 means "no role assigned yet" — a permissions state, NOT a
-        // backend outage. Flag it distinctly so RootRedirect shows an
-        // actionable message instead of the scary "server down" screen.
-        setSyncError(err instanceof ApiError && err.status === 403 ? 'no-access' : String(err));
+        // Permissions/identity states are NOT backend outages. Flag them
+        // distinctly so RootRedirect shows an actionable message instead of
+        // the scary — and, for a 409, permanently wrong — "server down" screen.
+        setSyncError(classifySyncError(err));
       });
 
     // A claim outcome is TERMINAL (won't succeed on retry) for these statuses;

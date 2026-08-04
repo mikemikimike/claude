@@ -35,6 +35,18 @@ const ROLE_DISPLAY: Record<string, string> = {
 type AuthStore = {
   activeUser: AppUser | undefined;
   isLoaded: boolean;
+  /**
+   * Why POST /users/sync failed, as classified by
+   * `AuthSetup#classifySyncError`. Two values are load-bearing markers that
+   * `RootRedirect` renders a dedicated, actionable screen for:
+   *
+   *   "no-access"      — 403, no role assigned yet.
+   *   "email-conflict" — 409, this email already belongs to another identity.
+   *
+   * Any other string is a transient failure (network / 5xx) kept for
+   * diagnostics; it renders the generic "please refresh" screen. Don't hand a
+   * free-form message either marker's exact text.
+   */
   syncError: string | null;
   setFromAuth0: (id: string, name: string, email: string, role: string, onboardingComplete: boolean, avatar?: string) => void;
   setSyncError: (err: string) => void;
