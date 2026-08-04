@@ -1,6 +1,5 @@
-import { error, json, withAuth } from "@/lib/http";
+import { error, json, upsertUserOrConflict, withAuth } from "@/lib/http";
 import { prisma } from "@/lib/db";
-import { upsertUser } from "@/lib/users";
 import { sendNotificationEmail } from "@/lib/email";
 import { formatIntakeHighlights } from "@/lib/notification-email";
 import { applyIntakeToDeal, isIntakeRole, parseIntakeAnswers } from "@/lib/intake";
@@ -84,15 +83,20 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     // name untouched) and just link them to the deal below. Brand-new
     // caller: create the account with the invite's role. keepExistingRole
     // makes the insert race-safe — a concurrent sync can't be demoted.
+    //
+    // #396 — a second Auth0 identity for an email that already has an account
+    // collides on users_email_key. Return the readable 409 rather than letting
+    // it escape as an unhandled 500, which the client retries forever.
     const user =
       caller ??
-      (await upsertUser({
+      (await upsertUserOrConflict({
         auth0Id: claims.sub,
         email: body.email,
         name: body.name,
         role: inv.role,
         keepExistingRole: true,
       }));
+    if (user instanceof Response) return user;
 
     await prisma.deal_invites.update({
       where: { id: inv.id },

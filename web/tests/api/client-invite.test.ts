@@ -542,6 +542,57 @@ describe("POST /api/invites/[token]/claim — intake persistence (#175)", () => 
   });
 });
 
+// ---------------------------------------------------------------------------
+// Issue #396 — same latent bug as the agent claim: a NEW Auth0 subject whose
+// email already belongs to a DIFFERENT users row must get the readable 409,
+// not an unhandled EmailConflictError escaping withAuth as a 500.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/invites/[token]/claim — email collision (#396)", () => {
+  it("a new sub presenting an already-used email → 409, invite not burned", async () => {
+    const { deal, invite } = await seedInvite({ email: "dup@example.com" });
+    // The address already has an account under a DIFFERENT Auth0 sub — the
+    // client went through signup a second time.
+    const original = await createUser({
+      role: "buyer",
+      auth0_id: "auth0|original",
+      email: "dup@example.com",
+      name: "Original Owner",
+    });
+
+    const req = await claimReq("auth0|second", [], invite.token, {
+      email: "dup@example.com",
+      name: "Second Identity",
+    });
+    const res = await claimInviteRoute(req, ctx(invite.token));
+    expect(res.status).toBe(409);
+    const text = (await res.text()).toLowerCase();
+    expect(text).toContain("an account with this email already exists");
+
+    // No partial state: invite still claimable, no participant row, no second
+    // users row, and the original account untouched.
+    const invRow = await prisma.deal_invites.findUnique({
+      where: { id: invite.id },
+      select: { claimed_at: true, claimed_by: true },
+    });
+    expect(invRow?.claimed_at).toBeNull();
+    expect(invRow?.claimed_by).toBeNull();
+
+    const participants = await prisma.deal_participants.count({
+      where: { deal_id: deal.id },
+    });
+    expect(participants).toBe(0);
+
+    const owners = await prisma.users.findMany({
+      where: { email: "dup@example.com" },
+      select: { id: true, auth0_id: true },
+    });
+    expect(owners).toHaveLength(1);
+    expect(owners[0].id).toBe(original.id);
+    expect(owners[0].auth0_id).toBe("auth0|original");
+  });
+});
+
 describe("upsertUser — keepExistingRole (#174)", () => {
   it("does not overwrite an existing row's role when keepExistingRole is set", async () => {
     const agent = await createUser({ role: "agent", auth0_id: "auth0|keep-role" });

@@ -627,6 +627,110 @@ describe("POST /api/agent-invites/[token]/claim — email binding (#272)", () =>
   });
 });
 
+// ---------------------------------------------------------------------------
+// Issue #396 — a claim by a NEW Auth0 subject whose email already belongs to a
+// DIFFERENT users row must return the same readable 409 /api/users/sync gives
+// (tests/api/users.test.ts, "returns 409 when a new sub presents an email
+// already used by another user"), not let the typed EmailConflictError escape
+// withAuth as an unhandled 500.
+//
+// The 500 is what actually locks the agent out: AuthSetup treats only
+// 404/409/410 as terminal, so a 500 keeps the pendingAgentInvite localStorage
+// keys and replays the claim on every page load — forever (6 identical prod
+// failures from one user in five minutes).
+// ---------------------------------------------------------------------------
+
+describe("POST /api/agent-invites/[token]/claim — email collision (#396)", () => {
+  it("25. a new sub presenting an email already owned by another user → 409, not 500", async () => {
+    const admin = await createUser({ role: "admin", auth0_id: "auth0|admin" });
+    // The email is already bound to an account under a DIFFERENT Auth0 sub.
+    await createUser({
+      auth0_id: "auth0|original",
+      email: "dup@example.com",
+      name: "Original Owner",
+      role: "agent",
+    });
+    const seeded = await seedInvite(admin.id, { email: "dup@example.com" });
+
+    // A second Auth0 identity for the same address opens the invite link.
+    const req = await claimReq(seeded.token, "auth0|second", ["agent"], {
+      email: "dup@example.com",
+      name: "Second Identity",
+    });
+    const res = await claimRoute(req, tokenCtx(seeded.token));
+    expect(res.status).toBe(409);
+  });
+
+  it("26. the 409 carries the readable email-conflict message", async () => {
+    const admin = await createUser({ role: "admin", auth0_id: "auth0|admin" });
+    await createUser({
+      auth0_id: "auth0|original",
+      email: "dup@example.com",
+      name: "Original Owner",
+      role: "agent",
+    });
+    const seeded = await seedInvite(admin.id, { email: "dup@example.com" });
+
+    const res = await claimRoute(
+      await claimReq(seeded.token, "auth0|second", ["agent"], {
+        email: "dup@example.com",
+        name: "Second Identity",
+      }),
+      tokenCtx(seeded.token)
+    );
+    expect(res.status).toBe(409);
+    // Must be the collision message, not the generic 500 body — the client
+    // surfaces this, and it is how the user learns to log in as the original.
+    const text = (await res.text()).toLowerCase();
+    expect(text).toContain("an account with this email already exists");
+  });
+
+  it("27. the failed claim leaves no partial state — invite unclaimed, no second users row", async () => {
+    const admin = await createUser({ role: "admin", auth0_id: "auth0|admin" });
+    const original = await createUser({
+      auth0_id: "auth0|original",
+      email: "dup@example.com",
+      name: "Original Owner",
+      role: "agent",
+    });
+    const seeded = await seedInvite(admin.id, { email: "dup@example.com" });
+
+    const res = await claimRoute(
+      await claimReq(seeded.token, "auth0|second", ["agent"], {
+        email: "dup@example.com",
+        name: "Second Identity",
+      }),
+      tokenCtx(seeded.token)
+    );
+    expect(res.status).toBe(409);
+
+    // The invite is untouched — still claimable once the identity mess is
+    // sorted out (the invite must not be burned by a failed claim).
+    const invite = await prisma.agent_invites.findUnique({
+      where: { id: seeded.id },
+      select: { claimed_at: true, claimed_by: true },
+    });
+    expect(invite?.claimed_at).toBeNull();
+    expect(invite?.claimed_by).toBeNull();
+
+    // No account was created for the second identity, and the original row is
+    // untouched (its auth0_id was NOT rewritten to the new sub).
+    const second = await prisma.users.findUnique({
+      where: { auth0_id: "auth0|second" },
+      select: { id: true },
+    });
+    expect(second).toBeNull();
+
+    const owners = await prisma.users.findMany({
+      where: { email: "dup@example.com" },
+      select: { id: true, auth0_id: true },
+    });
+    expect(owners).toHaveLength(1);
+    expect(owners[0].id).toBe(original.id);
+    expect(owners[0].auth0_id).toBe("auth0|original");
+  });
+});
+
 describe("upsertUser — keepExistingRole (#224, mirrors #174)", () => {
   it("does not overwrite an existing row's role when keepExistingRole is set", async () => {
     const buyer = await createUser({ role: "buyer", auth0_id: "auth0|keep-role-buyer" });

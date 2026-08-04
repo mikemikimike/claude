@@ -1,5 +1,5 @@
-import { error, json, withAuth } from "@/lib/http";
-import { EmailConflictError, resolveSyncRole, upsertUser } from "@/lib/users";
+import { error, json, upsertUserOrConflict, withAuth } from "@/lib/http";
+import { resolveSyncRole } from "@/lib/users";
 import { ROLES, resolveRole, type Role } from "@/lib/roles";
 
 type SyncBody = {
@@ -50,23 +50,17 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    let user;
-    try {
-      user = await upsertUser({
-        auth0Id: claims.sub,
-        email,
-        name,
-        role,
-      });
-    } catch (err) {
-      // A second Auth0 identity reusing another user's email surfaces as a
-      // typed collision — return a readable 409 instead of a generic 500 so
-      // the client can recover (log in with the original account) (#277).
-      if (err instanceof EmailConflictError) {
-        return error(err.message, err.status);
-      }
-      throw err;
-    }
+    // A second Auth0 identity reusing another user's email surfaces as a typed
+    // collision — upsertUserOrConflict returns a readable 409 instead of a
+    // generic 500 so the client can recover (log in with the original account)
+    // (#277). Both invite-claim routes share that helper (#396).
+    const user = await upsertUserOrConflict({
+      auth0Id: claims.sub,
+      email,
+      name,
+      role,
+    });
+    if (user instanceof Response) return user;
     return json(user);
   })) as Response;
 }

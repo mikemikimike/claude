@@ -1,6 +1,5 @@
-import { error, json, withAuth } from "@/lib/http";
+import { error, json, upsertUserOrConflict, withAuth } from "@/lib/http";
 import { prisma } from "@/lib/db";
-import { upsertUser } from "@/lib/users";
 import { sendNotificationEmail } from "@/lib/email";
 
 const ADMIN_NOTIFY_EMAIL = "paul@mountain.mortgage";
@@ -81,15 +80,21 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     // untouched) and just mark the invite claimed below. Brand-new caller:
     // create the agent account. keepExistingRole makes the insert race-safe —
     // a row created by a concurrent sync can't have its role rewritten.
+    //
+    // #396 — a second Auth0 identity for an email that already has an account
+    // collides on users_email_key. That must surface as the readable 409, not
+    // an unhandled 500: AuthSetup only treats 404/409/410 as terminal, so a 500
+    // keeps the pending-invite keys and replays this claim on every page load.
     const user =
       caller ??
-      (await upsertUser({
+      (await upsertUserOrConflict({
         auth0Id: claims.sub,
         email: claimEmail,
         name: claimName,
         role: "agent",
         keepExistingRole: true,
       }));
+    if (user instanceof Response) return user;
 
     await prisma.$executeRaw`
       UPDATE agent_invites
