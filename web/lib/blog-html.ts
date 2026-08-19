@@ -12,21 +12,45 @@
 
 export const POST_SCOPE = "rtf-post";
 
-export type PreparedPost = { css: string; bodyHtml: string; headLinks: string };
+export type PreparedPost = { css: string; bodyHtml: string; headLinks: string; jsonLd: string[] };
 
 /** Extract + scope a stored HTML document for injection under `.<scope>`. */
 export function prepareScopedPost(htmlDoc: string, scope: string = POST_SCOPE): PreparedPost {
-  const { styles, bodyHtml, links } = extractStyleAndBody(htmlDoc);
+  const { styles, bodyHtml, links, jsonLd } = extractStyleAndBody(htmlDoc);
   const css = styles.map((s) => scopeCss(s, `.${scope}`)).join("\n");
-  return { css, bodyHtml, headLinks: links.join("\n") };
+  return {
+    css,
+    bodyHtml,
+    headLinks: links.join("\n"),
+    jsonLd: jsonLd.map(sanitizeJsonLd).filter((s): s is string => s !== null),
+  };
+}
+
+/** Re-serialize as trusted JSON, escaping `<` so a string value can't break out of the <script> tag it's rendered in. Drops anything that doesn't parse. */
+function sanitizeJsonLd(raw: string): string | null {
+  try {
+    return JSON.stringify(JSON.parse(raw)).replace(/</g, "\\u003c");
+  } catch {
+    return null;
+  }
 }
 
 export function extractStyleAndBody(htmlDoc: string): {
   styles: string[];
   bodyHtml: string;
   links: string[];
+  jsonLd: string[];
 } {
   let doc = htmlDoc ?? "";
+
+  // Pull JSON-LD structured-data blocks out before stripping scripts — this is
+  // inert data the page re-renders itself (see sanitizeJsonLd), not markup the
+  // author's script tag needs to execute.
+  const jsonLd: string[] = [];
+  const ldRe = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let ld: RegExpExecArray | null;
+  while ((ld = ldRe.exec(doc)) !== null) jsonLd.push(ld[1]);
+
   // Scripts won't execute via innerHTML anyway — strip them from the markup.
   doc = doc.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
 
@@ -56,7 +80,7 @@ export function extractStyleAndBody(htmlDoc: string): {
 
   // The <style> blocks are rendered separately — remove them from the body.
   bodyHtml = bodyHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "").trim();
-  return { styles, bodyHtml, links };
+  return { styles, bodyHtml, links, jsonLd };
 }
 
 /** Prefix every selector in `css` with `scope` so its rules only apply inside it. */

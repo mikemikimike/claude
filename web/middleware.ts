@@ -8,6 +8,11 @@ function isBlogPath(pathname: string): boolean {
   return pathname === "/blog" || pathname.startsWith("/blog/");
 }
 
+// Standalone marketing feature pages (linked from blog posts / landing page).
+function isFeaturePath(pathname: string): boolean {
+  return pathname === "/features" || pathname.startsWith("/features/");
+}
+
 // IndexNow ownership key — must be publicly reachable at this path so Bing/Yandex
 // can verify URL submissions (web/public/<key>.txt).
 const INDEXNOW_KEY_FILE = "/9f2c7a14e0b84d3596af1c6e8b2705d3.txt";
@@ -34,8 +39,9 @@ export function middleware(req: NextRequest) {
     if (pathname === "/") {
       return NextResponse.rewrite(new URL("/landing", req.url));
     }
-    // The blog + SEO/verification files live on the marketing domain — serve them.
-    if (isBlogPath(pathname) || isSeoFile(pathname)) {
+    // The blog, feature pages, + SEO/verification files live on the marketing
+    // domain — serve them.
+    if (isBlogPath(pathname) || isFeaturePath(pathname) || isSeoFile(pathname)) {
       return NextResponse.next();
     }
     // Any other path on the marketing domain (e.g. /agent, /buyer) → send
@@ -56,8 +62,8 @@ export function middleware(req: NextRequest) {
     if (pathname === "/landing" || pathname.startsWith("/landing/")) {
       return NextResponse.redirect(new URL("/", req.url));
     }
-    // The blog belongs on the marketing site — redirect it there.
-    if (isBlogPath(pathname)) {
+    // The blog + feature pages belong on the marketing site — redirect there.
+    if (isBlogPath(pathname) || isFeaturePath(pathname)) {
       return NextResponse.redirect(
         new URL(
           `https://www.realtourflow.com${pathname}${req.nextUrl.search}`,

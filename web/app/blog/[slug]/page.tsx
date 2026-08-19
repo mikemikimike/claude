@@ -15,15 +15,27 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = await getPostBySlug(SITE, slug);
   if (!post) return { title: "Post not found — RealTourFlow" };
+  const canonical = `https://www.realtourflow.com/blog/${slug}`;
+  // Falls back to the site logo so OG/Twitter cards always carry an image,
+  // even for posts with no Notion cover set.
+  const ogImage = post.meta.coverUrl ?? "https://www.realtourflow.com/logo.png";
   return {
     title: `${post.meta.title} — RealTourFlow`,
     description: post.meta.excerpt || undefined,
-    alternates: { canonical: `https://www.realtourflow.com/blog/${slug}` },
+    alternates: { canonical },
     openGraph: {
       title: post.meta.title,
       description: post.meta.excerpt || undefined,
-      images: post.meta.coverUrl ? [post.meta.coverUrl] : undefined,
+      images: [ogImage],
       type: "article",
+      url: canonical,
+      publishedTime: post.meta.date ?? undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.meta.title,
+      description: post.meta.excerpt || undefined,
+      images: [ogImage],
     },
   };
 }
@@ -41,10 +53,14 @@ export default async function BlogPost({
   // styles, and font links and inject them, with the CSS scoped to `.rtf-post`
   // so it can't collide with the site's global styles. The post controls its own
   // width (its internal .wrap/.wide), so the injected container is full-width.
-  const { css, bodyHtml, headLinks } = prepareScopedPost(post.html);
+  const { css, bodyHtml, headLinks, jsonLd } = prepareScopedPost(post.html);
 
   return (
     <BlogShell>
+      {jsonLd.map((json, i) => (
+        <script key={i} type="application/ld+json" dangerouslySetInnerHTML={{ __html: json }} />
+      ))}
+
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "28px 24px 0" }}>
         <Link
           href="/blog"
