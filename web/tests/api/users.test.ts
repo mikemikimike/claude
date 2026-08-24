@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { POST as syncRoute } from "@/app/api/users/sync/route";
 import { GET as listRoute } from "@/app/api/users/route";
 import { PATCH as activateRoute } from "@/app/api/users/[id]/activate/route";
@@ -147,6 +147,39 @@ describe("POST /api/users/sync", () => {
     expect(res.status).toBe(409);
     const text = (await res.text()).toLowerCase();
     expect(text).toContain("already exists");
+  });
+
+  // The 409 tells the user "an account already exists" but used to discard the
+  // one value support needs to fix it: WHICH incoming Auth0 subject collided,
+  // and which row already owns the email. Resolving a real one of these took
+  // reading the subject out of the Auth0 dashboard by hand.
+  it("logs both colliding identities on a 409", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const owner = await createUser({
+      auth0_id: "auth0|original-owner",
+      email: "dup@example.com",
+      name: "Original Owner",
+      role: "agent",
+    });
+
+    const res = await syncRoute(
+      await syncBody({ email: "dup@example.com", name: "Impostor" })
+    );
+    expect(res.status).toBe(409);
+
+    expect(logged).toHaveBeenCalledWith(
+      "users email conflict",
+      expect.objectContaining({
+        email: "dup@example.com",
+        // the subject the user is actually authenticating with — the value the
+        // fix (repointing the existing row) needs and nothing else exposed
+        incomingAuth0Id: "auth0|new-agent",
+        existingUserId: owner.id,
+        existingAuth0Id: "auth0|original-owner",
+        existingRole: "agent",
+      })
+    );
+    logged.mockRestore();
   });
 
   // #277 Case 2 (unchanged happy path): a new sub + a fresh email still creates.
