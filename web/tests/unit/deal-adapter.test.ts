@@ -13,7 +13,13 @@
  */
 import { describe, it, expect } from "vitest";
 import { apiDealToFrontend, type ApiDeal } from "@/hooks/useDeals";
-import { sumKnown } from "@/lib/deal-money";
+import {
+  NO_AMOUNT,
+  formatCompactMoney,
+  pipelineCommission,
+  pipelinePrice,
+  sumKnown,
+} from "@/lib/deal-money";
 
 function wireDeal(overrides: Partial<ApiDeal> = {}): ApiDeal {
   return {
@@ -261,5 +267,68 @@ describe("apiDealToFrontend Smooth Exit enrollment mapping (#426)", () => {
 
     expect(deal.smoothExit?.nextStep).toBeUndefined();
     expect(deal.smoothExit?.surveyAnswers?.nextStep).toBeUndefined();
+  });
+});
+
+// ─── #459: Pipeline Value fills in at under contract, from the contract price ─
+//
+// Paul, 2026-08-28: "Pipeline only fills in when the client goes under
+// contract, then it takes the commission % based on the contract price. Keep
+// it simple."
+//
+// #410 stamps `deals.price` from the offer amount when a deal advances to
+// Offer Active — that capture stays; it is the input, and on acceptance the
+// accepted amount IS the contract price. What moves is the point at which it
+// COUNTS: an offer can be rejected, so it is not pipeline until the deal is
+// under contract. `pipelinePrice` / `pipelineCommission` are the one rule both
+// dashboards ask, so the agent and admin rollups cannot drift apart.
+describe("pipeline contribution by stage (#459)", () => {
+  const priced = (stage: string) =>
+    apiDealToFrontend(
+      wireDeal({ stage, price: "475000.00", commission_pct: "3.00" })
+    );
+
+  it("counts nothing before under contract, however real the offer amount is", () => {
+    for (const stage of ["intake", "active_search", "offer_active"]) {
+      const deal = priced(stage);
+      // The amount is still on the deal — an offer is still displayed as an offer.
+      expect(deal.property.price).toBe(475000);
+      // It just is not pipeline yet.
+      expect(pipelinePrice(deal)).toBeNull();
+      expect(pipelineCommission(deal)).toBeNull();
+    }
+  });
+
+  it("counts the contract price from under_contract onward", () => {
+    for (const stage of ["under_contract", "pre_close", "closing", "post_close"]) {
+      expect(pipelinePrice(priced(stage))).toBe(475000);
+      expect(pipelineCommission(priced(stage))).toBe(14250);
+    }
+  });
+
+  it("commission is the contract price × commission_pct on that same set", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({ stage: "under_contract", price: "475000.00", commission_pct: "2.75" })
+    );
+    expect(pipelineCommission(deal)).toBe(Math.round((475000 * 2.75) / 100));
+    expect(pipelineCommission(deal)).toBe(13063);
+  });
+
+  it("an under-contract deal with no price contributes nothing — '—', never $0 (#411)", () => {
+    const deal = apiDealToFrontend(wireDeal({ stage: "under_contract", price: null }));
+    expect(pipelinePrice(deal)).toBeNull();
+    expect(formatCompactMoney(sumKnown([pipelinePrice(deal)]), 2)).toBe(NO_AMOUNT);
+  });
+
+  it("totals a mixed pipeline from the under-contract deals only", () => {
+    const deals = [
+      apiDealToFrontend(wireDeal({ stage: "offer_active", price: "600000.00" })),
+      apiDealToFrontend(wireDeal({ stage: "under_contract", price: "475000.00" })),
+      apiDealToFrontend(wireDeal({ stage: "closing", price: "525000.00" })),
+      apiDealToFrontend(wireDeal({ stage: "active_search", price: null })),
+    ];
+    const total = sumKnown(deals.map(pipelinePrice));
+    expect(typeof total).toBe("number");
+    expect(total).toBe(1_000_000);
   });
 });

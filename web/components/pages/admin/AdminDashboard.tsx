@@ -9,7 +9,13 @@ import { useUsers, AppUser } from "@/hooks/useUsers";
 import { useAgentInvites, AgentInvite } from "@/hooks/useAgentInvites";
 import { useSystemConfig, usePromoCodes, useAuditLog, SystemConfig, CreatePromoCodeInput } from "@/hooks/useAdmin";
 import { Deal } from "@/lib/types";
-import { formatCompactMoney, formatMoney, sumKnown } from "@/lib/deal-money";
+import {
+  formatCompactMoney,
+  formatMoney,
+  pipelineCommission,
+  pipelinePrice,
+  sumKnown,
+} from "@/lib/deal-money";
 import { FormReview } from "@/components/pages/admin/FormReview";
 import {
   AlertTriangle,
@@ -163,10 +169,12 @@ function DealRow({ deal }: { deal: Deal }) {
 
 function PipelineOverview({ deals }: { deals: Deal[] }) {
   const activeDeals = deals.filter((d) => d.stage !== 'post_close');
-  // #411 — same rule as the agent dashboard: total the deals whose price the
-  // app knows, and stay `null` (rendered "—") when it knows none of them.
-  const totalPipeline = sumKnown(activeDeals.map((d) => d.property.price));
-  const totalCommission = sumKnown(activeDeals.map((d) => d.estimatedCommission));
+  // Literally the same rule as the agent dashboard, from the same module, so
+  // the two can't drift: count a deal only once it is under contract, at its
+  // contract price (#459), and total only what the app knows — "—", not "$0",
+  // when it knows nothing (#411).
+  const totalPipeline = sumKnown(activeDeals.map(pipelinePrice));
+  const totalCommission = sumKnown(activeDeals.map(pipelineCommission));
   const overdueTaskCount = activeDeals.reduce((s, d) => s + (d.overdueTaskCount ?? 0), 0);
   const pendingDisclosures = activeDeals.filter(
     (d) => d.loanMilestones?.disclosuresOut && !d.loanMilestones?.disclosuresSignedSubmitted,
@@ -276,7 +284,9 @@ function PipelineOverview({ deals }: { deals: Deal[] }) {
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-gray-400">By Agent</h2>
         <div className="space-y-2">
           {agentEntries.map(([agentId, { name, email, deals: agentDeals }]) => {
-            const agentCommission = sumKnown(agentDeals.map((d) => d.estimatedCommission));
+            // Per-agent slice of the same rollup — same gate (#459), so the
+            // By Agent column adds up to the headline card above it.
+            const agentCommission = sumKnown(agentDeals.map(pipelineCommission));
             const agentOverdue = agentDeals.reduce((s, d) => s + (d.overdueTaskCount ?? 0), 0);
             const healthCounts = {
               green: agentDeals.filter((d) => d.health === 'green').length,

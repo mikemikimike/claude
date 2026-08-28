@@ -9,7 +9,13 @@ import { AGENT_STAGE_LABELS as STAGE_LABELS } from "@/lib/stages";
 import { useDeals, CLOSED_DEAL_STATUSES } from "@/hooks/useDeals";
 import { useAgentTasks } from "@/hooks/useTasks";
 import { useNotifications, AppNotification } from "@/hooks/useNotifications";
-import { formatCompactMoney, formatMoney, sumKnown } from "@/lib/deal-money";
+import {
+  formatCompactMoney,
+  formatMoney,
+  pipelineCommission,
+  pipelinePrice,
+  sumKnown,
+} from "@/lib/deal-money";
 import { TrendingUp, Layers, CheckSquare, ArrowRight, Clock, AlertCircle, CheckCircle2, DollarSign, Share2, X, Phone, Archive } from 'lucide-react';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -297,10 +303,12 @@ export default function AgentDashboard() {
   const { deals: completedDeals } = useDeals(CLOSED_DEAL_STATUSES);
 
   // ── Stats ────────────────────────────────────────────────────────────────
-  // #411 — total the deals whose price the app actually knows. An unpriced
-  // deal contributes nothing; a pipeline where NO deal is priced is `null`,
-  // which the stat card renders as "—" instead of a confident "$0".
-  const pipelineValue = sumKnown(agentDeals.map((d) => d.property.price));
+  // #459 — a deal counts toward Pipeline Value once it is UNDER CONTRACT, at
+  // its contract price; an offer that could still be rejected is not pipeline.
+  // #411 — and total only the deals whose price the app actually knows: a
+  // pipeline with nothing under contract is `null`, which the stat card
+  // renders as "—" instead of a confident "$0".
+  const pipelineValue = sumKnown(agentDeals.map(pipelinePrice));
   const activeDeals = agentDeals.length;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -339,7 +347,8 @@ export default function AgentDashboard() {
 
   const getDealForTask = (task: Task) => agentDeals.find((d) => d.id === task.dealId);
 
-  const estCommission = sumKnown(agentDeals.map((d) => d.estimatedCommission));
+  // Exactly the deals Pipeline Value counts, by construction (#459).
+  const estCommission = sumKnown(agentDeals.map(pipelineCommission));
   const fastPassCount = agentDeals.filter((d) => d.fastPass?.status === 'active').length;
 
   return (
@@ -403,7 +412,7 @@ export default function AgentDashboard() {
           icon={DollarSign}
           label="Est. Commission"
           value={formatCurrency(estCommission)}
-          sub={fastPassCount > 0 ? `${fastPassCount} Fast Pass active` : 'across all deals'}
+          sub={fastPassCount > 0 ? `${fastPassCount} Fast Pass active` : 'deals under contract'}
           color="bg-brand-gold-dark"
         />
       </div>

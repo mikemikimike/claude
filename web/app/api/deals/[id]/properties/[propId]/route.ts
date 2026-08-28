@@ -68,7 +68,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
 
     const existing = await prisma.tracked_properties.findFirst({
       where: { id: propId, deal_id: dealId },
-      select: { offer_requested: true, address: true, price: true },
+      select: { offer_requested: true, address: true },
     });
     if (!existing) return error("not found", 404);
 
@@ -79,33 +79,17 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
       });
     }
 
-    // #411: give the pipeline a real number as soon as there is one.
+    // NOTE (#459): this route deliberately does NOT write `deals.price`.
     //
-    // Pipeline Value and Est. Commission are `deals.price` × the commission
-    // rate, and nothing in the normal flow filled `deals.price` in — so both
-    // read "$0" on every deal. #410 stamps it from the offer amount once an
-    // offer row exists; between "the buyer asked to offer on this house" and
-    // "the agent advanced the stage with an amount", the tracked listing's
-    // list price is the only real figure the system has.
-    //
-    // Deliberately a backfill, never a correction:
-    //   - `price: null` in the WHERE means a figure the agent typed by hand,
-    //     or a #410 offer amount, is never overwritten. Racing writers lose to
-    //     whoever got there first rather than clobbering each other.
-    //   - a 0 list price is "unknown", not "free" — writing it would put the
-    //     "$0" this ticket is about back on the dashboard.
-    //   - the false→true edge only, matching the notification below: a repeat
-    //     PATCH of an already-set flag must not drag a corrected price back up.
-    if (
-      data.offer_requested === true &&
-      !existing.offer_requested &&
-      existing.price > 0
-    ) {
-      await prisma.deals.updateMany({
-        where: { id: dealId, price: null },
-        data: { price: existing.price },
-      });
-    }
+    // #411 backfilled it from the tracked listing's list price on the
+    // false→true edge of `offer_requested`, to stop the dashboard reading
+    // "$0". Paul settled the rule differently (2026-08-28): Pipeline Value
+    // fills in at **under contract**, from the contract price, and nowhere
+    // else. An offer *request* is not an offer and a list price is not a
+    // contract price — and this PATCH is one the *buyer* is allowed to make,
+    // so writing money here let a client browsing listings move a number on
+    // their agent's dashboard. The pipeline gate now lives in
+    // `lib/deal-money.ts` (`pipelinePrice` / `pipelineCommission`).
 
     // Agent notification on offer request (#168) — fires on the false→true
     // transition only, never to the actor. In-app insert swallows internally;

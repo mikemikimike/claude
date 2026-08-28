@@ -213,7 +213,16 @@ export function apiDealToFrontend(d: ApiDeal): Deal {
     // (create RETURNING, /api/me/deals) omit it — a fresh deal is 'active'.
     status: d.status ?? 'active',
     // No price, no commission figure (#411) — 3% of nothing is not $0, it is
-    // "we don't know yet".
+    // "we don't know yet". Once the deal is under contract this price IS the
+    // contract price, which is what the pipeline rollups take their cut of
+    // (#459 — see `pipelineCommission` in lib/deal-money.ts for the gate).
+    //
+    // KNOWN LIMITATION (#459, deliberate): commission is a PERCENTAGE, full
+    // stop. An agent working a flat fee gets a wrong number here. Paul chose
+    // to keep v1 simple rather than carry a `commission_type` (percent | flat)
+    // through the schema, the Edit Deal modal and both dashboards — so this is
+    // a recorded decision, not an oversight. Whoever needs flat fees should
+    // add the field rather than special-case this line.
     estimatedCommission: price == null ? null : Math.round(price * (commissionPct / 100)),
     commissionPct,
     agentName: d.agent_name,

@@ -563,16 +563,16 @@ describe("DELETE /api/deals/[id]/properties/[propId] — buyer participant (#168
   });
 });
 
-// ─── #411: a deal with a property under offer must not read "$0" ─────────────
+// ─── #459: nothing a client does may move the agent's Pipeline Value ─────────
 //
-// Pipeline Value and Est. Commission are `deals.price` × the commission rate,
-// and nothing in the normal flow ever filled `deals.price` in. #410 stamps it
-// from the offer amount once an offer row is written; before that — the buyer
-// has asked to make an offer but nobody has advanced the stage yet — the
-// tracked listing's list price is the only real number in the system, so use
-// it. Strictly a backfill: it fires ONLY when the deal has no price, so a
-// figure the agent typed by hand (or a later offer amount) is never lost.
-describe("PATCH offer_requested backfills deals.price (#411)", () => {
+// #411 backfilled `deals.price` from the tracked listing's list price the
+// moment a buyer tapped "Make an Offer", to stop the dashboard reading "$0".
+// Paul settled the rule differently (2026-08-28): Pipeline Value fills in at
+// **under contract**, from the contract price, and nowhere else. An offer
+// *request* is not an offer, a list price is not a contract price, and a
+// client browsing listings must not be able to move a number on their agent's
+// dashboard. So the backfill is gone — these tests are its headstone.
+describe("PATCH offer_requested never writes deals.price (#459)", () => {
   async function seedPricedProperty(
     dealId: string,
     price: number
@@ -608,7 +608,7 @@ describe("PATCH offer_requested backfills deals.price (#411)", () => {
     return createDeal({ agent_id: agent.id });
   }
 
-  it("sets the deal price from the listing when the deal has none", async () => {
+  it("leaves the deal price alone when the listing has a list price", async () => {
     const deal = await seedAgentDeal();
     const prop = await seedPricedProperty(deal.id, 475000);
     expect(await dealPrice(deal.id)).toBeNull();
@@ -618,7 +618,31 @@ describe("PATCH offer_requested backfills deals.price (#411)", () => {
     });
     expect(res.status).toBe(200);
 
-    expect(await dealPrice(deal.id)).toBe(475000);
+    // The listing's list price is not the contract price (#459).
+    expect(await dealPrice(deal.id)).toBeNull();
+  });
+
+  it("a BUYER's offer request cannot move the agent's number", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|buyer" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+    const prop = await seedPricedProperty(deal.id, 475000);
+
+    const res = await patchPropAs(deal.id, prop.id, "auth0|buyer", ["buyer"], {
+      offer_requested: true,
+    });
+    expect(res.status).toBe(200);
+    // The flag itself is the buyer's to set — the money is not.
+    const row = await prisma.tracked_properties.findUnique({
+      where: { id: prop.id },
+      select: { offer_requested: true },
+    });
+    expect(row?.offer_requested).toBe(true);
+
+    expect(await dealPrice(deal.id)).toBeNull();
   });
 
   it("never overwrites a price the agent typed by hand", async () => {
@@ -637,21 +661,6 @@ describe("PATCH offer_requested backfills deals.price (#411)", () => {
     expect(await dealPrice(deal.id)).toBe(512000);
   });
 
-  it("leaves the price null when the tracked listing has no list price either", async () => {
-    const deal = await seedAgentDeal();
-    const prop = await seedPricedProperty(deal.id, 0);
-
-    const res = await patchProp(deal.id, prop.id, "auth0|a", {
-      offer_requested: true,
-    });
-    expect(res.status).toBe(200);
-
-    // A zero list price means "we don't know", not "this house is free".
-    // Writing 0 would put the $0 this ticket is about straight back on the
-    // dashboard, dressed up as a real answer.
-    expect(await dealPrice(deal.id)).toBeNull();
-  });
-
   it("does not touch the price on an unrelated property PATCH", async () => {
     const deal = await seedAgentDeal();
     const prop = await seedPricedProperty(deal.id, 475000);
@@ -660,22 +669,6 @@ describe("PATCH offer_requested backfills deals.price (#411)", () => {
     expect(res.status).toBe(200);
 
     expect(await dealPrice(deal.id)).toBeNull();
-  });
-
-  it("does not re-fire when offer_requested is already true", async () => {
-    const deal = await seedAgentDeal();
-    const prop = await seedPricedProperty(deal.id, 475000);
-    await patchProp(deal.id, prop.id, "auth0|a", { offer_requested: true });
-    // The agent then corrects the number downward; a second PATCH of the same
-    // flag must not drag it back up to the list price.
-    await prisma.deals.update({
-      where: { id: deal.id },
-      data: { price: 460000 },
-    });
-
-    await patchProp(deal.id, prop.id, "auth0|a", { offer_requested: true });
-
-    expect(await dealPrice(deal.id)).toBe(460000);
   });
 });
 

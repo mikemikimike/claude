@@ -13,6 +13,8 @@
  * a pile of them up without letting the absent ones count as zero.
  */
 
+import type { DealStage } from "./stages";
+
 /** What an amount the app doesn't know renders as. */
 export const NO_AMOUNT = "—";
 
@@ -55,4 +57,74 @@ export function sumKnown(values: (number | null | undefined)[]): number | null {
     sawOne = true;
   }
   return sawOne ? total : null;
+}
+
+// ─── What counts as pipeline (#459) ─────────────────────────────────────────
+//
+// Paul, 2026-08-28: "Pipeline only fills in when the client goes under
+// contract, then it takes the commission % based on the contract price. Keep
+// it simple."
+//
+// Three things write `deals.price`: the agent typing it in the Edit Deal
+// modal, #410 stamping the offer amount when a deal advances to Offer Active,
+// and — until this ticket — a backfill from the tracked listing's list price
+// when the *buyer* tapped "Make an Offer". The last one is gone: a client
+// browsing listings must not move a number on their agent's dashboard.
+//
+// #410's capture stays exactly where it is. What moved is the point at which
+// the captured amount COUNTS: an offer at Offer Active can still be rejected,
+// so it is not pipeline until it is accepted — and on acceptance that accepted
+// amount is the contract price, carried into `under_contract` unchanged (the
+// stage PATCH never touches `deals.price`).
+
+/**
+ * The stages at which a deal is under contract or beyond — the only deals that
+ * contribute to Pipeline Value and Est. Commission.
+ */
+export const PIPELINE_STAGES = [
+  "under_contract",
+  "pre_close",
+  "closing",
+  "post_close",
+] as const satisfies readonly DealStage[];
+
+/** Is this deal under contract or beyond? */
+export function countsTowardPipeline(stage: DealStage | string): boolean {
+  return (PIPELINE_STAGES as readonly string[]).includes(stage);
+}
+
+/** The shape both rollups need — a `Deal`, structurally. */
+type PricedDeal = {
+  stage: DealStage | string;
+  property: { price: number | null };
+  estimatedCommission: number | null;
+};
+
+/**
+ * This deal's contribution to Pipeline Value: its contract price once the deal
+ * is under contract, and `null` — "we don't know", rendered "—" — before that,
+ * or when no price was ever captured. Never 0: see the module header.
+ *
+ * `deal.property.price` itself is left alone, so an Offer Active deal still
+ * *shows* its offer amount on the deal card and in the client portals. Only
+ * the rollups ask this question.
+ */
+export function pipelinePrice(deal: PricedDeal): number | null {
+  return countsTowardPipeline(deal.stage) ? deal.property.price : null;
+}
+
+/**
+ * This deal's contribution to Est. Commission — its `estimatedCommission`
+ * (contract price × `commission_pct`, computed in `apiDealToFrontend`) over
+ * the same set of deals `pipelinePrice` counts, so the two cards can never
+ * disagree about which deals they are describing.
+ *
+ * KNOWN LIMITATION (#459, deliberate): commission is modelled as a percentage
+ * only. An agent paid a FLAT FEE will see a wrong number here — Paul chose to
+ * keep v1 simple rather than carry a `commission_type` (percent | flat). This
+ * is a recorded decision, not an oversight; the fix is a real field, not a
+ * special case bolted on here.
+ */
+export function pipelineCommission(deal: PricedDeal): number | null {
+  return countsTowardPipeline(deal.stage) ? deal.estimatedCommission : null;
 }
