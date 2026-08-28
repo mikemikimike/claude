@@ -27,7 +27,9 @@ import { MessagesTab } from "@/components/deal/MessagesTab";
 import { DocumentsTab, UploadDocModal } from "@/components/deal/DocumentsTab";
 import { VendorsTab } from "@/components/deal/VendorsTab";
 import { TimelineTab } from "@/components/deal/TimelineTab";
-import { StageAdvanceModal, type BlockingTask } from "@/components/deal/StageAdvanceModal";
+import { StageAdvanceModal, type BlockingTask, type OfferDetails } from "@/components/deal/StageAdvanceModal";
+import { useProperties } from "@/hooks/useProperties";
+import { useOffers } from "@/hooks/useOffers";
 import { StageTransitionBar } from "@/components/deal/StageTransitionBar";
 import { DealHeader } from "@/components/deal/DealHeader";
 
@@ -68,10 +70,16 @@ export default function DealDetail() {
   // Non-blocking: set when the stage advanced but the drafted client message
   // failed to post (#185) — the advance itself must never be rolled back.
   const [clientMsgSendFailed, setClientMsgSendFailed] = useState(false);
+  // Non-blocking: the stage advanced but the offer row failed to save (#410).
+  const [offerSaveFailed, setOfferSaveFailed] = useState(false);
 
   const { deal: apiDeal, loading: dealLoading, error: dealError, refresh: refreshDeal } = useDeal(dealId);
   const { tasks: dealTasks, refresh: refreshTasks } = useTasks(dealId ?? '');
   const { docs: dealDocs, loading: docsLoading, refresh: refreshDocs } = useDocuments(dealId ?? '');
+  // The Offer Active picker's options (#410). Fetched here rather than inside
+  // the modal so StageAdvanceModal stays a pure, prop-driven component.
+  const { properties: dealProperties } = useProperties(dealId);
+  const { addOffer, refresh: refreshOffers } = useOffers(dealId);
 
   if (dealLoading) {
     return (
@@ -122,10 +130,15 @@ export default function DealDetail() {
 
   function advanceStage() {
     setClientMsgSendFailed(false);
+    setOfferSaveFailed(false);
     setShowAdvanceModal(true);
   }
 
-  async function handleAdvanceConfirm(draftMessage: string, force?: boolean) {
+  async function handleAdvanceConfirm(
+    draftMessage: string,
+    force?: boolean,
+    offer?: OfferDetails | null,
+  ) {
     const idx = STAGE_ORDER.indexOf(stage);
     if (idx < STAGE_ORDER.length - 1) {
       const nextStage = STAGE_ORDER[idx + 1];
@@ -138,6 +151,24 @@ export default function DealDetail() {
         }
         setShowAdvanceModal(false);
         return;
+      }
+      // Record WHICH house and for how much (#410). After the stage PATCH, so
+      // a 422 gate rejection can't leave an orphan offer behind. Best-effort
+      // like the client message: a failed write must not undo the advance —
+      // the agent can still see the stage moved.
+      if (offer) {
+        try {
+          await addOffer({
+            trackedPropertyId: offer.tracked_property_id,
+            buyerName: deal.clientName ?? '',
+            offerPrice: offer.offer_price,
+            contingencies: [],
+            agentNotes: '',
+          });
+          refreshOffers();
+        } catch {
+          setOfferSaveFailed(true);
+        }
       }
       refreshDeal();
       // Post the agent's (possibly edited) drafted message to the client
@@ -230,6 +261,25 @@ export default function DealDetail() {
         </div>
       )}
 
+      {/* Non-blocking warning — stage advanced but the offer didn't save (#410) */}
+      {offerSaveFailed && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className="text-amber-500 flex-shrink-0" />
+            <p className="text-xs font-medium text-amber-800">
+              Stage advanced, but the offer details could not be saved. Advance again, or add
+              the offer from the deal, so the property and amount are recorded.
+            </p>
+          </div>
+          <button
+            onClick={() => setOfferSaveFailed(false)}
+            className="text-xs font-semibold text-amber-600 hover:text-amber-800 transition-colors flex-shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Stage advance automation modal */}
       {showAdvanceModal && (() => {
         const idx = STAGE_ORDER.indexOf(stage);
@@ -238,6 +288,7 @@ export default function DealDetail() {
           <StageAdvanceModal
             deal={deal}
             nextStage={nextStage}
+            properties={dealProperties}
             gateError={stageGateError}
             onConfirm={handleAdvanceConfirm}
             onCancel={() => { setStageGateError(null); setShowAdvanceModal(false); }}

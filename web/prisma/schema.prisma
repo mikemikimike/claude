@@ -86,6 +86,7 @@ model deal_contingencies {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model deal_invites {
   id                                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   deal_id                              String    @db.Uuid
@@ -274,18 +275,21 @@ model oauth_tokens {
 }
 
 model offers {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  deal_id       String    @db.Uuid
-  buyer_name    String    @default("")
-  offer_price   Int       @default(0)
-  close_date    DateTime? @db.Date
-  contingencies String[]  @default([])
-  agent_notes   String    @default("")
-  submitted_at  DateTime  @default(now()) @db.Timestamptz(6)
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
-  deals         deals     @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deal_id             String              @db.Uuid
+  buyer_name          String              @default("")
+  offer_price         Int                 @default(0)
+  close_date          DateTime?           @db.Date
+  contingencies       String[]            @default([])
+  agent_notes         String              @default("")
+  submitted_at        DateTime            @default(now()) @db.Timestamptz(6)
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  tracked_property_id String?             @db.Uuid
+  deals               deals               @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tracked_properties  tracked_properties? @relation(fields: [tracked_property_id], references: [id], onUpdate: NoAction)
 
   @@index([deal_id], map: "idx_offers_deal_id")
+  @@index([tracked_property_id], map: "idx_offers_tracked_property_id")
 }
 
 model preferred_vendors {
@@ -377,6 +381,7 @@ model tracked_properties {
   created_at         DateTime @default(now()) @db.Timestamptz(6)
   updated_at         DateTime @default(now()) @db.Timestamptz(6)
   photo_analysis     Json?
+  offers             offers[]
   deals              deals    @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([deal_id], map: "idx_tracked_properties_deal_id")
@@ -389,6 +394,7 @@ model user_settings {
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
   id                                                          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   auth0_id                                                    String                @unique

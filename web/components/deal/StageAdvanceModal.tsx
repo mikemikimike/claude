@@ -18,17 +18,48 @@ export type BlockingTask = {
   stage_context?: string | null;
 };
 
-export function StageAdvanceModal({ deal, nextStage, gateError, onConfirm, onCancel }: {
+/** The property + amount captured when advancing to Offer Active (#410). */
+export type OfferDetails = { tracked_property_id: string; offer_price: number };
+
+/** The subset of a tracked property the picker needs. */
+export type OfferPropertyOption = {
+  id: string;
+  address: string;
+  city?: string;
+  state?: string;
+  price?: number;
+};
+
+export function StageAdvanceModal({ deal, nextStage, properties = [], gateError, onConfirm, onCancel }: {
   deal: Deal;
   nextStage: DealStage;
+  /** The deal's tracked properties — the Offer Active picker's options (#410). */
+  properties?: OfferPropertyOption[];
   gateError?: { blockingTasks: BlockingTask[] } | null;
-  onConfirm: (draftMessage: string, force?: boolean) => void;
+  onConfirm: (draftMessage: string, force?: boolean, offer?: OfferDetails | null) => void;
   onCancel: () => void;
 }) {
   const autoTasks = stageAutoTasks(nextStage, deal);
   const defaultMsg = STAGE_DRAFT_MESSAGE[nextStage]?.(deal) ?? '';
   const [msg, setMsg] = useState(defaultMsg);
   const [editingMsg, setEditingMsg] = useState(false);
+
+  // ─── Offer Active: which house, and for how much (#410) ───────────────────
+  // The app used to advance into the commercial heart of a buy deal knowing
+  // neither, then guessed the property from whichever listing the buyer had
+  // tapped "Make an Offer" on. Both are now required to confirm.
+  const needsOffer = nextStage === 'offer_active';
+  const [offerPropertyId, setOfferPropertyId] = useState('');
+  const [offerAmount, setOfferAmount] = useState('');
+  const offerPrice = Number(offerAmount);
+  const offerValid =
+    offerPropertyId !== '' && offerAmount.trim() !== '' &&
+    Number.isFinite(offerPrice) && offerPrice > 0;
+  const offerReady = !needsOffer || offerValid;
+  const offer: OfferDetails | null = needsOffer && offerValid
+    ? { tracked_property_id: offerPropertyId, offer_price: Math.round(offerPrice) }
+    : null;
+  const selectedProperty = properties.find((p) => p.id === offerPropertyId);
 
   // Only list automations that actually run on confirm (#185): auto tasks are
   // created via POST /tasks, the (edited) client message is posted to the
@@ -54,6 +85,79 @@ export function StageAdvanceModal({ deal, nextStage, gateError, onConfirm, onCan
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Offer details — required for Offer Active (#410) */}
+          {needsOffer && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Offer details</p>
+
+              {properties.length === 0 ? (
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  This deal has no tracked properties yet. Add the house on the Properties tab
+                  first — an offer has to name the home it&apos;s on.
+                </p>
+              ) : (
+                <>
+                  <div>
+                    <label
+                      htmlFor="offer-property"
+                      className="block text-[11px] font-semibold text-amber-800 mb-1"
+                    >
+                      Property under offer
+                    </label>
+                    <select
+                      id="offer-property"
+                      value={offerPropertyId}
+                      onChange={(e) => setOfferPropertyId(e.target.value)}
+                      className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-amber-400"
+                    >
+                      <option value="">Select a property…</option>
+                      {properties.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {[p.address, p.city, p.state].filter(Boolean).join(', ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="offer-amount"
+                      className="block text-[11px] font-semibold text-amber-800 mb-1"
+                    >
+                      Offer amount
+                    </label>
+                    <input
+                      id="offer-amount"
+                      type="number"
+                      min={1}
+                      step={1}
+                      inputMode="numeric"
+                      value={offerAmount}
+                      onChange={(e) => setOfferAmount(e.target.value)}
+                      placeholder="385000"
+                      className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-amber-400"
+                    />
+                    {selectedProperty?.price ? (
+                      <p className="mt-1 text-[10px] text-amber-700">
+                        Listed at ${selectedProperty.price.toLocaleString()}
+                        {offerValid && offerPrice !== selectedProperty.price && (
+                          <> · offering ${Math.abs(offerPrice - selectedProperty.price).toLocaleString()}{' '}
+                          {offerPrice < selectedProperty.price ? 'under' : 'over'}</>
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {!offerValid && (
+                    <p className="text-[10px] text-amber-700">
+                      Pick the property and enter the offer amount to continue.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* Automation summary */}
           {automationItems.length > 0 && (
             <div className="rounded-xl bg-brand-navy/5 border border-brand-navy/10 p-4">
@@ -183,15 +287,17 @@ export function StageAdvanceModal({ deal, nextStage, gateError, onConfirm, onCan
         <div className="border-t border-gray-100 px-5 py-4 space-y-2">
           {gateError ? (
             <button
-              onClick={() => onConfirm(msg, true)}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 py-3.5 text-sm font-bold text-white hover:bg-amber-600 transition-colors"
+              onClick={() => onConfirm(msg, true, offer)}
+              disabled={!offerReady}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 py-3.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Zap size={14} /> Force Advance Anyway
             </button>
           ) : (
             <button
-              onClick={() => onConfirm(msg)}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-navy py-3.5 text-sm font-bold text-white hover:bg-brand-navy/90 transition-colors"
+              onClick={() => onConfirm(msg, undefined, offer)}
+              disabled={!offerReady}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-navy py-3.5 text-sm font-bold text-white hover:bg-brand-navy/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Zap size={14} /> Confirm & Advance
             </button>

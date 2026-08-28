@@ -160,15 +160,25 @@ vi.mock("@/hooks/useParticipants", () => ({
 vi.mock("@/hooks/useVendors", () => ({
   useVendors: () => ({ vendors: [], loading: false, refresh: vi.fn() }),
 }));
+// The Offer Active picker reads these (#410); tests that need an option to
+// select push one in.
+let trackedProperties: Record<string, unknown>[] = [];
 vi.mock("@/hooks/useProperties", () => ({
-  useProperties: () => ({ properties: [], loading: false, refresh: vi.fn() }),
+  useProperties: () => ({ properties: trackedProperties, loading: false, refresh: vi.fn() }),
 }));
 vi.mock("@/hooks/useShowingAvailability", () => ({
   useShowingAvailability: () => ({ slots: [], loading: false, refresh: vi.fn() }),
   DAYS_OF_WEEK: [],
 }));
+const addOffer = vi.fn();
 vi.mock("@/hooks/useOffers", () => ({
-  useOffers: () => ({ offers: [], loading: false, refresh: vi.fn() }),
+  useOffers: () => ({
+    offers: [],
+    loading: false,
+    refresh: vi.fn(),
+    addOffer: (...a: unknown[]) => addOffer(...a),
+    removeOffer: vi.fn(),
+  }),
 }));
 vi.mock("@/hooks/useNetSheet", () => ({
   useNetSheet: () => ({ lines: [], loading: false, refresh: vi.fn() }),
@@ -200,6 +210,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   requestUploadUrl.mockResolvedValue({ upload_url: UPLOAD_URL, s3_key: S3_KEY });
   confirmUpload.mockResolvedValue({ id: "doc-1" });
+  trackedProperties = [];
 });
 
 afterEach(() => {
@@ -389,15 +400,26 @@ describe("Stage advance posts the drafted client message (#185)", () => {
     patchStage.mockResolvedValue(undefined);
     postTask.mockResolvedValue(undefined);
     postMessage.mockResolvedValue({ id: "msg-1" });
+    addOffer.mockResolvedValue(undefined);
+    // Advancing to offer_active now requires a property + amount (#410), so
+    // the deal needs at least one tracked property to pick.
+    trackedProperties = [
+      { id: "prop-1", address: "123 Main Street", city: "Birmingham", state: "AL", price: 350000 },
+    ];
   });
 
-  /** Render the page, click the advance button, wait for the modal. */
+  /**
+   * Render the page, click the advance button, wait for the modal, and fill in
+   * the Offer Active property + amount the modal now requires (#410).
+   */
   async function openAdvanceModal() {
     const user = userEvent.setup();
     render(<DealDetail />);
     // The advance button is labeled with the next stage's name.
     await user.click(screen.getByRole("button", { name: /offer active/i }));
     await screen.findByRole("button", { name: /confirm & advance/i });
+    await user.selectOptions(screen.getByLabelText(/property under offer/i), "prop-1");
+    await user.type(screen.getByLabelText(/offer amount/i), "340000");
     return user;
   }
 
@@ -473,6 +495,56 @@ describe("Stage advance posts the drafted client message (#185)", () => {
     // …and the failure is surfaced without blocking anything.
     expect(
       await screen.findByText(/client message could not be sent/i)
+    ).toBeInTheDocument();
+  });
+
+  // ─── #410: the advance must record the property and the amount ────────────
+
+  it("creates the offer with the chosen property and amount", async () => {
+    const user = await openAdvanceModal();
+    await user.click(screen.getByRole("button", { name: /confirm & advance/i }));
+
+    await waitFor(() => expect(addOffer).toHaveBeenCalledTimes(1));
+    expect(addOffer.mock.calls[0][0]).toMatchObject({
+      trackedPropertyId: "prop-1",
+      offerPrice: 340000,
+    });
+  });
+
+  it("writes the offer only AFTER the stage patch succeeds", async () => {
+    patchStage.mockRejectedValue(new Error("nope"));
+    const user = await openAdvanceModal();
+
+    await user.click(screen.getByRole("button", { name: /confirm & advance/i }));
+
+    await waitFor(() => expect(patchStage).toHaveBeenCalled());
+    expect(addOffer).not.toHaveBeenCalled();
+  });
+
+  it("cannot confirm the advance without a property and an amount", async () => {
+    const user = userEvent.setup();
+    render(<DealDetail />);
+    await user.click(screen.getByRole("button", { name: /offer active/i }));
+
+    const confirm = await screen.findByRole("button", { name: /confirm & advance/i });
+    expect(confirm).toBeDisabled();
+
+    await user.click(confirm);
+    expect(patchStage).not.toHaveBeenCalled();
+    expect(addOffer).not.toHaveBeenCalled();
+  });
+
+  it("a failed offer save never breaks the advance and surfaces a warning", async () => {
+    addOffer.mockRejectedValue(new Error("network down"));
+    const user = await openAdvanceModal();
+
+    await user.click(screen.getByRole("button", { name: /confirm & advance/i }));
+
+    await waitFor(() =>
+      expect(patchStage).toHaveBeenCalledWith(DEAL_ID, "offer_active", undefined)
+    );
+    expect(
+      await screen.findByText(/offer details could not be saved/i)
     ).toBeInTheDocument();
   });
 });

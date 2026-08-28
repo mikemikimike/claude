@@ -2,6 +2,7 @@
 
 import { Deal, DealStage } from "@/lib/types";
 import { useProperties } from "@/hooks/useProperties";
+import { useOffers } from "@/hooks/useOffers";
 import { ChevronRight, ChevronLeft, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { STAGE_LABELS, STAGE_ORDER, STAGE_GATE } from "@/components/deal/shared";
 
@@ -25,9 +26,23 @@ export function StageTransitionBar({
 
   const isOfferActive = stage === 'offer_active';
   const { properties: stageProperties } = useProperties(isOfferActive ? deal.id : undefined);
-  const offerProperty = isOfferActive
-    ? stageProperties.find((p) => p.offerRequested)
-    : null;
+  const { offers: dealOffers } = useOffers(isOfferActive ? deal.id : undefined);
+
+  // #410: the banner used to name whichever listing the *buyer* had tapped
+  // "Make an Offer" on — a guess that showed nothing when they'd tapped
+  // nothing and silently picked the first when they'd tapped two. Advancing to
+  // Offer Active now writes a real `offers` row carrying the property, so read
+  // the newest linked offer (the API returns them submitted_at desc). The
+  // offerRequested guess survives only as a fallback for deals that reached
+  // offer_active before this shipped.
+  const linkedOffer = isOfferActive
+    ? dealOffers.find((o) => o.trackedPropertyId)
+    : undefined;
+  const offerProperty = !isOfferActive
+    ? null
+    : linkedOffer
+      ? stageProperties.find((p) => p.id === linkedOffer.trackedPropertyId)
+      : stageProperties.find((p) => p.offerRequested);
 
   return (
     <div className="rounded-xl bg-white shadow-sm border border-gray-100 overflow-hidden">
@@ -57,6 +72,9 @@ export function StageTransitionBar({
         <div className="mx-4 mb-2 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
           <p className="text-xs font-bold text-amber-800 mb-0.5">
             {offerProperty ? `Offer on ${offerProperty.address}` : 'Offer pending — awaiting seller response'}
+            {linkedOffer && linkedOffer.offerPrice > 0 && (
+              <span className="font-semibold"> · ${linkedOffer.offerPrice.toLocaleString()}</span>
+            )}
           </p>
           <p className="text-[11px] text-amber-600 leading-snug">
             Mark accepted to move into contract, or rejected to return to home search.

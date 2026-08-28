@@ -5,6 +5,13 @@ import { z } from "zod";
 
 /** POST /api/deals/[id]/offers */
 export const createOfferBodySchema = z.object({
+  /**
+   * Which tracked listing the offer is on (#410). Nullable: seller-side offers
+   * aren't written against a tracked property, and the pre-#410 callers never
+   * sent one. The handler additionally checks the id belongs to THIS deal — a
+   * membership check the schema can't do.
+   */
+  tracked_property_id: z.uuid().nullish(),
   buyer_name: z.string().nullish(),
   // Number only: Prisma's Decimal validation already 500'd on strings, so
   // there is no stringly-typed tolerance to preserve here (unlike deal price).

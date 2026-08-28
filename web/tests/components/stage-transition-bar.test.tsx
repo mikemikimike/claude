@@ -11,16 +11,28 @@
  * The final stage must instead be shown as final — no advance button at all.
  * Every other stage's transition bar is unchanged.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { StageTransitionBar } from "@/components/deal/StageTransitionBar";
 import type { Deal, DealStage } from "@/lib/types";
 
-// StageTransitionBar calls useProperties (react-query) when the stage is
-// offer_active. Stub it so the component renders without a QueryClient.
+// StageTransitionBar calls useProperties + useOffers (react-query) when the
+// stage is offer_active. Stub both so the component renders without a
+// QueryClient; the per-test data lives in the mutable arrays below.
+let mockProperties: Record<string, unknown>[] = [];
+let mockOffers: Record<string, unknown>[] = [];
+
 vi.mock("@/hooks/useProperties", () => ({
-  useProperties: () => ({ properties: [], loading: false, refresh: vi.fn() }),
+  useProperties: () => ({ properties: mockProperties, loading: false, refresh: vi.fn() }),
 }));
+vi.mock("@/hooks/useOffers", () => ({
+  useOffers: () => ({ offers: mockOffers, loading: false, refresh: vi.fn() }),
+}));
+
+beforeEach(() => {
+  mockProperties = [];
+  mockOffers = [];
+});
 
 const DEAL = {
   id: "0f6c6a2e-1b3d-4f5a-9c8b-2d1e3f4a5b6c",
@@ -81,5 +93,63 @@ describe("StageTransitionBar", () => {
     const advance = screen.getByRole("button", { name: /active search/i }) as HTMLButtonElement;
     expect(retreat.disabled).toBe(true);
     expect(advance.disabled).toBe(false);
+  });
+});
+
+/**
+ * #410 — the offer banner named whichever listing the *buyer* had tapped
+ * "Make an Offer" on. That showed nothing when they'd tapped nothing, and
+ * silently picked the first when they'd tapped two. The banner must read the
+ * real `offers` row the advance now writes.
+ */
+describe("StageTransitionBar offer banner (#410)", () => {
+  const OAK = { id: "p-1", address: "12 Oak St", offerRequested: false };
+  const WILLOW = { id: "p-2", address: "9 Willow Ln", offerRequested: true };
+
+  it("names the property from the linked offer, not from offerRequested", () => {
+    mockProperties = [OAK, WILLOW];
+    mockOffers = [{ id: "o-1", trackedPropertyId: "p-1", offerPrice: 385000 }];
+
+    renderBar("offer_active");
+
+    expect(screen.getByText(/Offer on 12 Oak St/)).toBeTruthy();
+    expect(screen.queryByText(/9 Willow Ln/)).toBeNull();
+  });
+
+  it("shows the offer amount next to the address", () => {
+    mockProperties = [OAK];
+    mockOffers = [{ id: "o-1", trackedPropertyId: "p-1", offerPrice: 385000 }];
+
+    renderBar("offer_active");
+
+    expect(screen.getByText(/\$385,000/)).toBeTruthy();
+  });
+
+  it("names the property even when the buyer never tapped 'Make an Offer'", () => {
+    mockProperties = [{ id: "p-1", address: "12 Oak St", offerRequested: false }];
+    mockOffers = [{ id: "o-1", trackedPropertyId: "p-1", offerPrice: 400000 }];
+
+    renderBar("offer_active");
+
+    expect(screen.getByText(/Offer on 12 Oak St/)).toBeTruthy();
+    expect(screen.queryByText(/awaiting seller response/)).toBeNull();
+  });
+
+  it("falls back to the offerRequested guess for a pre-#410 deal with no offer row", () => {
+    mockProperties = [OAK, WILLOW];
+    mockOffers = [];
+
+    renderBar("offer_active");
+
+    expect(screen.getByText(/Offer on 9 Willow Ln/)).toBeTruthy();
+  });
+
+  it("ignores an offer with no property link and stays honest about not knowing", () => {
+    mockProperties = [OAK];
+    mockOffers = [{ id: "o-1", trackedPropertyId: undefined, offerPrice: 385000 }];
+
+    renderBar("offer_active");
+
+    expect(screen.getByText(/awaiting seller response/)).toBeTruthy();
   });
 });

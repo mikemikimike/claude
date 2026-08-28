@@ -29,9 +29,15 @@ type BlockingTask = {
   stage_context?: string | null;
 };
 
+/**
+ * The gate-error assertions below are stage-agnostic, so they run against
+ * `under_contract` — advancing to `offer_active` now additionally requires the
+ * offer property + amount (#410), which would otherwise disable the footer
+ * buttons these tests click. The #410 fields have their own describe block.
+ */
 function renderModal(
   blockingTasks: BlockingTask[] | null,
-  nextStage: DealStage = "offer_active",
+  nextStage: DealStage = "under_contract",
 ) {
   const onConfirm = vi.fn();
   render(
@@ -110,5 +116,132 @@ describe("StageAdvanceModal gate error", () => {
     expect(screen.queryByText(/required task/i)).toBeNull();
     expect(screen.queryByText(/generated automatically/i)).toBeNull();
     expect(screen.getByRole("button", { name: /confirm & advance/i })).toBeTruthy();
+  });
+});
+
+// ─── #410: Offer Active must capture the property and the amount ─────────────
+/**
+ * Advancing to Offer Active asked only for a client message, so the app
+ * recorded nothing about the offer and the banner guessed the house from
+ * whichever listing the buyer had tapped "Make an Offer" on. The modal now
+ * requires both, and hands them to onConfirm as its third argument.
+ */
+const PROPERTIES = [
+  { id: "p-1", address: "12 Oak St", city: "Birmingham", state: "AL", price: 400000 },
+  { id: "p-2", address: "9 Willow Ln", city: "Homewood", state: "AL", price: 325000 },
+];
+
+function renderOfferModal(
+  properties: typeof PROPERTIES = PROPERTIES,
+  nextStage: DealStage = "offer_active",
+) {
+  const onConfirm = vi.fn();
+  render(
+    <StageAdvanceModal
+      deal={DEAL}
+      nextStage={nextStage}
+      properties={properties}
+      gateError={null}
+      onConfirm={onConfirm}
+      onCancel={vi.fn()}
+    />,
+  );
+  return { onConfirm };
+}
+
+const confirmButton = () =>
+  screen.getByRole("button", { name: /confirm & advance/i }) as HTMLButtonElement;
+
+describe("StageAdvanceModal offer details (#410)", () => {
+  it("renders a property picker listing every tracked property", () => {
+    renderOfferModal();
+
+    const picker = screen.getByLabelText(/property under offer/i) as HTMLSelectElement;
+    expect(picker).toBeTruthy();
+    // Two properties + the "Select a property…" placeholder.
+    expect(picker.options.length).toBe(3);
+    expect(screen.getByRole("option", { name: /12 Oak St/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /9 Willow Ln/ })).toBeTruthy();
+  });
+
+  it("disables confirm until BOTH the property and the amount are set", async () => {
+    renderOfferModal();
+    const amount = screen.getByLabelText(/offer amount/i);
+
+    expect(confirmButton().disabled).toBe(true);
+
+    // Amount alone is not enough.
+    await userEvent.type(amount, "385000");
+    expect(confirmButton().disabled).toBe(true);
+
+    // Property alone is not enough either.
+    await userEvent.clear(amount);
+    await userEvent.selectOptions(screen.getByLabelText(/property under offer/i), "p-2");
+    expect(confirmButton().disabled).toBe(true);
+
+    // Both → enabled.
+    await userEvent.type(amount, "310000");
+    expect(confirmButton().disabled).toBe(false);
+  });
+
+  it("rejects a zero offer amount", async () => {
+    renderOfferModal();
+    await userEvent.selectOptions(screen.getByLabelText(/property under offer/i), "p-1");
+    await userEvent.type(screen.getByLabelText(/offer amount/i), "0");
+
+    expect(confirmButton().disabled).toBe(true);
+  });
+
+  it("hands the chosen property id and amount to onConfirm", async () => {
+    const { onConfirm } = renderOfferModal();
+
+    await userEvent.selectOptions(screen.getByLabelText(/property under offer/i), "p-2");
+    await userEvent.type(screen.getByLabelText(/offer amount/i), "310000");
+    await userEvent.click(confirmButton());
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm.mock.calls[0][2]).toEqual({
+      tracked_property_id: "p-2",
+      offer_price: 310000,
+    });
+  });
+
+  it("shows the list price so the agent can see they offered under it", async () => {
+    renderOfferModal();
+
+    await userEvent.selectOptions(screen.getByLabelText(/property under offer/i), "p-1");
+    await userEvent.type(screen.getByLabelText(/offer amount/i), "385000");
+
+    const hint = screen.getByText(/listed at/i);
+    expect(hint.textContent).toMatch(/\$400,000/);
+    expect(hint.textContent).toMatch(/\$15,000\s*under/);
+  });
+
+  it("says what to do when the deal has no tracked properties yet", () => {
+    renderOfferModal([]);
+
+    expect(screen.queryByLabelText(/property under offer/i)).toBeNull();
+    expect(screen.getByText(/Properties tab/i)).toBeTruthy();
+    expect(confirmButton().disabled).toBe(true);
+  });
+
+  it("leaves every other stage exactly as it was — no offer fields, confirm enabled", () => {
+    renderOfferModal(PROPERTIES, "under_contract");
+
+    expect(screen.queryByLabelText(/property under offer/i)).toBeNull();
+    expect(screen.queryByLabelText(/offer amount/i)).toBeNull();
+    expect(screen.queryByText(/offer details/i)).toBeNull();
+    expect(confirmButton().disabled).toBe(false);
+  });
+
+  it("still drafts and sends the client message alongside the offer", async () => {
+    const { onConfirm } = renderOfferModal();
+
+    await userEvent.selectOptions(screen.getByLabelText(/property under offer/i), "p-1");
+    await userEvent.type(screen.getByLabelText(/offer amount/i), "390000");
+    await userEvent.click(confirmButton());
+
+    expect(typeof onConfirm.mock.calls[0][0]).toBe("string");
+    expect((onConfirm.mock.calls[0][0] as string).length).toBeGreaterThan(0);
   });
 });
