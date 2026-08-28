@@ -316,7 +316,7 @@ function MessagesTab({ dealId }: { dealId: string }) {
             }`}>
               {msg.senderName.charAt(0)}
             </div>
-            <div className={`max-w-[78%] flex flex-col gap-1 ${isAgent ? 'items-start' : 'items-end'}`}>
+            <div className={`max-w-[78%] lg:max-w-md flex flex-col gap-1 ${isAgent ? 'items-start' : 'items-end'}`}>
               <div className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                 isAgent ? 'bg-gray-100 text-gray-800 rounded-tl-sm' : 'bg-brand-navy text-white rounded-tr-sm'
               }`}>{msg.content}</div>
@@ -519,7 +519,7 @@ function PropertyCard({ property, onStatusChange, onRemove, onBuyerNote, onOffer
     <div className={`rounded-xl border bg-white overflow-hidden transition-all ${dimmed ? 'opacity-50 border-gray-100' : 'border-gray-200 shadow-sm'}`}>
       <div className="flex gap-3 p-3">
         {/* Thumbnail */}
-        <div className="h-20 w-24 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
+        <div className="h-20 w-24 lg:h-24 lg:w-32 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
           {property.thumbnailUrl && !imgError ? (
             <Image
               src={property.thumbnailUrl}
@@ -2060,7 +2060,24 @@ export default function BuyerView() {
   };
 
   return (
-    <div className="mx-auto max-w-lg space-y-4 pb-10">
+    /*
+     * Responsive shell (#421). Below `lg` this is byte-for-byte the old
+     * single `max-w-lg` column: the three wrappers each keep `space-y-4`, and
+     * the root's own `space-y-4` supplies the gap between them, so every
+     * section sits exactly where it did. At `lg` the root becomes a two-column
+     * grid — band across the top, everything that was above the lender card in
+     * the wide column, the lender/vendors/agent stack beside it.
+     *
+     * The wrappers' children are deliberately NOT re-indented: several other
+     * tickets are queued against this file and re-indenting ~130 lines would
+     * turn a four-line layout change into a conflict for all of them.
+     */
+    <div
+      data-testid="portal-root"
+      className="mx-auto max-w-lg space-y-4 pb-10 md:max-w-2xl lg:grid lg:max-w-6xl lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start lg:gap-x-6 lg:gap-y-4 lg:space-y-0"
+    >
+      {/* Full-width band above the columns */}
+      <div className="space-y-4 lg:col-span-2">
       <ClientNotifications />
 
       {/* Header */}
@@ -2103,6 +2120,10 @@ export default function BuyerView() {
           </div>
         </div>
       </div>
+      </div>
+
+      {/* Primary column */}
+      <div data-testid="portal-primary" className="space-y-4 lg:col-start-1 lg:row-start-2">
 
       {/* Overdue alert — right after header, before journey */}
       {buyerTasks.some((t) => t.status === 'overdue') && (
@@ -2177,9 +2198,13 @@ export default function BuyerView() {
           {activeTab === 'documents' && <PortalDealDocuments dealId={deal.id} />}
         </>
       )}
+      </div>
+
+      {/* Secondary column */}
+      <div data-testid="portal-secondary" className="space-y-4 lg:col-start-2 lg:row-start-2">
 
       {/* Lender card */}
-      <div className="pt-14">
+      <div className="pt-14 lg:pt-0">
         <LenderCard deal={deal} />
       </div>
 
@@ -2188,6 +2213,7 @@ export default function BuyerView() {
 
       {/* Agent card */}
       <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
+      </div>
     </div>
   );
 }

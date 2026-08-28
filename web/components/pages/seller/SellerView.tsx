@@ -158,7 +158,7 @@ function MessagesTab({ dealId }: { dealId: string }) {
             }`}>
               {msg.senderName.charAt(0)}
             </div>
-            <div className={`max-w-[78%] flex flex-col gap-1 ${isAgent ? 'items-start' : 'items-end'}`}>
+            <div className={`max-w-[78%] lg:max-w-md flex flex-col gap-1 ${isAgent ? 'items-start' : 'items-end'}`}>
               <div className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                 isAgent ? 'bg-gray-100 text-gray-800 rounded-tl-sm' : 'bg-purple-600 text-white rounded-tr-sm'
               }`}>{msg.content}</div>
@@ -1088,7 +1088,21 @@ export default function SellerView() {
   };
 
   return (
-    <div className="mx-auto max-w-lg space-y-4 pb-10">
+    /*
+     * Responsive shell (#421) — mirrors BuyerView. Below `lg` this is the old
+     * single `max-w-lg` column exactly: each wrapper keeps `space-y-4` and the
+     * root's own `space-y-4` supplies the gap between them. At `lg` the root
+     * becomes a two-column grid: band on top, stage/pitch/tabs in the wide
+     * column, journey/vendors/agent beside it. Both modals are
+     * `position: fixed`, so they're out of flow and never become grid items.
+     *
+     * The wrappers' children are deliberately NOT re-indented, to keep this a
+     * layout-container-only diff.
+     */
+    <div
+      data-testid="portal-root"
+      className="mx-auto max-w-lg space-y-4 pb-10 md:max-w-2xl lg:grid lg:max-w-6xl lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start lg:gap-x-6 lg:gap-y-4 lg:space-y-0"
+    >
       {/* Auto showing availability modal for offer_active stage */}
       {deal.stage === 'offer_active' && availability.length === 0 && !showingModalDismissed && (
         <ShowingAvailabilityModal
@@ -1100,6 +1114,8 @@ export default function SellerView() {
         />
       )}
 
+      {/* Full-width band above the columns */}
+      <div className="space-y-4 lg:col-span-2">
       <ClientNotifications />
 
       {/* Header */}
@@ -1145,6 +1161,10 @@ export default function SellerView() {
           </div>
         </div>
       </div>
+      </div>
+
+      {/* Primary column */}
+      <div data-testid="portal-primary" className="space-y-4 lg:col-start-1 lg:row-start-2">
 
       {/* Stage-specific card */}
       <StageCard deal={deal} firstName={firstName} />
@@ -1206,10 +1226,14 @@ export default function SellerView() {
       )}
 
       {isFallenThrough && <MessagesTab dealId={deal.id} />}
+      </div>
 
+      {/* Secondary column */}
+      <div data-testid="portal-secondary" className="space-y-4 lg:col-start-2 lg:row-start-2">
       <JourneyTracker deal={deal} />
       <VendorDirectory dealId={deal.id} />
       <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
+      </div>
 
       {/* Welcome modal — shown once after onboarding completes */}
       {showWelcome && (

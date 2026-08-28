@@ -10,6 +10,11 @@ import { seedSession } from "./helpers/session";
  */
 
 const MOBILE = { width: 390, height: 844 };
+const DESKTOP = { width: 1440, height: 900 };
+
+// `max-w-lg` — the width the client portals used to be pinned to at EVERY
+// viewport (#421). Desktop must beat it; mobile must stay inside it.
+const MAX_W_LG = 512;
 
 // Assert the document never extends past the viewport width (allowing 1px of
 // sub-pixel rounding). A failure means something forces horizontal scroll.
@@ -77,6 +82,144 @@ test.describe("mobile agent layout (390px)", () => {
     await expectNoHorizontalOverflow(page, "deal detail after advance");
   });
 });
+
+// ─── Client portal responsive width (#421) ───────────────────────────────────
+//
+// Both client portals were pinned to `mx-auto max-w-lg` with no breakpoint
+// override, so a buyer on a 1440px monitor got a 512px phone-shaped strip.
+// These cover both ends: the portal must use the room on a desktop, and must
+// still be one stacked column on a phone.
+
+type PortalFixture = { userId: string; dealId: string };
+
+/**
+ * Stand up a real portal: an agent, a deal they own, and a buyer/seller
+ * participant whose seeded session is left in the browser context. Everything
+ * goes through the public API with an explicit agent bearer token, so the
+ * cookie the page ends up with is the client's.
+ */
+async function seedPortalDeal(
+  page: Page,
+  kind: "buy" | "sell"
+): Promise<PortalFixture> {
+  const role = kind === "buy" ? "buyer" : "seller";
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const agentRes = await page.request.post("/api/test-auth", {
+    data: {
+      role: "agent",
+      sub: `e2e|portal-agent-${stamp}`,
+      name: "E2E Portal Agent",
+    },
+  });
+  if (!agentRes.ok()) {
+    throw new Error(`seed agent failed: ${agentRes.status()} ${await agentRes.text()}`);
+  }
+  const agent = (await agentRes.json()) as { token: string };
+  const auth = { Authorization: `Bearer ${agent.token}` };
+
+  const dealRes = await page.request.post("/api/deals", {
+    headers: auth,
+    data: {
+      title: `E2E Portal ${stamp}`,
+      type: kind,
+      address: "742 Evergreen Terrace",
+      price: "425000",
+    },
+  });
+  if (!dealRes.ok()) {
+    throw new Error(`create deal failed: ${dealRes.status()} ${await dealRes.text()}`);
+  }
+  const deal = (await dealRes.json()) as { id: string };
+
+  // Seeded last so the browser context carries the CLIENT's session cookie.
+  const client = await seedSession(page, {
+    role,
+    sub: `e2e|portal-${role}-${stamp}`,
+    name: `E2E Portal ${role === "buyer" ? "Buyer" : "Seller"}`,
+  });
+
+  const partRes = await page.request.post(`/api/deals/${deal.id}/participants`, {
+    headers: auth,
+    data: { email: client.email, role },
+  });
+  if (!partRes.ok()) {
+    throw new Error(
+      `add participant failed: ${partRes.status()} ${await partRes.text()}`
+    );
+  }
+
+  return { userId: client.id, dealId: deal.id };
+}
+
+async function openPortal(page: Page, kind: "buy" | "sell") {
+  const { userId } = await seedPortalDeal(page, kind);
+  await page.goto(`/${kind === "buy" ? "buyer" : "seller"}/${userId}`);
+  const root = page.getByTestId("portal-root");
+  await expect(root).toBeVisible();
+  return root;
+}
+
+for (const kind of ["buy", "sell"] as const) {
+  const label = kind === "buy" ? "buyer" : "seller";
+
+  test.describe(`${label} portal on desktop (1440px)`, () => {
+    test.use({ viewport: DESKTOP });
+
+    test(`${label} portal grows past the 512px column and sits in two columns`, async ({
+      page,
+    }) => {
+      const root = await openPortal(page, kind);
+
+      const rootBox = await root.boundingBox();
+      expect(rootBox, "portal root has no layout box").not.toBeNull();
+      expect(
+        rootBox!.width,
+        `${label} portal is still pinned to a ${MAX_W_LG}px column on a 1440px viewport`
+      ).toBeGreaterThan(MAX_W_LG);
+
+      // The stacked sections spread sideways above `lg` rather than running
+      // one long strip down the page.
+      const primary = (await page.getByTestId("portal-primary").boundingBox())!;
+      const secondary = (await page.getByTestId("portal-secondary").boundingBox())!;
+      expect(secondary.x, "secondary column is not beside the primary one").toBeGreaterThan(
+        primary.x
+      );
+      expect(
+        secondary.y,
+        "secondary column starts below the primary column — still stacked"
+      ).toBeLessThan(primary.y + primary.height);
+
+      await expectNoHorizontalOverflow(page, `${label} portal @1440`);
+    });
+  });
+
+  test.describe(`${label} portal on a phone (390px, unchanged)`, () => {
+    test.use({ viewport: MOBILE });
+
+    test(`${label} portal stays one narrow column with no horizontal scroll`, async ({
+      page,
+    }) => {
+      const root = await openPortal(page, kind);
+
+      const rootBox = (await root.boundingBox())!;
+      expect(
+        rootBox.width,
+        `${label} portal widened on mobile — the phone layout must not change`
+      ).toBeLessThanOrEqual(MAX_W_LG);
+
+      const primary = (await page.getByTestId("portal-primary").boundingBox())!;
+      const secondary = (await page.getByTestId("portal-secondary").boundingBox())!;
+      expect(secondary.x, "columns went side-by-side on a phone").toBeCloseTo(primary.x, 0);
+      expect(
+        secondary.y,
+        "secondary section is not stacked under the primary one on a phone"
+      ).toBeGreaterThanOrEqual(primary.y + primary.height);
+
+      await expectNoHorizontalOverflow(page, `${label} portal @390`);
+    });
+  });
+}
 
 test.describe("desktop agent layout (unchanged)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
