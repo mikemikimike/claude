@@ -27,7 +27,7 @@ import { MessagesTab } from "@/components/deal/MessagesTab";
 import { DocumentsTab, UploadDocModal } from "@/components/deal/DocumentsTab";
 import { VendorsTab } from "@/components/deal/VendorsTab";
 import { TimelineTab } from "@/components/deal/TimelineTab";
-import { StageAdvanceModal } from "@/components/deal/StageAdvanceModal";
+import { StageAdvanceModal, type BlockingTask } from "@/components/deal/StageAdvanceModal";
 import { StageTransitionBar } from "@/components/deal/StageTransitionBar";
 import { DealHeader } from "@/components/deal/DealHeader";
 
@@ -64,7 +64,7 @@ export default function DealDetail() {
   })();
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
-  const [stageGateError, setStageGateError] = useState<{ blockingTasks: { id: string; title: string }[] } | null>(null);
+  const [stageGateError, setStageGateError] = useState<{ blockingTasks: BlockingTask[] } | null>(null);
   // Non-blocking: set when the stage advanced but the drafted client message
   // failed to post (#185) — the advance itself must never be rolled back.
   const [clientMsgSendFailed, setClientMsgSendFailed] = useState(false);

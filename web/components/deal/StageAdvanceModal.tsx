@@ -6,10 +6,22 @@ import { stageAutoTasks } from "@/lib/stage-auto-tasks";
 import { CheckCircle2, Circle, Zap, Pencil, AlertTriangle } from "lucide-react";
 import { STAGE_LABELS, STAGE_DRAFT_MESSAGE } from "@/components/deal/shared";
 
+/**
+ * One row of the 422 gate payload. `source`/`stage_context` are optional so an
+ * older cached client bundle (or any caller that only has id+title) still
+ * renders — it just doesn't get the auto-generated wording.
+ */
+export type BlockingTask = {
+  id: string;
+  title: string;
+  source?: string | null;
+  stage_context?: string | null;
+};
+
 export function StageAdvanceModal({ deal, nextStage, gateError, onConfirm, onCancel }: {
   deal: Deal;
   nextStage: DealStage;
-  gateError?: { blockingTasks: { id: string; title: string }[] } | null;
+  gateError?: { blockingTasks: BlockingTask[] } | null;
   onConfirm: (draftMessage: string, force?: boolean) => void;
   onCancel: () => void;
 }) {
@@ -120,25 +132,52 @@ export function StageAdvanceModal({ deal, nextStage, gateError, onConfirm, onCan
         </div>
 
         {/* Gate error — blocking tasks */}
-        {gateError && (
-          <div className="mx-5 mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle size={14} className="text-amber-500 flex-shrink-0" />
-              <p className="text-xs font-bold text-amber-700">
-                {gateError.blockingTasks.length} required task{gateError.blockingTasks.length !== 1 ? 's' : ''} still open
-              </p>
+        {gateError && (() => {
+          // Own up to the app's own tasks (#419). The gate fires on the
+          // high-priority tasks *the system* seeded when the deal entered this
+          // stage, so "N required tasks still open" read as the agent's own
+          // backlog for work they never created. Name them, and name the stage
+          // that generated them (falling back to the deal's current stage for a
+          // row with no stage_context).
+          const tasks = gateError.blockingTasks;
+          const auto = tasks.filter((t) => t.source === 'ai');
+          const autoStages = [...new Set(
+            auto.map((t) => STAGE_LABELS[(t.stage_context ?? deal.stage) as DealStage])
+              .filter(Boolean)
+          )];
+          return (
+            <div className="mx-5 mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle size={14} className="text-amber-500 flex-shrink-0" />
+                <p className="text-xs font-bold text-amber-700">
+                  {tasks.length} required task{tasks.length !== 1 ? 's' : ''} still open
+                </p>
+              </div>
+              <div className="space-y-1 mb-3">
+                {tasks.map((t) => (
+                  <div key={t.id} className="flex items-center gap-2">
+                    <Circle size={10} className="text-amber-400 flex-shrink-0" />
+                    <span className="text-xs text-amber-800">{t.title}</span>
+                    {t.source === 'ai' && (
+                      <span className="flex-shrink-0 rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800">
+                        Auto
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {auto.length > 0 && autoStages.length > 0 && (
+                <p className="mb-1.5 text-[10px] text-amber-700">
+                  {auto.length === tasks.length
+                    ? auto.length === 1 ? 'This one was' : 'These were'
+                    : `${auto.length} of these ${auto.length === 1 ? 'was' : 'were'}`}
+                  {' '}generated automatically when the deal entered {autoStages.join(' / ')}.
+                </p>
+              )}
+              <p className="text-[10px] text-amber-600">Complete these tasks or use &quot;Force Advance&quot; to override.</p>
             </div>
-            <div className="space-y-1 mb-3">
-              {gateError.blockingTasks.map((t) => (
-                <div key={t.id} className="flex items-center gap-2">
-                  <Circle size={10} className="text-amber-400 flex-shrink-0" />
-                  <span className="text-xs text-amber-800">{t.title}</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-[10px] text-amber-600">Complete these tasks or use &quot;Force Advance&quot; to override.</p>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Footer */}
         <div className="border-t border-gray-100 px-5 py-4 space-y-2">
