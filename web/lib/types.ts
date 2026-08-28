@@ -272,6 +272,19 @@ export type Deal = {
    * the gate, never bypass it.
    */
   financingType?: 'cash' | 'loan';
+  /**
+   * Whether this deal's AGENT has MLS credentials on file (#428). Populated
+   * from /api/me/deals (`agent_mls_connected`) so the client portal can render
+   * the MLS browser in an explained empty state rather than inviting a search
+   * that is guaranteed to fail.
+   *
+   * A boolean, never a credential. `undefined` means "we weren't told" — an
+   * agent-facing payload, or a cached response from before this shipped — and
+   * must fail OPEN to the live form, exactly as the portal behaved before.
+   * It is a UX signal only; `GET /deals/:id/listings/search` remains the
+   * enforcement point.
+   */
+  agentMlsConnected?: boolean;
 };
 
 export type Task = {

@@ -9,6 +9,7 @@ import { AGENT_STAGE_LABELS as STAGE_LABELS } from "@/lib/stages";
 import { useDeals, CLOSED_DEAL_STATUSES } from "@/hooks/useDeals";
 import { useAgentTasks } from "@/hooks/useTasks";
 import { useNotifications, AppNotification } from "@/hooks/useNotifications";
+import { useMLSConnection } from "@/hooks/useMLS";
 import {
   formatCompactMoney,
   formatMoney,
@@ -211,6 +212,54 @@ function CompletedDealRow({ deal }: { deal: Deal }) {
   );
 }
 
+// ─── Connect-your-MLS nudge ──────────────────────────────────────────────────
+
+/**
+ * #428 — the agent half of the fix.
+ *
+ * A buyer whose agent never connected MLS used to be the only person who found
+ * out, and only by filling in a search and hitting the wall. Their portal now
+ * explains itself up front; this tells the agent, so the state is actually
+ * fixable rather than just politely worded.
+ *
+ * Deliberately narrow. It appears only once one of their BUY deals is actually
+ * house-hunting (`active_search`) — before that MLS isn't needed and the prompt
+ * would just be noise — and never while the connection state is still loading,
+ * which would flash "not connected" at an agent who is.
+ */
+function MlsConnectPrompt({ deals }: { deals: Deal[] }) {
+  const { connected, known, loading } = useMLSConnection();
+  const searching = deals.some((d) => d.type === 'buy' && d.stage === 'active_search');
+  // `!known` covers a FAILED status read as well as a loading one. Nagging a
+  // connected agent to "connect your MLS" because /me/mls happened to 500 is
+  // the same mistake #309 fixed, pointed the other way.
+  if (loading || !known || connected || !searching) return null;
+
+  return (
+    <div
+      data-testid="mls-connect-nudge"
+      className="flex flex-wrap items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
+    >
+      <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-amber-500" />
+      <div className="min-w-0 flex-1 basis-48">
+        <p className="text-sm font-bold text-amber-900">Connect your MLS</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-amber-800">
+          You have a buyer house-hunting, but their portal can&apos;t show live
+          listings until your MLS credentials are connected.
+        </p>
+      </div>
+      {/* Full width on a phone (the copy would otherwise squeeze to five lines
+          beside it), inline from `sm` up where the row has room. */}
+      <Link
+        href="/agent/settings"
+        className="w-full flex-shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-center text-xs font-bold text-white hover:bg-amber-600 transition-colors sm:w-auto"
+      >
+        Connect MLS
+      </Link>
+    </div>
+  );
+}
+
 // ─── Notification Banner ─────────────────────────────────────────────────────
 
 function NotificationBanner({ notification, onDismiss }: {
@@ -357,6 +406,9 @@ export default function AgentDashboard() {
       {unread.map((n) => (
         <NotificationBanner key={n.id} notification={n} onDismiss={() => markRead(n.id)} />
       ))}
+
+      {/* #428 — nothing renders unless a buy deal is house-hunting with no MLS. */}
+      <MlsConnectPrompt deals={agentDeals} />
 
       {/* Greeting */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

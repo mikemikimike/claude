@@ -21,6 +21,8 @@ import type { Deal } from "@/lib/types";
 
 let activeDeals: Deal[] = [];
 let closedDeals: Deal[] = [];
+// The agent's own MLS connection (#428) — drives the "connect your MLS" nudge.
+let mlsConnection = { connected: true, known: true, loading: false };
 
 vi.mock("@/lib/store/authStore", () => ({
   useAuthStore: (sel: (s: { activeUser: { name: string; email: string } }) => unknown) =>
@@ -34,6 +36,13 @@ vi.mock("@/hooks/useNotifications", () => ({
 }));
 vi.mock("@/hooks/useTasks", () => ({
   useAgentTasks: () => ({ tasks: [], loading: false, refresh: vi.fn() }),
+}));
+vi.mock("@/hooks/useMLS", () => ({
+  useMLSConnection: () => ({
+    ...mlsConnection,
+    saveMLS: vi.fn(),
+    disconnectMLS: vi.fn(),
+  }),
 }));
 // The dashboard runs two queries against the same hook; the status argument is
 // what tells them apart, so the fake honours it exactly like the real hook's
@@ -97,6 +106,7 @@ function onTrackSection(): HTMLElement {
 beforeEach(() => {
   activeDeals = [];
   closedDeals = [];
+  mlsConnection = { connected: true, known: true, loading: false };
 });
 
 describe("AgentDashboard — Completed Deals (#417)", () => {
@@ -188,5 +198,71 @@ describe("AgentDashboard — Completed Deals (#417)", () => {
 
     const label = screen.getByText(/active deals/i);
     expect(label.parentElement?.firstElementChild?.textContent).toBe("2");
+  });
+});
+
+/**
+ * #428 — the other half of the fix. A buyer whose agent never connected MLS
+ * used to be the only person who found out, and only by hitting the wall. Once
+ * one of the agent's buy deals reaches Home Search, the agent is told too.
+ */
+describe("AgentDashboard — connect-your-MLS nudge (#428)", () => {
+  const searching = () =>
+    makeDeal({
+      id: "bbbbbbbb-0000-4000-8000-000000000001",
+      type: "buy",
+      stage: "active_search",
+      clientName: "Betty Buyer",
+    });
+
+  it("prompts the agent when a buy deal is house-hunting and MLS is not connected", () => {
+    mlsConnection = { connected: false, known: true, loading: false };
+    activeDeals = [searching()];
+    render(<AgentDashboard />);
+
+    const nudge = screen.getByTestId("mls-connect-nudge");
+    expect(within(nudge).getByText(/connect your mls/i)).toBeTruthy();
+    expect(
+      within(nudge).getByRole("link", { name: /connect mls/i }).getAttribute("href")
+    ).toBe("/agent/settings");
+  });
+
+  it("stays quiet once MLS is connected", () => {
+    mlsConnection = { connected: true, known: true, loading: false };
+    activeDeals = [searching()];
+    render(<AgentDashboard />);
+
+    expect(screen.queryByTestId("mls-connect-nudge")).toBeNull();
+  });
+
+  it("stays quiet when no buy deal has reached Home Search yet", () => {
+    mlsConnection = { connected: false, known: true, loading: false };
+    activeDeals = [
+      makeDeal({ stage: "under_contract" }),
+      makeDeal({ id: "bbbbbbbb-0000-4000-8000-000000000002", type: "sell", stage: "active_search" }),
+    ];
+    render(<AgentDashboard />);
+
+    expect(screen.queryByTestId("mls-connect-nudge")).toBeNull();
+  });
+
+  it("stays quiet while the connection state is still loading (no false alarm)", () => {
+    mlsConnection = { connected: false, known: false, loading: true };
+    activeDeals = [searching()];
+    render(<AgentDashboard />);
+
+    expect(screen.queryByTestId("mls-connect-nudge")).toBeNull();
+  });
+
+  // The agent-side mirror of the #309 guard. `useMLSConnection` reports a FAILED
+  // status read as `connected:false, known:false`; nagging a connected agent to
+  // "connect your MLS" because /me/mls 500'd is the same mistake, pointed the
+  // other way. Not knowing is not the same as knowing they aren't connected.
+  it("stays quiet when the status read itself failed", () => {
+    mlsConnection = { connected: false, known: false, loading: false };
+    activeDeals = [searching()];
+    render(<AgentDashboard />);
+
+    expect(screen.queryByTestId("mls-connect-nudge")).toBeNull();
   });
 });

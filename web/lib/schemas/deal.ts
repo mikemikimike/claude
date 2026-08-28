@@ -235,6 +235,14 @@ export const apiDealSchema = z.object({
   agent_name: z.string().optional(),
   agent_email: z.string().optional(),
   agent_phone: z.string().nullish(),
+  /**
+   * Whether the deal's agent has MLS credentials on file (#428). A BOOLEAN —
+   * the credentials themselves are encrypted at rest and never leave the
+   * server. Served only by /api/me/deals, so the client portal can render the
+   * MLS browser in the right state before the buyer submits a search; absent
+   * on the agent-facing payloads, where it must NOT read as "not connected".
+   */
+  agent_mls_connected: z.boolean().optional(),
   open_task_count: z.number().optional(),
   overdue_task_count: z.number().optional(),
 });

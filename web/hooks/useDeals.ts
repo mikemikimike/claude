@@ -247,6 +247,11 @@ export function apiDealToFrontend(d: ApiDeal): Deal {
     // #409 — server-derived cash/loan. An absent or null value must stay
     // undefined so the pre-approval gate holds; only an explicit 'cash' lifts it.
     financingType: d.financing_type ?? undefined,
+    // #428 — only /api/me/deals serves this. Left UNDEFINED when absent, never
+    // coerced to false: an agent payload (or a response cached from before the
+    // flag shipped) is "unknown", and unknown must fail open to the live MLS
+    // form rather than telling a buyer their agent isn't connected.
+    agentMlsConnected: d.agent_mls_connected,
   };
 }
 

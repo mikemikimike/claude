@@ -849,7 +849,17 @@ function MLSBrowser({ deal, onAddProperty }: {
   const [minBeds, setMinBeds] = useState('');
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [addError, setAddError] = useState<string | null>(null);
-  const { listings, loading, error, search } = useMLSListings(deal.id);
+  const { listings, loading, error, errorKind, search } = useMLSListings(deal.id);
+
+  // #428 — the portal now knows up front whether the agent has MLS wired up
+  // (`agent_mls_connected` on /api/me/deals), so a buyer is never invited to
+  // fill in a search that is guaranteed to fail.
+  //
+  // Only an explicit `false` closes the form. `undefined` means the payload
+  // didn't carry the flag — an older cached response — and fails OPEN to the
+  // live form, exactly as this behaved before. The server-side 503 in
+  // /deals/:id/listings/search is still the real enforcement; this is UX.
+  const notConnected = deal.agentMlsConnected === false;
 
   function handleSearch() {
     search({
@@ -884,7 +894,34 @@ function MLSBrowser({ deal, onAddProperty }: {
         <span className="text-xs text-gray-400">{open ? '▲' : '▼'}</span>
       </button>
 
-      {open && (
+      {/*
+        Not connected (#428): explain it, don't render a form. No inputs and no
+        Search button, so there is no wall left to walk into. This is the
+        "waiting on a person" state — distinct from the outage copy below.
+      */}
+      {open && notConnected && (
+        <div
+          data-testid="mls-not-connected"
+          className="border-t border-gray-50 px-4 pb-4 pt-3"
+        >
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center">
+            <Building2 size={20} className="mx-auto text-gray-300" />
+            <p className="mt-2 text-xs font-bold text-gray-600">
+              Your agent hasn&apos;t connected their MLS yet.
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-gray-500">
+              We&apos;ve prompted them to connect it. Live listings will show up here
+              as soon as they do.
+            </p>
+            <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
+              In the meantime you can still track any home you find — use
+              <span className="font-semibold"> Add a property</span> above.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {open && !notConnected && (
         <div className="border-t border-gray-50 px-4 pb-4">
           {/* Search filters */}
           <div className="pt-3 space-y-2">
@@ -929,8 +966,30 @@ function MLSBrowser({ deal, onAddProperty }: {
             </button>
           </div>
 
-          {error && (
-            <p className="mt-3 text-xs text-red-500">{error === 'agent has not connected MLS' ? 'Your agent hasn\'t connected their MLS yet.' : error}</p>
+          {/*
+            The search still failed, so say WHY — and keep the two causes apart
+            (#428, guarding closed #309). `errorKind` is classified from the
+            HTTP status in useMLSListings; the old check compared `error` to the
+            bare server string, which an ApiError message never equals.
+          */}
+
+          {/* Waiting on a person: the agent disconnected mid-session. */}
+          {errorKind === 'not_connected' && (
+            <p className="mt-3 text-xs text-amber-600">
+              Your agent hasn&apos;t connected their MLS yet.
+            </p>
+          )}
+
+          {/* Waiting on a service: their credentials are fine, retrying may work. */}
+          {errorKind === 'unavailable' && (
+            <p data-testid="mls-unavailable" className="mt-3 text-xs text-amber-600">
+              We couldn&apos;t reach the MLS just now — this is on our end, not your
+              agent&apos;s. Please try that search again in a moment.
+            </p>
+          )}
+
+          {errorKind === 'other' && (
+            <p className="mt-3 text-xs text-red-500">{error}</p>
           )}
 
           {addError && (

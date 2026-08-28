@@ -16,6 +16,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MyDeal } from "@/hooks/useMyDeals";
 import type { AppNotification } from "@/hooks/useNotifications";
+import type { MLSErrorKind, MLSListing } from "@/hooks/useMLS";
 import type { Task } from "@/lib/types";
 
 // ─── Shared mocks (mirror buyer-fastpass-price.test.tsx) ──────────────────────
@@ -80,8 +81,19 @@ vi.mock("@/hooks/useProperties", () => ({
   }),
 }));
 
+// The MLS search hook (#428). Read lazily inside the hook body so a case can
+// set the outcome — clean, "agent has not connected", or a provider outage —
+// before rendering.
+let mockMLS: {
+  listings: MLSListing[];
+  loading: boolean;
+  error: string | null;
+  errorKind: MLSErrorKind;
+} = { listings: [], loading: false, error: null, errorKind: "none" };
+const mockMLSSearch = vi.fn();
+
 vi.mock("@/hooks/useMLS", () => ({
-  useMLSListings: () => ({ listings: [], loading: false, error: null, search: vi.fn() }),
+  useMLSListings: () => ({ ...mockMLS, search: mockMLSSearch }),
 }));
 
 vi.mock("@/hooks/useDocuments", () => ({
@@ -190,6 +202,7 @@ beforeEach(() => {
   mockNotifications = [];
   mockTasks = [];
   mockCompletedIds = new Set<string>();
+  mockMLS = { listings: [], loading: false, error: null, errorKind: "none" };
   vi.mocked(useMyDeals).mockReturnValue({
     deals: [DEAL],
     loading: false,
@@ -546,5 +559,107 @@ describe("BuyerView — pre-approval task card (#435)", () => {
     // The portal itself still renders.
     expect(screen.getByTestId("portal-root")).toBeTruthy();
     expect(screen.getByText("Tour three homes")).toBeTruthy();
+  });
+});
+
+/**
+ * #428 — "your agent hasn't connected their MLS" used to arrive only AFTER the
+ * buyer filled in a search and pressed go. The portal now knows up front:
+ * `/api/me/deals` carries `agent_mls_connected`, so the browser renders an
+ * explained empty state instead of a form that cannot work.
+ *
+ * The distinction that must NOT collapse (guards closed #309): "never
+ * connected" and "connected, but SimplyRETS is down right now" are different
+ * states with different copy and different affordances. Reporting an outage as
+ * "your agent hasn't connected" is exactly the class of bug #309 fixed.
+ */
+describe("BuyerView — MLS browser connection state (#428)", () => {
+  function renderWith(deal: Partial<MyDeal>) {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [{ ...DEAL, ...deal } as MyDeal],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    return renderView(<BuyerView />);
+  }
+
+  /** Open the collapsed "Browse live MLS listings" section. */
+  function openBrowser() {
+    fireEvent.click(screen.getByRole("button", { name: /browse live mls listings/i }));
+  }
+
+  // Case 1 — fails against the old code, which rendered the form regardless.
+  it("renders an explained empty state and NO search form when the agent has not connected MLS", () => {
+    renderWith({ agentMlsConnected: false });
+    openBrowser();
+
+    expect(screen.getByTestId("mls-not-connected")).toBeTruthy();
+    expect(screen.getByText(/hasn't connected their mls/i)).toBeTruthy();
+
+    // The wall the buyer used to hit is gone: nothing to fill in, nothing to submit.
+    expect(screen.queryByRole("button", { name: /search listings/i })).toBeNull();
+    expect(screen.queryByPlaceholderText(/^city$/i)).toBeNull();
+    expect(screen.queryByPlaceholderText(/min price/i)).toBeNull();
+    expect(mockMLSSearch).not.toHaveBeenCalled();
+  });
+
+  // Case 3 — no regression for the buyers whose agent IS connected.
+  it("renders the live search form, and searches, when the agent has connected MLS", () => {
+    renderWith({ agentMlsConnected: true });
+    openBrowser();
+
+    expect(screen.queryByTestId("mls-not-connected")).toBeNull();
+    const searchBtn = screen.getByRole("button", { name: /search listings/i });
+    expect(screen.getByPlaceholderText(/^city$/i)).toBeTruthy();
+
+    fireEvent.click(searchBtn);
+    expect(mockMLSSearch).toHaveBeenCalledTimes(1);
+  });
+
+  // Case 4 — the #309 regression guard. An outage is an outage.
+  it("reads a provider outage as an outage, not as 'agent has not connected'", () => {
+    mockMLS = {
+      listings: [],
+      loading: false,
+      error: "502 — Bad Gateway — simplyrets: 503 Service Unavailable",
+      errorKind: "unavailable",
+    };
+    renderWith({ agentMlsConnected: true });
+    openBrowser();
+
+    expect(screen.getByTestId("mls-unavailable")).toBeTruthy();
+    expect(screen.getByText(/couldn't reach the mls/i)).toBeTruthy();
+    // Never the not-connected copy, and never the not-connected empty state.
+    expect(screen.queryByText(/hasn't connected their mls/i)).toBeNull();
+    expect(screen.queryByTestId("mls-not-connected")).toBeNull();
+    // The agent's credentials are fine — the buyer can retry.
+    expect(screen.getByRole("button", { name: /search listings/i })).toBeTruthy();
+  });
+
+  // The narrow race the up-front flag can't cover: the agent disconnected
+  // between page load and search. The post-search message still has to be right.
+  it("still explains a mid-session disconnect when the search itself 503s", () => {
+    mockMLS = {
+      listings: [],
+      loading: false,
+      error: "503 — Service Unavailable — agent has not connected MLS",
+      errorKind: "not_connected",
+    };
+    renderWith({ agentMlsConnected: true });
+    openBrowser();
+
+    expect(screen.getByText(/hasn't connected their mls/i)).toBeTruthy();
+    expect(screen.queryByTestId("mls-unavailable")).toBeNull();
+  });
+
+  // A payload that doesn't carry the flag (an older cached response) must fail
+  // OPEN — the form as it has always been — never into the empty state.
+  it("falls back to the live form when the flag is absent", () => {
+    renderWith({ agentMlsConnected: undefined });
+    openBrowser();
+
+    expect(screen.queryByTestId("mls-not-connected")).toBeNull();
+    expect(screen.getByRole("button", { name: /search listings/i })).toBeTruthy();
   });
 });

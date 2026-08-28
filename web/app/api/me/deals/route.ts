@@ -51,6 +51,7 @@ export async function GET(req: Request): Promise<Response> {
         agent_name: string;
         agent_email: string;
         agent_phone: string | null;
+        agent_mls_connected: boolean;
       }[]
     >`
       SELECT deals.id, deals.agent_id, deals.type::text AS type, deals.stage::text AS stage,
@@ -73,7 +74,15 @@ export async function GET(req: Request): Promise<Response> {
              deals.intake,
              deals.created_at, deals.updated_at,
              ${stageEnteredAtExpr} AS stage_entered_at,
-             u.name AS agent_name, u.email AS agent_email, u.phone AS agent_phone
+             u.name AS agent_name, u.email AS agent_email, u.phone AS agent_phone,
+             -- #428: whether the deal's agent has MLS wired up, so the portal
+             -- can explain itself BEFORE offering a search that cannot work.
+             -- A BOOLEAN and nothing else. The credentials are AES-256-GCM at
+             -- rest (#273) and stay agent-side: never select u.mls_key /
+             -- u.mls_secret here, not even truncated. Scoping comes free from
+             -- the participant join below — a client can only ever learn this
+             -- about the agent on their own deal.
+             (u.mls_key IS NOT NULL) AS agent_mls_connected
       FROM deals
       JOIN deal_participants dp ON dp.deal_id = deals.id AND dp.user_id = ${userId}::uuid
       JOIN users u ON u.id = deals.agent_id

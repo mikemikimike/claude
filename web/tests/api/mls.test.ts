@@ -4,6 +4,7 @@ import {
   PATCH as patchMlsRoute,
 } from "@/app/api/me/mls/route";
 import { GET as searchRoute } from "@/app/api/deals/[id]/listings/search/route";
+import { GET as meDealsRoute } from "@/app/api/me/deals/route";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
 import {
   setSimplyretsForTesting,
@@ -508,5 +509,118 @@ describe("GET /api/deals/[id]/listings/search", () => {
       ctx(deal.id)
     );
     expect(res.status).toBe(401);
+  });
+});
+
+/**
+ * #428 — the buyer portal has to know whether its agent has MLS connected
+ * BEFORE it offers a search form, so `GET /api/me/deals` carries the boolean.
+ *
+ * Two things are load-bearing and are asserted here:
+ *
+ *   1. It is a BOOLEAN, derived from `users.mls_key IS NOT NULL`. No key, no
+ *      secret, no partial value, no ciphertext ever reaches the client — the
+ *      creds are encrypted at rest (#273) and stay agent-side.
+ *   2. The read inherits the endpoint's existing participant join, so a client
+ *      only ever learns about THEIR OWN deal's agent.
+ */
+describe("GET /api/me/deals — agent MLS connection state (#428)", () => {
+  async function myDeals(auth0Id: string, role: string): Promise<Response> {
+    return meDealsRoute(
+      new Request("http://localhost/api/me/deals", {
+        headers: { authorization: await authHeader(auth0Id, [role]) },
+      })
+    );
+  }
+
+  it("reports agent_mls_connected=false when the deal's agent has no MLS key", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|b" });
+    const deal = await createDeal({ agent_id: agent.id, stage: "active_search" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+
+    const res = await myDeals("auth0|b", "buyer");
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as Record<string, unknown>[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agent_mls_connected).toBe(false);
+  });
+
+  it("reports agent_mls_connected=true once connected, and NEVER leaks a credential", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    setSimplyretsForTesting(fakeClient());
+
+    // Connect through the real PATCH path so what is stored is genuine
+    // AES-256-GCM ciphertext, not a hand-written placeholder string.
+    const patch = await patchMlsRoute(
+      new Request("http://localhost/api/me/mls", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          authorization: await authHeader("auth0|a", ["agent"]),
+        },
+        body: JSON.stringify({
+          key: "super-secret-key",
+          secret: "super-secret-secret",
+        }),
+      })
+    );
+    expect(patch.status).toBe(200);
+
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|b" });
+    const deal = await createDeal({ agent_id: agent.id, stage: "active_search" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+
+    const res = await myDeals("auth0|b", "buyer");
+    expect(res.status).toBe(200);
+    const raw = await res.text();
+    const rows = JSON.parse(raw) as Record<string, unknown>[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agent_mls_connected).toBe(true);
+
+    // No credential field, and — scanning the whole serialized body — neither
+    // the plaintext the agent typed nor the ciphertext it is stored as.
+    for (const field of [
+      "mls_key",
+      "mls_secret",
+      "agent_mls_key",
+      "agent_mls_secret",
+    ]) {
+      expect(rows[0]).not.toHaveProperty(field);
+    }
+    expect(raw).not.toContain("super-secret-key");
+    expect(raw).not.toContain("super-secret-secret");
+    expect(raw).not.toContain(ENC_PREFIX);
+
+    // Belt and braces: the row really is ciphertext, so the absent ENC_PREFIX
+    // above is proof the payload carries no encrypted value either.
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { mls_key: true },
+    });
+    expect(row?.mls_key?.startsWith(ENC_PREFIX)).toBe(true);
+  });
+
+  it("scopes the read to the caller's own deals — a stranger learns nothing about that agent", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    await prisma.users.update({
+      where: { id: agent.id },
+      data: { mls_key: "agent-key", mls_secret: "agent-secret" },
+    });
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|b" });
+    const deal = await createDeal({ agent_id: agent.id, stage: "active_search" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+
+    // A buyer who is a participant on nobody's deal.
+    await createUser({ role: "buyer", auth0_id: "auth0|stranger" });
+    const res = await myDeals("auth0|stranger", "buyer");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
   });
 });

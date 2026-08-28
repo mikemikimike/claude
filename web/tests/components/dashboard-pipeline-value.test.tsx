@@ -32,6 +32,18 @@ vi.mock("@/hooks/useNotifications", () => ({
 vi.mock("@/hooks/useTasks", () => ({
   useAgentTasks: () => ({ tasks: [], loading: false, refresh: vi.fn() }),
 }));
+// The connect-your-MLS nudge (#428) reads this. Stubbed as connected so it
+// renders nothing — these cases are about the headline stats, and the real
+// hook is a react-query call with no QueryClientProvider around this render.
+vi.mock("@/hooks/useMLS", () => ({
+  useMLSConnection: () => ({
+    connected: true,
+    known: true,
+    loading: false,
+    saveMLS: vi.fn(),
+    disconnectMLS: vi.fn(),
+  }),
+}));
 // The dashboard also runs a closed-status query for its Completed Deals
 // section (#417); only the un-filtered call is this test's pipeline.
 vi.mock("@/hooks/useDeals", () => ({
