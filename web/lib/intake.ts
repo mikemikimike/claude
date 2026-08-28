@@ -17,7 +17,7 @@
  */
 import { prisma } from "./db";
 import type { DealStage } from "./stages";
-import { seedStageAutoTasks } from "./stage-task-seed";
+import { seedPreApprovalTask, seedStageAutoTasks } from "./stage-task-seed";
 
 export type IntakeRole = "buyer" | "seller";
 
@@ -116,6 +116,63 @@ export function withFinancingType<T extends { intake?: unknown }>(
   return { ...rest, financing_type: financingTypeFromIntake(intake) };
 }
 
+/** Which lender the buyer picked in onboarding (#434). */
+export type LenderChoice = "mountain" | "fastpass" | "other";
+
+/**
+ * The buyer questionnaire's lender-choice answer key. It is written by
+ * `PitchPage` ("Mountain Mortgage" / "Fast Pass" / "I have my own lender") via
+ * `BuyerOnboarding`, whose `LenderChoice` union these three values mirror.
+ *
+ * Same rule as FINANCING_ANSWER_KEY above: this constant is the ONE place the
+ * key name lives on the read side. Nothing else reaches into `deals.intake`
+ * looking for it.
+ */
+const LENDER_ANSWER_KEY = "lenderChoice";
+
+/**
+ * The buyer's lender choice from a validated answers object, or null when they
+ * didn't answer it (or it isn't a buy-side questionnaire).
+ *
+ * Strict equality only — no trimming, no case-folding. `deals.intake` is
+ * free-form client-written JSON, and the safe default here is `null`: it means
+ * "no pre-approval task", and a task nobody needs is worse than a missing one
+ * because an open high-priority task holds the deal at Property Search.
+ */
+export function lenderChoiceFromAnswers(
+  role: IntakeRole,
+  answers: Record<string, unknown>
+): LenderChoice | null {
+  if (role !== "buyer") return null;
+  const v = answers[LENDER_ANSWER_KEY];
+  return v === "mountain" || v === "fastpass" || v === "other" ? v : null;
+}
+
+/**
+ * Whether finishing this questionnaire should put a pre-approval task on the
+ * deal (#434) — true only for a buyer who picked Mountain Mortgage or Fast
+ * Pass (the same lender, wrapped in the concierge service) and is not paying
+ * cash.
+ *
+ * The buyer wizard skips the lender screen for cash buyers, so the cash +
+ * lender pairing should not occur; when the answers contradict each other it
+ * resolves toward NOT creating the task, because a cash buyer has nothing to
+ * get pre-approved for.
+ *
+ * Note what is NOT decided here: whether the deal is already `pre_approved`.
+ * That is a property of the deal, not the questionnaire, and it is checked in
+ * the same statement that inserts the row (`seedPreApprovalTask`) so the agent
+ * can't flip the flag in between.
+ */
+export function needsPreApprovalTask(
+  role: IntakeRole,
+  answers: Record<string, unknown>
+): boolean {
+  const lender = lenderChoiceFromAnswers(role, answers);
+  if (lender !== "mountain" && lender !== "fastpass") return false;
+  return financingTypeFromAnswers(role, answers) !== "cash";
+}
+
 /**
  * The stage a deal moves into once its client finishes onboarding (#407).
  * `intake` is the questionnaire stage; the next stop is the same for buy and
@@ -211,19 +268,37 @@ export async function applyIntakeToDeal(opts: {
     return POST_INTAKE_STAGE;
   });
 
-  if (!advanceTo) return null;
+  if (advanceTo) {
+    // Same seeding hook the agent-driven advance runs, so an intake-driven one
+    // produces the same tasks (#87). Idempotent + best-effort: a seed failure
+    // must never fail the client's onboarding submission — the intake and the
+    // stage change are already committed above.
+    try {
+      await seedStageAutoTasks(opts.dealId, advanceTo, {
+        type: deal?.type ?? "buy",
+        clientName: deal?.title ?? "",
+      });
+    } catch (err) {
+      console.error("intake stage auto-task seed failed", err);
+    }
+  }
 
-  // Same seeding hook the agent-driven advance runs, so an intake-driven one
-  // produces the same tasks (#87). Idempotent + best-effort: a seed failure
-  // must never fail the client's onboarding submission — the intake and the
-  // stage change are already committed above.
-  try {
-    await seedStageAutoTasks(opts.dealId, advanceTo, {
-      type: deal?.type ?? "buy",
-      clientName: deal?.title ?? "",
-    });
-  } catch (err) {
-    console.error("intake stage auto-task seed failed", err);
+  // #434 — a Mountain Mortgage / Fast Pass buyer gets their pre-approval task.
+  //
+  // Runs on every intake write, not only the ones that advanced the deal: a
+  // client re-submitting onboarding from a deal the agent already moved on
+  // still needs the task, and `seedPreApprovalTask` is idempotent so the
+  // re-entry is free.
+  //
+  // Best-effort, and deliberately OUTSIDE the transaction above: a missing
+  // task is recoverable (the agent can add it, or the next submit creates it);
+  // a lost onboarding is not.
+  if (needsPreApprovalTask(opts.role, opts.answers)) {
+    try {
+      await seedPreApprovalTask(opts.dealId);
+    } catch (err) {
+      console.error("pre-approval task seed failed", err);
+    }
   }
 
   return advanceTo;

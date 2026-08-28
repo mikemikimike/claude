@@ -18,6 +18,8 @@ import { describe, it, expect } from "vitest";
 import {
   financingTypeFromAnswers,
   financingTypeFromIntake,
+  lenderChoiceFromAnswers,
+  needsPreApprovalTask,
   withFinancingType,
 } from "./intake";
 
@@ -104,5 +106,73 @@ describe("withFinancingType (#409)", () => {
       id: "d1",
       financing_type: null,
     });
+  });
+});
+
+/**
+ * Issue #434 — a buyer who picks Mountain Mortgage (or Fast Pass, which is the
+ * same lender wrapped in the concierge service) needs a pre-approval task on
+ * their deal the moment they finish onboarding.
+ *
+ * The choice is already in the questionnaire as `lenderChoice`. These are the
+ * derivation helpers that read it back out — same shape and same default
+ * direction as the `cashOrLoan` pair above: anything unrecognized derives to
+ * `null`, and `null` means "don't create the task". A spurious pre-approval
+ * task is worse than a missing one, because a high-priority open task holds
+ * the deal at Property Search.
+ */
+describe("lenderChoiceFromAnswers (#434)", () => {
+  it("reads each of the three onboarding choices", () => {
+    expect(lenderChoiceFromAnswers("buyer", { lenderChoice: "mountain" })).toBe("mountain");
+    expect(lenderChoiceFromAnswers("buyer", { lenderChoice: "fastpass" })).toBe("fastpass");
+    expect(lenderChoiceFromAnswers("buyer", { lenderChoice: "other" })).toBe("other");
+  });
+
+  it("is null when the buyer never reached the lender screen", () => {
+    expect(lenderChoiceFromAnswers("buyer", { bedrooms: "3" })).toBeNull();
+    expect(lenderChoiceFromAnswers("buyer", { lenderChoice: "" })).toBeNull();
+  });
+
+  it("is null for a seller intake — the pre-approval ask is buy-side", () => {
+    expect(lenderChoiceFromAnswers("seller", { lenderChoice: "mountain" })).toBeNull();
+  });
+
+  it("never coerces a non-answer into a lender choice", () => {
+    for (const v of [true, 1, "Mountain", " mountain", ["mountain"], { v: "mountain" }, null]) {
+      expect(lenderChoiceFromAnswers("buyer", { lenderChoice: v })).toBeNull();
+    }
+  });
+});
+
+describe("needsPreApprovalTask (#434)", () => {
+  it("is true for a financed buyer who picked Mountain Mortgage or Fast Pass", () => {
+    expect(needsPreApprovalTask("buyer", { lenderChoice: "mountain", cashOrLoan: "loan" })).toBe(true);
+    expect(needsPreApprovalTask("buyer", { lenderChoice: "fastpass", cashOrLoan: "loan" })).toBe(true);
+  });
+
+  it("is true when the buyer skipped the cash/loan question but picked the lender", () => {
+    // `cashOrLoan` is screen 0 and gates the lender screen, so this pairing is
+    // unlikely — but an unanswered financing question must not suppress a
+    // lender choice the buyer explicitly made.
+    expect(needsPreApprovalTask("buyer", { lenderChoice: "mountain" })).toBe(true);
+  });
+
+  it("is false for an outside lender", () => {
+    expect(needsPreApprovalTask("buyer", { lenderChoice: "other", cashOrLoan: "loan" })).toBe(false);
+  });
+
+  it("is false for a cash buyer, whatever the lender answer says", () => {
+    expect(needsPreApprovalTask("buyer", { cashOrLoan: "cash" })).toBe(false);
+    // Contradictory answers (cash + a lender) resolve toward NOT creating the
+    // task: a cash buyer has nothing to get pre-approved for.
+    expect(needsPreApprovalTask("buyer", { lenderChoice: "mountain", cashOrLoan: "cash" })).toBe(false);
+  });
+
+  it("is false for a seller intake", () => {
+    expect(needsPreApprovalTask("seller", { lenderChoice: "mountain" })).toBe(false);
+  });
+
+  it("is false for an empty questionnaire", () => {
+    expect(needsPreApprovalTask("buyer", {})).toBe(false);
   });
 });
