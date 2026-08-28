@@ -153,6 +153,13 @@ export const apiDealSchema = z.object({
   disclosures_complete: z.boolean().optional(),
   /** Agent-set "Buyer's Progress" step shown on the seller portal (#184). */
   buyer_status: z.string().nullish(),
+  /**
+   * Whether the client has submitted their onboarding questionnaire (#407).
+   * Served by /api/me/deals so the portal can stop rendering the "Begin my
+   * onboarding" card at a client who already finished it. Optional: the
+   * agent-facing payloads don't SELECT it.
+   */
+  intake_submitted: z.boolean().optional(),
   /** Postgres DECIMAL serialized as text by the API (`commission_pct::text`). */
   commission_pct: z.string().nullish(),
   created_at: z.string(),

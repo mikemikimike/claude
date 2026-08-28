@@ -207,6 +207,13 @@ export type Deal = {
    * in lib/buyer-status.ts, or undefined when not set.
    */
   buyerStatus?: string;
+  /**
+   * Whether the client has submitted their onboarding questionnaire (#407).
+   * Populated from /api/me/deals (`intake_submitted`); the client portal uses
+   * it to stop prompting for onboarding a client already completed — including
+   * on the deals still parked in `intake` from before the fix.
+   */
+  intakeSubmitted?: boolean;
 };
 
 export type Task = {

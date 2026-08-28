@@ -10,6 +10,7 @@ import { BUYER_STATUS_STEPS } from "@/lib/buyer-status";
 import { useMyDeals } from "@/hooks/useMyDeals";
 import { useNotifications } from "@/hooks/useNotifications";
 import PortalDealDocuments from "@/components/portal/PortalDealDocuments";
+import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskCompletion } from "@/hooks/useTaskCompletion";
 import { useMessages, postMessage } from "@/hooks/useMessages";
@@ -282,27 +283,17 @@ function JourneyTracker({ deal }: { deal: Deal }) {
 
 // ─── Stage-specific cards ─────────────────────────────────────────────────────
 
-function IntakeCard({ firstName }: { firstName: string }) {
-  const router = useRouter();
+// #407 — shared with the buyer portal (components/portal/ClientIntakeCard):
+// once the seller's intake is on file the "Begin my onboarding" CTA is gone,
+// whatever stage the deal is parked in.
+function IntakeCard({ deal, firstName }: { deal: Deal; firstName: string }) {
   return (
-    <div className="rounded-2xl bg-gradient-to-br from-purple-700 to-indigo-800 p-5 text-white">
-      <p className="text-xs font-bold uppercase tracking-widest text-white/50 mb-1">Getting Started</p>
-      <p className="text-xl font-black mb-2">Welcome, {firstName}!</p>
-      <p className="text-sm text-white/70 mb-5 leading-relaxed">
-        Your agent has set up your home selling portal. Answer a few quick questions so we can personalize your experience — takes about 3 minutes.
-      </p>
-      <div className="space-y-2 mb-5">
-        {['🏠  About your property', '📋  Your selling timeline', '📱  Your personal deal portal'].map((item) => (
-          <div key={item} className="flex items-center gap-2 text-sm text-white/75">{item}</div>
-        ))}
-      </div>
-      <button
-        onClick={() => router.push('/onboard/seller')}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-gold py-3.5 text-sm font-bold text-brand-navy hover:bg-brand-gold/90 transition-colors"
-      >
-        Begin my onboarding →
-      </button>
-    </div>
+    <ClientIntakeCard
+      role="seller"
+      firstName={firstName}
+      intakeSubmitted={deal.intakeSubmitted}
+      onboardHref="/onboard/seller"
+    />
   );
 }
 
@@ -972,7 +963,7 @@ function FallenThroughCard({ deal, firstName }: { deal: Deal; firstName: string 
 function StageCard({ deal, firstName }: { deal: Deal; firstName: string }) {
   if (deal.status === 'fallen_through') return <FallenThroughCard deal={deal} firstName={firstName} />;
   switch (deal.stage) {
-    case 'intake':         return <IntakeCard firstName={firstName} />;
+    case 'intake':         return <IntakeCard deal={deal} firstName={firstName} />;
     case 'active_search':  return <ListingPrepCard deal={deal} />;
     case 'offer_active':   return <ListingActiveCard deal={deal} />;
     case 'under_contract': return <UnderContractCard deal={deal} />;

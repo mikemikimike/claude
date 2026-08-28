@@ -177,6 +177,9 @@ export function apiDealToFrontend(d: ApiDeal): Deal {
     baaSigned: d.baa_signed ?? false,
     disclosuresComplete: d.disclosures_complete ?? false,
     buyerStatus: d.buyer_status ?? undefined,
+    // #407 — only /api/me/deals serves this; agent payloads omit it, and an
+    // absent flag must NOT read as "already onboarded".
+    intakeSubmitted: d.intake_submitted ?? false,
   };
 }
 

@@ -23,6 +23,7 @@ import VendorDirectory from "@/components/VendorDirectory";
 import { useProperties, TrackedProperty, PropertyStatus } from "@/hooks/useProperties";
 import { useMLSListings, MLSListing } from "@/hooks/useMLS";
 import PortalDealDocuments from "@/components/portal/PortalDealDocuments";
+import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
 import { useDocuments, getSigningUrl, requestUploadUrl, confirmUpload } from "@/hooks/useDocuments";
 import { uploadFileToStorage } from "@/lib/direct-upload";
 import ClientNotifications from "@/components/ClientNotifications";
@@ -439,27 +440,18 @@ function JourneyTracker({ deal }: { deal: Deal }) {
 
 // ─── Stage-specific cards ─────────────────────────────────────────────────────
 
+// #407 — the onboarding card now lives in components/portal/ClientIntakeCard so
+// the buyer and seller portals share one rule: a client with an intake already
+// on file is never asked to do the onboarding again, whatever stage the deal is
+// parked in.
 function IntakeCard({ deal, firstName }: { deal: Deal; firstName: string }) {
-  const router = useRouter();
   return (
-    <div className="rounded-2xl bg-gradient-to-br from-brand-navy to-blue-800 p-5 text-white">
-      <p className="text-xs font-bold uppercase tracking-widest text-white/50 mb-1">Getting Started</p>
-      <p className="text-xl font-black mb-2">Welcome, {firstName}!</p>
-      <p className="text-sm text-white/70 mb-5 leading-relaxed">
-        Your agent has set up your home buying portal. Answer a few quick questions to personalize your search — takes about 3 minutes.
-      </p>
-      <div className="space-y-2 mb-5">
-        {['🏠  What you\'re looking for', '💰  Your buying power', '📋  Your personal deal portal'].map((item) => (
-          <div key={item} className="flex items-center gap-2 text-sm text-white/75">{item}</div>
-        ))}
-      </div>
-      <button
-        onClick={() => router.push(`/onboard/buyer?agent=${deal.agentId}`)}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-gold py-3.5 text-sm font-bold text-brand-navy hover:bg-brand-gold/90 transition-colors"
-      >
-        Begin my onboarding →
-      </button>
-    </div>
+    <ClientIntakeCard
+      role="buyer"
+      firstName={firstName}
+      intakeSubmitted={deal.intakeSubmitted}
+      onboardHref={`/onboard/buyer?agent=${deal.agentId}`}
+    />
   );
 }
 

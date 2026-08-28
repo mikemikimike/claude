@@ -22,8 +22,16 @@ vi.mock("@/lib/api-client", () => ({
   setTokenGetter: vi.fn(),
 }));
 
+const pushMock = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: pushMock, back: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/",
+}));
+
 import { api } from "@/lib/api-client";
 import IntakeCard, { type DealIntakePayload } from "@/components/intake/IntakeCard";
+import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
 
 const buyerIntake: DealIntakePayload = {
   role: "buyer",
@@ -116,5 +124,79 @@ describe("IntakeCard", () => {
     await waitFor(() => {
       expect(screen.getByText(/no intake/i)).toBeTruthy();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #407 — the CLIENT-facing onboarding card (the buyer/seller portal's
+// "Getting Started" stage card, shared by BuyerView + SellerView). A client who
+// already submitted their questionnaire must never be asked to do it again,
+// even on a deal still parked in `intake` — which every pre-fix deal in prod is.
+// ---------------------------------------------------------------------------
+
+describe("ClientIntakeCard (portal onboarding card, #407)", () => {
+  it("shows the 'Begin my onboarding' CTA when no intake has been submitted", () => {
+    render(
+      <ClientIntakeCard
+        role="buyer"
+        firstName="Bob"
+        intakeSubmitted={false}
+        onboardHref="/onboard/buyer?agent=agent-1"
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /begin my onboarding/i })).toBeTruthy();
+  });
+
+  it("does NOT render the CTA once an intake is on file — shows the review state instead", () => {
+    render(
+      <ClientIntakeCard
+        role="buyer"
+        firstName="Bob"
+        intakeSubmitted
+        onboardHref="/onboard/buyer?agent=agent-1"
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /begin my onboarding/i })).toBeNull();
+    expect(screen.queryByText(/begin my onboarding/i)).toBeNull();
+    expect(screen.getByText(/reviewing your answers/i)).toBeTruthy();
+  });
+
+  it("behaves the same on the seller side", () => {
+    const { rerender } = render(
+      <ClientIntakeCard
+        role="seller"
+        firstName="Sam"
+        intakeSubmitted={false}
+        onboardHref="/onboard/seller"
+      />
+    );
+    expect(screen.getByRole("button", { name: /begin my onboarding/i })).toBeTruthy();
+
+    rerender(
+      <ClientIntakeCard
+        role="seller"
+        firstName="Sam"
+        intakeSubmitted
+        onboardHref="/onboard/seller"
+      />
+    );
+    expect(screen.queryByRole("button", { name: /begin my onboarding/i })).toBeNull();
+    expect(screen.getByText(/reviewing your answers/i)).toBeTruthy();
+  });
+
+  it("routes to the role's onboarding flow when the CTA is clicked", () => {
+    render(
+      <ClientIntakeCard
+        role="buyer"
+        firstName="Bob"
+        intakeSubmitted={false}
+        onboardHref="/onboard/buyer?agent=agent-1"
+      />
+    );
+
+    screen.getByRole("button", { name: /begin my onboarding/i }).click();
+    expect(pushMock).toHaveBeenCalledWith("/onboard/buyer?agent=agent-1");
   });
 });

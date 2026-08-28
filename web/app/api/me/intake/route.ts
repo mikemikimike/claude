@@ -82,7 +82,15 @@ export async function POST(req: Request): Promise<Response> {
       dealId = deal.id;
     }
 
-    await applyIntakeToDeal({ dealId, role, answers });
-    return json({ ok: true, deal_id: dealId });
+    // #407 — the write also advances a deal still sitting in `intake`, with the
+    // matching deal_stage_history row attributed to this client. Without it the
+    // portal kept asking them to redo the onboarding they had just finished.
+    const advancedTo = await applyIntakeToDeal({
+      dealId,
+      role,
+      answers,
+      submittedBy: userId,
+    });
+    return json({ ok: true, deal_id: dealId, stage: advancedTo });
   })) as Response;
 }

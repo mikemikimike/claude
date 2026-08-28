@@ -119,11 +119,15 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       : isIntakeRole(bodyIntakeRole)
         ? bodyIntakeRole
         : null;
+    // #407 — a completed intake also advances the deal off `intake` (with the
+    // history row attributed to the claiming client), so the portal doesn't
+    // greet them with the onboarding they just finished.
     if (intakeAnswers && intakeRole) {
       await applyIntakeToDeal({
         dealId: inv.deal_id,
         role: intakeRole,
         answers: intakeAnswers,
+        submittedBy: user.id,
       });
     }
 

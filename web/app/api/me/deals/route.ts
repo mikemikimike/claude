@@ -41,6 +41,7 @@ export async function GET(req: Request): Promise<Response> {
         baa_signed: boolean;
         disclosures_complete: boolean;
         buyer_status: string | null;
+        intake_submitted: boolean;
         created_at: Date;
         updated_at: Date;
         stage_entered_at: Date;
@@ -57,6 +58,11 @@ export async function GET(req: Request): Promise<Response> {
              deals.fast_pass, deals.smooth_exit,
              deals.pre_approved, deals.baa_signed, deals.disclosures_complete,
              deals.buyer_status,
+             -- #407: the portal must stop prompting for onboarding once the
+             -- client submitted it. Boolean only — the answers themselves are
+             -- read through GET /api/deals/[id]/intake, and this endpoint
+             -- deliberately carries no agent-facing columns.
+             (deals.intake IS NOT NULL) AS intake_submitted,
              deals.created_at, deals.updated_at,
              ${stageEnteredAtExpr} AS stage_entered_at,
              u.name AS agent_name, u.email AS agent_email, u.phone AS agent_phone
