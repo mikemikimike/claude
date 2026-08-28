@@ -185,7 +185,7 @@ describe("GET /api/deals/[id]/stage-history", () => {
  * having either satisfied the gate or consciously overridden it — so it is the
  * natural signal: gate a FIRST departure from a stage, never a repeat one.
  */
-describe("PATCH /api/deals/[id]/stage — re-entry gate (#419)", () => {
+describe("PATCH /api/deals/[id]/stage — re-entry gate (#419, narrowed by #445)", () => {
   async function patchStage(
     dealId: string,
     sub: string,
@@ -368,5 +368,203 @@ describe("PATCH /api/deals/[id]/stage — re-entry gate (#419)", () => {
     expect(
       await prisma.deal_stage_history.count({ where: { deal_id: deal.id } })
     ).toBe(1);
+  });
+
+  /**
+   * #445 — the skip above is narrower than "this stage never gates again".
+   *
+   * #419 exempted EVERY blocker on a stage the deal had already left, which
+   * permanently disarmed that stage's gate: a TC adding "get the repair
+   * addendum signed" after a bust-and-relist got no gate on it at all. The
+   * exemption now covers only what #419 was actually about — auto-generated
+   * (`source = 'ai'`) tasks that were already sitting there when the deal last
+   * departed the stage. Anything else — a manual task, or an `ai` task created
+   * after that departure — is new work and still gates.
+   */
+  /** Create a task with an explicit source + created_at (the factory has neither). */
+  async function createTaskAt(args: {
+    dealId: string;
+    title: string;
+    source: string;
+    createdAt: Date;
+    stageContext: DealStage | null;
+    priority?: string;
+    status?: "pending" | "in_progress" | "completed" | "skipped";
+  }) {
+    return prisma.tasks.create({
+      data: {
+        deal_id: args.dealId,
+        title: args.title,
+        source: args.source,
+        created_at: args.createdAt,
+        stage_context: args.stageContext,
+        priority: args.priority ?? "high",
+        status: args.status ?? "pending",
+      },
+      select: { id: true, title: true },
+    });
+  }
+
+  /**
+   * Drive a buy deal through intake → active_search → offer_active (forced past
+   * the seeded gate) → back to active_search, and hand back the timestamp of
+   * the departure the gate must now measure against.
+   */
+  async function retreatedToActiveSearch() {
+    const { agent, deal } = await buyDealAtIntake();
+    expect((await patchStage(deal.id, "auth0|a", "active_search")).status).toBe(200);
+    expect(
+      (await patchStage(deal.id, "auth0|a", "offer_active", true)).status
+    ).toBe(200);
+    expect((await patchStage(deal.id, "auth0|a", "active_search")).status).toBe(200);
+
+    const departure = await prisma.deal_stage_history.findFirst({
+      where: { deal_id: deal.id, from_stage: "active_search" },
+      orderBy: { changed_at: "desc" },
+      select: { changed_at: true },
+    });
+    expect(departure).not.toBeNull();
+    return { agent, deal, departedAt: departure!.changed_at };
+  }
+
+  // Case 1 — the bug this ticket fixes. Fails against #419's broad skip.
+  it("gates a NEW manual high task added after the retreat", async () => {
+    const { deal, departedAt } = await retreatedToActiveSearch();
+
+    const fresh = await createTaskAt({
+      dealId: deal.id,
+      title: "Get the repair addendum signed",
+      source: "manual",
+      createdAt: new Date(departedAt.getTime() + 1000),
+      stageContext: "active_search",
+    });
+
+    const res = await patchStage(deal.id, "auth0|a", "offer_active");
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as GateBody;
+    expect(body.gate).toBe(true);
+    // Only the new task blocks — the seeded leftover from the first pass is
+    // still exempt (#419 intact), so it must not be named here.
+    expect(body.blocking_tasks.map((t) => t.id)).toEqual([fresh.id]);
+    expect(body.blocking_tasks[0].title).toBe("Get the repair addendum signed");
+
+    // The blocked advance wrote no history row, and nothing recorded so far is
+    // a from === to transition.
+    const history = await prisma.deal_stage_history.findMany({
+      where: { deal_id: deal.id },
+      orderBy: { changed_at: "asc" },
+      select: { from_stage: true, to_stage: true },
+    });
+    expect(history).toEqual([
+      { from_stage: "intake", to_stage: "active_search" },
+      { from_stage: "active_search", to_stage: "offer_active" },
+      { from_stage: "offer_active", to_stage: "active_search" },
+    ]);
+    expect(history.filter((h) => h.from_stage === h.to_stage)).toEqual([]);
+  });
+
+  // Case 4 — an `ai` task created AFTER the last departure is new work, not a
+  // leftover, so it gates too.
+  it("gates an ai task created after the last departure from the stage", async () => {
+    const { deal, departedAt } = await retreatedToActiveSearch();
+
+    const late = await createTaskAt({
+      dealId: deal.id,
+      title: "Re-run the affordability check",
+      source: "ai",
+      createdAt: new Date(departedAt.getTime() + 1000),
+      stageContext: "active_search",
+    });
+
+    const res = await patchStage(deal.id, "auth0|a", "offer_active");
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as GateBody;
+    expect(body.blocking_tasks.map((t) => t.id)).toEqual([late.id]);
+    expect(body.blocking_tasks[0].source).toBe("ai");
+  });
+
+  // Case 2 (explicit) — an `ai` task predating the departure stays exempt even
+  // when it is the ONLY thing that could block. This is #419's fix, restated
+  // without relying on the auto-seeder's timing.
+  it("still exempts an ai task created before the last departure", async () => {
+    const { deal, departedAt } = await retreatedToActiveSearch();
+
+    await createTaskAt({
+      dealId: deal.id,
+      title: "Send pre-approval checklist — second copy",
+      source: "ai",
+      createdAt: new Date(departedAt.getTime() - 1000),
+      stageContext: "active_search",
+    });
+
+    const res = await patchStage(deal.id, "auth0|a", "offer_active");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { stage: string }).stage).toBe("offer_active");
+  });
+
+  // The fourth quadrant, and the one behaviour that genuinely changes vs #419:
+  // a MANUAL task predating the departure gates again on the re-advance. #419
+  // exempted it forever; the exemption is for auto-generated work only, so the
+  // agent is re-asked (and Force Advance is still one click away).
+  it("re-gates a manual task that predates the last departure", async () => {
+    const { deal, departedAt } = await retreatedToActiveSearch();
+
+    const manual = await createTaskAt({
+      dealId: deal.id,
+      title: "Call the listing agent",
+      source: "manual",
+      createdAt: new Date(departedAt.getTime() - 1000),
+      stageContext: "active_search",
+    });
+
+    const res = await patchStage(deal.id, "auth0|a", "offer_active");
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as GateBody;
+    expect(body.blocking_tasks.map((t) => t.id)).toEqual([manual.id]);
+    expect(body.blocking_tasks[0].source).toBe("manual");
+  });
+
+  // A closed task never blocks, whichever side of the departure it sits on.
+  it("ignores a completed manual task created after the retreat", async () => {
+    const { deal, departedAt } = await retreatedToActiveSearch();
+
+    await createTaskAt({
+      dealId: deal.id,
+      title: "Already handled",
+      source: "manual",
+      createdAt: new Date(departedAt.getTime() + 1000),
+      stageContext: "active_search",
+      status: "completed",
+    });
+
+    expect((await patchStage(deal.id, "auth0|a", "offer_active")).status).toBe(200);
+  });
+
+  // Case 5 — force still wins over the narrowed gate.
+  it("force=true still bypasses a new post-retreat blocker", async () => {
+    const { deal, departedAt } = await retreatedToActiveSearch();
+
+    await createTaskAt({
+      dealId: deal.id,
+      title: "Get the repair addendum signed",
+      source: "manual",
+      createdAt: new Date(departedAt.getTime() + 1000),
+      stageContext: "active_search",
+    });
+
+    const res = await patchStage(deal.id, "auth0|a", "offer_active", true);
+    expect(res.status).toBe(200);
+    const history = await prisma.deal_stage_history.findMany({
+      where: { deal_id: deal.id },
+      orderBy: { changed_at: "asc" },
+      select: { from_stage: true, to_stage: true },
+    });
+    expect(history.map((h) => `${h.from_stage}->${h.to_stage}`)).toEqual([
+      "intake->active_search",
+      "active_search->offer_active",
+      "offer_active->active_search",
+      "active_search->offer_active",
+    ]);
+    expect(history.filter((h) => h.from_stage === h.to_stage)).toEqual([]);
   });
 });

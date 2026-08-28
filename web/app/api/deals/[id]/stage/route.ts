@@ -54,44 +54,74 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
 
     // Blocking-task gate (skipped on force).
     if (!force && isForwardAdvance(current.stage, newStage)) {
-      // …but only on the deal's FIRST departure from this stage (#419).
+      // …minus the auto-generated leftovers of an earlier pass (#419, #445).
       //
       // Entering a stage seeds its high-priority auto-tasks, and nothing ever
       // completes them, so the gate fired on every forward advance out of the
       // stage — forever. A retreat and re-advance hit the identical still-open
       // task and 422'd again, on a transition that had visibly succeeded a
-      // minute earlier. A `deal_stage_history` row with from_stage = the
-      // current stage means the agent has already left it once, having either
-      // satisfied the gate or consciously overridden it with Force Advance;
-      // re-asking is noise. A first departure gates exactly as before.
-      const leftBefore = await prisma.deal_stage_history.findFirst({
+      // minute earlier.
+      //
+      // #419 fixed that by skipping the gate outright once
+      // `deal_stage_history` showed a departure from this stage, which
+      // disarmed the stage's gate permanently: a TC's genuinely new "get the
+      // repair addendum signed", added after a bust-and-relist, got no gate
+      // either. #445 narrows the exemption to exactly the leftovers it was
+      // written for — `source = 'ai'` tasks that were ALREADY OPEN when the
+      // deal last departed this stage. Anything created since that departure,
+      // and anything the agent or TC created by hand, is new work and gates as
+      // it always did. A first departure (no matching history row) gates
+      // exactly as before.
+      //
+      // Measured against the most recent history row whose `from_stage` is the
+      // stage being left: that is the moment the agent last either satisfied
+      // this gate or consciously overrode it with Force Advance, so everything
+      // it saw then is answered-for and everything after it is not.
+      // `idx_deal_stage_history_deal_changed` serves the deal_id + changed_at
+      // DESC ordering; from_stage is a cheap residual over a handful of rows.
+      const lastDeparture = await prisma.deal_stage_history.findFirst({
         where: { deal_id: dealId, from_stage: current.stage },
-        select: { id: true },
+        orderBy: { changed_at: "desc" },
+        select: { changed_at: true },
       });
-      if (!leftBefore) {
-        const blocking = await prisma.tasks.findMany({
-          where: {
-            deal_id: dealId,
-            priority: "high",
-            // 'skipped' is closed, not open (#263) — mirrors deals.ts open-count
-            // + healthExpr, the iCal feed, and calendar push, all of which treat
-            // NOT IN ('completed','skipped') as the open set. A task the agent
-            // explicitly skipped must not 422 the advance.
-            status: { notIn: ["completed", "skipped"] },
-            OR: [{ stage_context: current.stage }, { stage_context: null }],
-          },
-          // source + stage_context ride along so the modal can say plainly that
-          // a blocker was auto-generated, and name the stage that generated it
-          // (#419) — "N required tasks still open" read as the agent's own
-          // backlog for work they never created.
-          select: { id: true, title: true, source: true, stage_context: true },
-        });
-        if (blocking.length > 0) {
-          return json(
-            { gate: true, blocking_tasks: blocking },
-            422
-          );
-        }
+
+      const blocking = await prisma.tasks.findMany({
+        where: {
+          deal_id: dealId,
+          priority: "high",
+          // 'skipped' is closed, not open (#263) — mirrors deals.ts open-count
+          // + healthExpr, the iCal feed, and calendar push, all of which treat
+          // NOT IN ('completed','skipped') as the open set. A task the agent
+          // explicitly skipped must not 422 the advance.
+          status: { notIn: ["completed", "skipped"] },
+          OR: [{ stage_context: current.stage }, { stage_context: null }],
+          // Written as a positive OR rather than a NOT(a AND b) so the SQL is
+          // unambiguous. `tasks.source` is NOT NULL DEFAULT 'manual', so
+          // `source <> 'ai'` has no three-valued-logic hole.
+          ...(lastDeparture
+            ? {
+                AND: [
+                  {
+                    OR: [
+                      { source: { not: "ai" } },
+                      { created_at: { gte: lastDeparture.changed_at } },
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        },
+        // source + stage_context ride along so the modal can say plainly that
+        // a blocker was auto-generated, and name the stage that generated it
+        // (#419) — "N required tasks still open" read as the agent's own
+        // backlog for work they never created.
+        select: { id: true, title: true, source: true, stage_context: true },
+      });
+      if (blocking.length > 0) {
+        return json(
+          { gate: true, blocking_tasks: blocking },
+          422
+        );
       }
     }
 
