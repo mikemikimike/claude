@@ -10,11 +10,11 @@ import {
   calcFastPassTotal,
   FAST_PASS_BASE_PRICE,
 } from "@/lib/fast-pass-display";
-// Single source of truth for the +15% "pay at closing" premium (#280) — the
-// server prices enrollments from this same helper, so what we show is what the
-// buyer is charged.
+// Single source of truth for enrollment pricing (#280) — the server prices
+// enrollments from this same helper, so the basket we show is the basket that
+// gets persisted. (The +15% "pay at closing" premium no longer applies here:
+// the survey chooses no payment option — #439.)
 import { computeFastPassTotalCents } from "@/lib/fast-pass-catalog";
-import type { FastPassPaymentOption } from "@/lib/types";
 import { api } from "@/lib/api-client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -467,45 +467,14 @@ function NotesScreen({
 
 // ─── Screen 4: Confirmation ───────────────────────────────────────────────────
 
-const PAYMENT_OPTIONS: {
-  value: FastPassPaymentOption;
-  badge: string;
-  badgeStyle: string;
-  title: string;
-  desc: string;
-  note: string;
-}[] = [
-  {
-    value: 'now',
-    badge: 'Best value',
-    badgeStyle: 'bg-green-500 text-white',
-    title: 'Pay now',
-    desc: 'Invoice sent within 24 hours. Fast Pass activates as soon as payment clears.',
-    note: 'No added cost',
-  },
-  {
-    value: 'at_closing',
-    badge: '+15%',
-    badgeStyle: 'bg-gray-100 text-gray-500',
-    title: 'Pay at closing',
-    desc: 'Nothing due today. The fee is added to your closing costs.',
-    note: 'Added to closing statement',
-  },
-  {
-    value: 'seller_concession',
-    badge: '$0 out of pocket',
-    badgeStyle: 'bg-blue-100 text-blue-700',
-    title: 'Seller concession',
-    desc: 'Ask your agent to negotiate the Fast Pass fee into your offer. Seller pays at closing.',
-    note: 'Discuss with your agent',
-  },
-];
-
+// #439 — this screen used to end in a payment-option picker (pay now / at
+// closing / seller concession) that took a card at the end of a questionnaire.
+// Payment moved to the buyer's dashboard (#440); the review below is where the
+// survey now stops. Nothing here charges anything.
 function ConfirmationScreen({
   data,
   selectedUpsells,
   total,
-  atClosingTotal,
   submitting,
   submitError,
   promoError,
@@ -514,15 +483,11 @@ function ConfirmationScreen({
   data: SurveyData;
   selectedUpsells: FastPassUpsellId[];
   total: number;
-  // Base + upsells + 15% deferral premium, in dollars — computed once by the
-  // parent from the shared server helper (#280), not re-derived here.
-  atClosingTotal: number;
   submitting?: boolean;
   submitError?: boolean;
   promoError?: string | null;
-  onSubmit: (paymentOption: FastPassPaymentOption, promoCode: string) => void;
+  onSubmit: (promoCode: string) => void;
 }) {
-  const [paymentOption, setPaymentOption] = useState<FastPassPaymentOption | null>(null);
   // Promo code (#281) is validated SERVER-SIDE on submit — this input is UX
   // only; the server is the boundary and recomputes any discount from the code.
   const [promoCode, setPromoCode] = useState('');
@@ -536,7 +501,10 @@ function ConfirmationScreen({
 
   return (
     <div className="screen-enter flex flex-col items-center">
-      <Question text="Review & check out" note="Choose how you'd like to pay — no money changes hands today" />
+      <Question
+        text="Review & confirm"
+        note="Nothing is charged here — you'll choose how to pay from your dashboard"
+      />
       <div className="w-full max-w-sm space-y-4">
         {/* Move summary */}
         <div className="rounded-2xl bg-white shadow-sm divide-y divide-gray-50">
@@ -611,57 +579,6 @@ function ConfirmationScreen({
           {promoError && <p className="mt-1.5 text-xs font-medium text-red-500">{promoError}</p>}
         </div>
 
-        {/* Payment selection */}
-        <div>
-          <div className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">
-            How would you like to pay?
-          </div>
-          <div className="space-y-2">
-            {PAYMENT_OPTIONS.map((opt) => {
-              const isSelected = paymentOption === opt.value;
-              const displayTotal =
-                opt.value === 'at_closing' ? atClosingTotal : total;
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => setPaymentOption(opt.value)}
-                  className={[
-                    'w-full rounded-xl border-2 p-4 text-left transition-all active:scale-[0.99]',
-                    isSelected
-                      ? 'border-brand-navy bg-brand-navy/5'
-                      : 'border-gray-100 bg-white hover:border-gray-200',
-                  ].join(' ')}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-brand-navy">{opt.title}</span>
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${opt.badgeStyle}`}>
-                        {opt.badge}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-brand-navy">
-                        ${formatDollars(displayTotal)}
-                      </span>
-                      <div
-                        className={[
-                          'flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all',
-                          isSelected
-                            ? 'border-brand-navy bg-brand-navy'
-                            : 'border-gray-200',
-                        ].join(' ')}
-                      >
-                        {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-400 leading-relaxed">{opt.desc}</p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {submitError && (
           <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3">
             <p className="text-sm font-semibold text-red-700">We couldn&apos;t submit your enrollment.</p>
@@ -670,11 +587,11 @@ function ConfirmationScreen({
         )}
 
         <button
-          onClick={() => paymentOption && !submitting && onSubmit(paymentOption, promoCode.trim())}
-          disabled={!paymentOption || submitting}
+          onClick={() => !submitting && onSubmit(promoCode.trim())}
+          disabled={submitting}
           className={[
             'flex w-full items-center justify-center gap-2 rounded-xl py-4 text-base font-bold transition-all',
-            paymentOption && !submitting
+            !submitting
               ? 'bg-green-500 text-white hover:bg-green-600 active:scale-[0.98]'
               : 'cursor-not-allowed bg-gray-100 text-gray-300',
           ].join(' ')}
@@ -688,23 +605,10 @@ function ConfirmationScreen({
 
 // ─── Submitted ────────────────────────────────────────────────────────────────
 
-const SUBMITTED_NOTES: Record<FastPassPaymentOption, string> = {
-  now: 'Invoice on its way to your email — Fast Pass activates as soon as payment clears.',
-  at_closing: "We'll add the fee to your closing costs. Nothing due today.",
-  seller_concession: "Let your agent know — they'll negotiate the fee into your offer.",
-};
-
-function SubmittedScreen({
-  total,
-  atClosingTotal,
-  paymentOption,
-}: {
-  total: number;
-  // Base + upsells + 15% deferral premium, in dollars — from the shared server
-  // helper via the parent (#280), so it equals what was actually enrolled.
-  atClosingTotal: number;
-  paymentOption: FastPassPaymentOption;
-}) {
+// #439 — the survey takes no money, so this screen must not read like a
+// receipt. It confirms the enrollment, states plainly that nothing was
+// charged, and points at the dashboard where FF17 (#440) collects payment.
+function SubmittedScreen({ total }: { total: number }) {
   const router = useRouter();
   const activeUser = useAuthStore((s) => s.activeUser);
   function goToDashboard() {
@@ -716,7 +620,6 @@ function SubmittedScreen({
       router.push('/');
     }
   }
-  const displayTotal = paymentOption === 'at_closing' ? atClosingTotal : total;
 
   return (
     <div className="screen-enter flex flex-col items-center py-8 text-center">
@@ -725,16 +628,16 @@ function SubmittedScreen({
       </div>
       <h2 className="text-3xl font-black text-brand-navy">You&apos;re in!</h2>
       <p className="mt-3 max-w-sm text-sm leading-relaxed text-gray-500">
-        {SUBMITTED_NOTES[paymentOption]}
+        Your Fast Pass details are saved and your concierge has what they need to
+        start. Nothing has been charged yet — you&apos;ll pick how to pay from your
+        dashboard.
       </p>
       <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-5 py-3 text-sm text-green-800">
-        <span className="font-semibold">
-          {paymentOption === 'now' ? 'Invoice amount:' : 'Total due at closing:'}
-        </span>{' '}
-        <span className="font-black">${formatDollars(displayTotal)}</span>
+        <span className="font-semibold">Your Fast Pass total:</span>{' '}
+        <span className="font-black">${formatDollars(total)}</span>
       </div>
       <p className="mt-3 text-xs text-gray-300">
-        Your dashboard will update once payment is confirmed.
+        Payment options are waiting on your dashboard.
       </p>
       <button
         onClick={goToDashboard}
@@ -766,11 +669,6 @@ export default function FastPassSurvey() {
     handoff != null && (queryDealId == null || handoff.dealId === queryDealId);
   const selectedUpsells: FastPassUpsellId[] = stashMatches ? handoff?.selectedUpsells ?? [] : [];
   const total = stashMatches ? handoff?.total ?? calcFastPassTotal(selectedUpsells) : calcFastPassTotal([]);
-  // The exact "pay at closing" charge (base + upsells + 15% deferral premium),
-  // in dollars, from the single server-side source of truth — no local * 1.15
-  // (#280). Derived from selectedUpsells so it always equals what POST
-  // /deals/[id]/fastpass persists and charges.
-  const atClosingTotal = computeFastPassTotalCents(selectedUpsells, "at_closing") / 100;
 
   const [screen, setScreen] = useState(0);
   const [data, setData] = useState<SurveyData>(EMPTY);
@@ -779,7 +677,6 @@ export default function FastPassSurvey() {
   const [submitError, setSubmitError] = useState(false);
   // Server-side promo rejection (#281), surfaced inline next to the code input.
   const [promoError, setPromoError] = useState<string | null>(null);
-  const [chosenPayment, setChosenPayment] = useState<FastPassPaymentOption>('now');
 
   const progress = Math.min(((screen + 1) / TOTAL_SCREENS) * 100, 100);
 
@@ -802,7 +699,7 @@ export default function FastPassSurvey() {
   if (submitted) {
     return (
       <div className="flex min-h-screen flex-col bg-white px-4 py-8">
-        <SubmittedScreen total={total} atClosingTotal={atClosingTotal} paymentOption={chosenPayment} />
+        <SubmittedScreen total={total} />
       </div>
     );
   }
@@ -847,25 +744,27 @@ export default function FastPassSurvey() {
             data={data}
             selectedUpsells={selectedUpsells}
             total={total}
-            atClosingTotal={atClosingTotal}
             submitting={submitting}
             submitError={submitError}
             promoError={promoError}
-            onSubmit={async (option, promoCode) => {
-              setChosenPayment(option);
+            onSubmit={async (promoCode) => {
               if (dealId) {
                 setSubmitting(true);
                 setSubmitError(false);
                 setPromoError(null);
                 try {
+                  // No payment_option (#439): the server persists this as
+                  // `pending_payment` and charges nothing. There is therefore
+                  // no checkout_url to follow and no Stripe hop from here —
+                  // the buyer pays from their dashboard (#440).
+                  //
                   // total_cents is priced server-side and ignored on the wire
-                  // (#78); send the same shared-helper value so client and
-                  // server never disagree, incl. the +15% at-closing premium.
-                  const totalCents = computeFastPassTotalCents(selectedUpsells, option);
-                  const res = await api.post<{ checkout_url?: string; ok?: boolean }>(
+                  // (#78); send the same shared-helper value so a client/server
+                  // disagreement shows up rather than hiding.
+                  const totalCents = computeFastPassTotalCents(selectedUpsells);
+                  await api.post<{ ok?: boolean; status?: string }>(
                     `/deals/${dealId}/fastpass`,
                     {
-                      payment_option: option,
                       selected_upsells: selectedUpsells,
                       // Server validates + prices the code; this is a hint only.
                       promo_code: promoCode || undefined,
@@ -873,13 +772,6 @@ export default function FastPassSurvey() {
                       survey_answers: data,
                     },
                   );
-                  if (res.checkout_url) {
-                    // Navigating to Stripe — stay disabled (page is unloading)
-                    // so a double-click can't double-post. Keep the handoff:
-                    // Stripe's cancel URL returns here for a resubmit.
-                    window.location.href = res.checkout_url;
-                    return;
-                  }
                   sessionStorage.removeItem(HANDOFF_KEY);
                 } catch (err) {
                   // Enrollment did not persist — show the error, never the

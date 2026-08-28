@@ -18,6 +18,12 @@ import { z } from "zod";
 /** POST /api/deals/[id]/fastpass */
 export const fastPassEnrollBodySchema = z.object({
   // now | at_closing | seller_concession — whitelist stays in the handler.
+  //
+  // Optional on purpose (#439): the onboarding survey no longer takes payment,
+  // so it enrols with no option at all and the handler persists the enrollment
+  // as `pending_payment`. Sending one is still valid — that is how the buyer's
+  // dashboard (#440) pays — and a present-but-unrecognised value still 400s in
+  // the handler.
   payment_option: z.string().nullish(),
   selected_upsells: z.array(z.string()).optional(),
   /** Optional promo code (#281); the server validates it + prices the discount. */

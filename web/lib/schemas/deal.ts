@@ -90,7 +90,11 @@ export const ariveKeyDatesSchema = z.record(z.string(), z.string().nullable());
 
 export const fastPassApiDataSchema = z.object({
   status: z.string(),
-  payment_option: z.string(),
+  /**
+   * Null until the buyer chooses how to pay (#439): a survey enrollment is
+   * saved `pending_payment` with no option, and the dashboard (#440) sets one.
+   */
+  payment_option: z.string().nullish(),
   selected_upsells: z.array(z.string()).optional(),
   total_cents: z.number().optional(),
   enrolled_at: z.string().optional(),

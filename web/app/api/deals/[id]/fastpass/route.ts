@@ -28,12 +28,19 @@ class PromoExhaustedError extends Error {}
 // POST /deals/:dealId/fastpass — owning agent or any deal participant (#169:
 // buyers enroll their own deal from the portal pitch; the price is computed
 // server-side, so opening the route to participants stays tamper-safe).
-// Stores Fast Pass enrollment JSONB on the deal. If payment_option === "now"
-// and Stripe is configured, charges the full enrollment (base + add-ons)
-// upfront via Stripe Checkout and returns a checkout_url. Ports EnrollFastPass
-// (backend/internal/handlers/enrollment.go), except the total is priced
-// server-side from lib/fast-pass-catalog.ts (#78) instead of trusting the
-// client's total_cents.
+// Stores Fast Pass enrollment JSONB on the deal.
+//
+// `payment_option` is OPTIONAL (#439 / FF16). Onboarding's Fast Pass survey no
+// longer asks for money, so it posts the add-on selection with no option at
+// all: the enrollment is persisted `status: "pending_payment"`, `paid: false`,
+// `payment_option: null`, and nothing is charged. The buyer picks how to pay
+// from their dashboard afterwards (#440 / FF17), which posts the same route
+// WITH an option — so the whitelisted `now | at_closing | seller_concession`
+// path below is unchanged, including the Stripe Checkout hand-off on "now".
+//
+// Ports EnrollFastPass (backend/internal/handlers/enrollment.go), except the
+// total is priced server-side from lib/fast-pass-catalog.ts (#78) instead of
+// trusting the client's total_cents.
 export async function POST(req: Request, ctx: Ctx): Promise<Response> {
   const { id: dealId } = await ctx.params;
   return (await withAuth(req, async (claims): Promise<Response> => {
@@ -60,8 +67,18 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
 
     // Whitelist the payment option (now | at_closing | seller_concession);
     // only "now" charges upfront. Validated before any write.
-    const paymentOption = body.payment_option ?? "";
-    if (!(PAYMENT_OPTIONS as readonly string[]).includes(paymentOption)) {
+    //
+    // OMITTING it entirely (undefined / null) is the #439 deferred enrollment:
+    // no option chosen yet, nothing charged, status "pending_payment". An
+    // option that is PRESENT but not on the whitelist — including "" — is still
+    // a hard 400, so a client that fumbles the field can't silently downgrade
+    // itself into the deferred path.
+    const paymentOption: (typeof PAYMENT_OPTIONS)[number] | null =
+      body.payment_option == null ? null : (body.payment_option as (typeof PAYMENT_OPTIONS)[number]);
+    if (
+      paymentOption !== null &&
+      !(PAYMENT_OPTIONS as readonly string[]).includes(paymentOption)
+    ) {
       return error(`invalid payment_option: ${paymentOption}`, 400);
     }
 
@@ -107,12 +124,17 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     // first, THEN apply the at_closing +15% premium on the discounted basket —
     // so a discounted at_closing enrollment costs round((subtotal − discount) ×
     // 1.15). body.total_cents stays ignored.
-    const totalCents = computeFastPassTotalCents(validatedUpsells, paymentOption, {
+    // A deferred (#439) enrollment passes no option, so it gets the plain
+    // discounted subtotal — the +15% premium only ever attaches to an option
+    // the buyer has actually chosen (at_closing), which FF17 collects later.
+    const totalCents = computeFastPassTotalCents(validatedUpsells, paymentOption ?? undefined, {
       discountCents: appliedPromo?.discountCents ?? 0,
     });
 
     const enrollment = {
-      status: "active",
+      // No payment option means the buyer has enrolled but not paid — the
+      // status `fastpass/mark-paid` and FF17 both key off (#439).
+      status: paymentOption === null ? "pending_payment" : "active",
       payment_option: paymentOption,
       // Dedupe what we store so the JSONB matches what was actually charged.
       selected_upsells: validatedUpsells,
@@ -182,13 +204,15 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
           cancelUrl,
         });
         if (session.url) {
-          return json({ ok: true, checkout_url: session.url });
+          return json({ ok: true, status: enrollment.status, checkout_url: session.url });
         }
       } catch (err) {
         console.error("stripe fast pass checkout error", err);
       }
     }
 
-    return json({ ok: true });
+    // Echo the persisted status so a caller can tell a deferred enrollment
+    // (#439) from an active one without re-fetching the deal.
+    return json({ ok: true, status: enrollment.status });
   })) as Response;
 }

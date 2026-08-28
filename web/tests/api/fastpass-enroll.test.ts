@@ -574,6 +574,278 @@ describe("POST /api/deals/[id]/fastpass", () => {
   });
 });
 
+/**
+ * #439 (FF16) — the Fast Pass survey stops taking payment. Onboarding now
+ * enrolls the buyer WITHOUT a `payment_option`; the enrollment is persisted
+ * awaiting payment (`status: 'pending_payment'`, `paid: false`) and the buyer
+ * pays later from their dashboard (#440 / FF17).
+ *
+ * `payment_option` stays a valid — and still whitelisted — field, because FF17
+ * posts it from the dashboard. This block pins the new deferred shape AND
+ * re-pins the pricing guarantees (#78 anti-tamper, #281 promo, #169 scoping)
+ * on the no-payment-option path, since that is the path onboarding now takes.
+ */
+describe("POST /api/deals/[id]/fastpass — enrollment without payment_option (#439)", () => {
+  async function enroll(
+    dealId: string,
+    auth0Sub: string,
+    roles: string[],
+    body: Record<string, unknown>
+  ): Promise<Response> {
+    const r = new Request(`http://localhost/api/deals/${dealId}/fastpass`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(auth0Sub, roles),
+      },
+      body: JSON.stringify(body),
+    });
+    return fastPassRoute(r, ctx(dealId));
+  }
+
+  /** Fails the test if Stripe is touched at all; returns a getter for the flag. */
+  function stripeMustNotBeCalled(): () => boolean {
+    let called = false;
+    setStripeForTesting({
+      checkout: {
+        sessions: {
+          create: async () => {
+            called = true;
+            return { id: "cs_nope", url: "https://stripe.test/nope" };
+          },
+        },
+      },
+      webhooks: {
+        constructEvent: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+    return () => called;
+  }
+
+  async function readFastPass(dealId: string) {
+    const rows = await prisma.$queryRaw<
+      {
+        status: string | null;
+        payment_option: string | null;
+        total_cents: string | null;
+        discount_cents: string | null;
+        promo_code: string | null;
+        paid: boolean | null;
+        selected_upsells: unknown;
+        enrolled_at: string | null;
+        survey_situation: string | null;
+      }[]
+    >`
+      SELECT fast_pass->>'status'                              AS status,
+             fast_pass->>'payment_option'                      AS payment_option,
+             fast_pass->>'total_cents'                         AS total_cents,
+             fast_pass->>'discount_cents'                      AS discount_cents,
+             fast_pass->>'promo_code'                          AS promo_code,
+             (fast_pass->>'paid')::boolean                     AS paid,
+             fast_pass->'selected_upsells'                     AS selected_upsells,
+             fast_pass->>'enrolled_at'                         AS enrolled_at,
+             fast_pass->'survey_answers'->>'currentSituation'  AS survey_situation
+      FROM deals WHERE id = ${dealId}::uuid
+    `;
+    return rows[0];
+  }
+
+  it("buyer enrolls with add-ons and NO payment_option → 200, persisted as pending_payment / unpaid, no Stripe", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|buyer" });
+    const deal = await createDeal({ agent_id: agent.id, title: "9 Deferred Dr" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+    const stripeCalled = stripeMustNotBeCalled();
+
+    const res = await enroll(deal.id, "auth0|buyer", ["buyer"], {
+      selected_upsells: ["utility_setup", "staging_consult"],
+      survey_answers: { currentSituation: "renting" },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok?: boolean;
+      status?: string;
+      checkout_url?: string;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.status).toBe("pending_payment");
+    // Nothing to pay here — the survey must never hand back a checkout URL.
+    expect(body.checkout_url).toBeUndefined();
+    expect(stripeCalled()).toBe(false);
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    expect(row.paid).toBe(false);
+    // No option chosen yet — FF17 records it when the buyer pays.
+    expect(row.payment_option).toBeNull();
+    // Server-computed from the catalog: base + upsells, with NO at-closing
+    // premium (nothing was deferred — nothing was chosen).
+    expect(row.total_cents).toBe(String(EXPECTED_TOTAL));
+    expect(row.total_cents).not.toBe(String(EXPECTED_AT_CLOSING_TOTAL));
+    expect(row.survey_situation).toBe("renting");
+    expect(row.enrolled_at).toBeTruthy();
+  });
+
+  it("stores the selected add-ons, deduped", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      selected_upsells: ["staging_consult", "utility_setup", "staging_consult"],
+    });
+    expect(res.status).toBe(200);
+
+    const row = await readFastPass(deal.id);
+    expect(row.selected_upsells).toEqual(["staging_consult", "utility_setup"]);
+    expect(row.total_cents).toBe(String(EXPECTED_TOTAL));
+  });
+
+  it("an unknown add-on still 400s before anything is persisted (regression guard)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    const stripeCalled = stripeMustNotBeCalled();
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      selected_upsells: ["staging_consult", "free_money"],
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("free_money");
+    expect(stripeCalled()).toBe(false);
+
+    const row = await prisma.deals.findUnique({ where: { id: deal.id } });
+    expect(row?.fast_pass).toBeNull();
+  });
+
+  it("a tampered total_cents is still ignored — the stored total comes from the catalog (regression guard)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      selected_upsells: ["utility_setup", "staging_consult"],
+      // Hostile client claims the whole basket costs 1 cent.
+      total_cents: 1,
+    });
+    expect(res.status).toBe(200);
+
+    const row = await readFastPass(deal.id);
+    expect(row.total_cents).toBe(String(EXPECTED_TOTAL));
+    expect(row.total_cents).not.toBe("1");
+  });
+
+  it("a promo code still discounts the SUBTOTAL and increments uses_count (regression guard)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.promo_codes.create({
+      data: {
+        code: "FF16TEN",
+        discount_type: "pct",
+        discount_value: 10,
+        applies_to: ["fast_pass"],
+        max_uses: null,
+        uses_count: 0,
+      },
+    });
+    const subtotal = computeFastPassSubtotalCents(["utility_setup", "staging_consult"]);
+    const discount = Math.round(subtotal * 0.1);
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      selected_upsells: ["utility_setup", "staging_consult"],
+      promo_code: "FF16TEN",
+      // Client-claimed discount is never trusted either.
+      total_cents: 1,
+    });
+    expect(res.status).toBe(200);
+
+    const row = await readFastPass(deal.id);
+    expect(row.total_cents).toBe(String(subtotal - discount));
+    expect(row.discount_cents).toBe(String(discount));
+    expect(row.promo_code).toBe("FF16TEN");
+
+    const promo = await prisma.promo_codes.findFirst({ where: { code: "FF16TEN" } });
+    expect(promo?.uses_count).toBe(1);
+  });
+
+  it("a non-participant still gets 403 — nothing persisted (scoping boundary)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    await createUser({ role: "buyer", auth0_id: "auth0|stranger" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    const res = await enroll(deal.id, "auth0|stranger", ["buyer"], {
+      selected_upsells: ["utility_setup"],
+    });
+    expect(res.status).toBe(403);
+
+    const row = await prisma.deals.findUnique({ where: { id: deal.id } });
+    expect(row?.fast_pass).toBeNull();
+  });
+
+  it("an explicit payment_option still works (FF17 posts it from the dashboard)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "at_closing",
+      selected_upsells: ["utility_setup", "staging_consult"],
+    });
+    expect(res.status).toBe(200);
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("active");
+    expect(row.payment_option).toBe("at_closing");
+    expect(row.total_cents).toBe(String(EXPECTED_AT_CLOSING_TOTAL));
+  });
+
+  it("a garbage payment_option is still rejected — absent is not the same as invalid", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "later",
+      selected_upsells: [],
+    });
+    expect(res.status).toBe(400);
+
+    const row = await prisma.deals.findUnique({ where: { id: deal.id } });
+    expect(row?.fast_pass).toBeNull();
+  });
+
+  it("an already-enrolled deal keeps its stored total when a deferred enrollment fails validation", async () => {
+    // Repo gotcha: each enrollment stores the total computed AT ENROL TIME —
+    // that is what protects buyers who enrolled under older pricing. A rejected
+    // request must not touch it.
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: {
+        fast_pass: {
+          status: "active",
+          payment_option: "at_closing",
+          selected_upsells: [],
+          total_cents: 111111,
+          paid: true,
+          enrolled_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      selected_upsells: ["not_a_real_addon"],
+    });
+    expect(res.status).toBe(400);
+
+    const row = await readFastPass(deal.id);
+    expect(row.total_cents).toBe("111111");
+    expect(row.status).toBe("active");
+    expect(row.paid).toBe(true);
+    expect(row.enrolled_at).toBe("2026-01-01T00:00:00.000Z");
+  });
+});
+
 describe("POST /api/deals/[id]/fastpass — malformed body validation (#88)", () => {
   async function enroll(dealId: string, body: string) {
     const r = new Request(`http://localhost/api/deals/${dealId}/fastpass`, {

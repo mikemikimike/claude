@@ -34,7 +34,12 @@ export type FastPassSurveyAnswers = {
 export type FastPassEnrollment = {
   enrolledAt: string;
   status: FastPassEnrollmentStatus;
-  paymentOption: FastPassPaymentOption;
+  /**
+   * `null` while the enrollment is `pending_payment` (#439) — the survey saves
+   * the add-ons without asking how to pay, and the buyer's dashboard (#440)
+   * fills this in when they do.
+   */
+  paymentOption: FastPassPaymentOption | null;
   selectedUpsells: FastPassUpsellId[];
   totalPaid: number;
   surveyAnswers?: FastPassSurveyAnswers;

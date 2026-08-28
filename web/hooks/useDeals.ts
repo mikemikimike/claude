@@ -22,7 +22,10 @@ function fastPassFromApi(d: FastPassApiData): FastPassEnrollment {
   return {
     enrolledAt: d.enrolled_at ?? new Date().toISOString(),
     status: (d.status as FastPassEnrollment['status']) ?? 'active',
-    paymentOption: (d.payment_option as FastPassEnrollment['paymentOption']) ?? 'now',
+    // No default (#439): a `pending_payment` enrollment genuinely has no
+    // option yet, and defaulting it to 'now' made the admin dashboard treat an
+    // unpaid enrollment as already paid upfront.
+    paymentOption: (d.payment_option as FastPassEnrollment['paymentOption']) ?? null,
     selectedUpsells: (d.selected_upsells ?? []) as FastPassEnrollment['selectedUpsells'],
     totalPaid: Math.round((d.total_cents ?? 0) / 100),
   };

@@ -76,11 +76,15 @@ function driveToConfirm() {
   fireEvent.click(screen.getByText("Review & Submit"));
 }
 
-/** Click through all five survey screens and hit Submit Request. */
+/**
+ * Click through all five survey screens and hit Submit.
+ *
+ * #439 — there is no payment-option step any more: the survey ends at the
+ * add-on review and the enrollment is saved awaiting payment.
+ */
 function driveToSubmit() {
   driveToConfirm();
-  // Screen 4 — confirm + payment option
-  fireEvent.click(screen.getByText("Pay now"));
+  // Screen 4 — review + submit
   fireEvent.click(screen.getByText("Submit Request"));
 }
 
@@ -101,9 +105,11 @@ describe("FastPassSurvey handoff", () => {
     expect(mockPost).toHaveBeenCalledTimes(1);
     const [path, body] = mockPost.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe(`/deals/${DEAL_ID}/fastpass`);
-    expect(body.payment_option).toBe("now");
+    // #439 — no payment option is chosen here any more; the server persists
+    // the enrollment as pending_payment and the buyer pays from the dashboard.
+    expect(body.payment_option).toBeUndefined();
     expect(body.selected_upsells).toEqual(["utility_setup"]);
-    // Pay now → total at face value, in cents.
+    // No premium — the basket at face value, in cents.
     expect(body.total_cents).toBe(STASHED_TOTAL * 100);
   });
 
@@ -151,6 +157,59 @@ describe("FastPassSurvey handoff", () => {
 });
 
 /**
+ * #439 (FF16) — the survey stops asking for a card. Paul's decision: add-on
+ * selection stays in onboarding; the payment step moves to the buyer's
+ * dashboard (#440 / FF17). Nothing in this flow may imply money changed hands.
+ */
+describe("FastPassSurvey stops taking payment (#439)", () => {
+  it("renders no payment-option step on the final screen", () => {
+    seedHandoff();
+    render(<FastPassSurvey />);
+    driveToConfirm();
+
+    // The three old payment choices are gone…
+    expect(screen.queryByText("Pay now")).toBeNull();
+    expect(screen.queryByText("Pay at closing")).toBeNull();
+    expect(screen.queryByText("Seller concession")).toBeNull();
+    expect(screen.queryByText(/how would you like to pay/i)).toBeNull();
+    // …and the add-on review the buyer DOES still get is untouched.
+    expect(screen.getByText("Total")).toBeTruthy();
+  });
+
+  it("submits straight from add-on review — no payment option to pick first", async () => {
+    seedHandoff();
+    mockPost.mockResolvedValue({ ok: true, status: "pending_payment" });
+    render(<FastPassSurvey />);
+    driveToConfirm();
+
+    // Submit is live immediately; pre-#439 it was disabled until a payment
+    // option was chosen.
+    fireEvent.click(screen.getByText("Submit Request"));
+
+    await screen.findByText("You're in!");
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    const [, body] = mockPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body).not.toHaveProperty("payment_option");
+  });
+
+  it("the success screen never implies a payment was taken", async () => {
+    seedHandoff();
+    mockPost.mockResolvedValue({ ok: true, status: "pending_payment" });
+    render(<FastPassSurvey />);
+    driveToSubmit();
+
+    await screen.findByText("You're in!");
+    // The old copy promised an invoice / a charge. It must be gone…
+    expect(screen.queryByText(/invoice/i)).toBeNull();
+    // …and replaced by an explicit "nothing charged yet" + a pointer at the
+    // dashboard, which is where FF17 collects.
+    expect(
+      screen.getByText(/nothing has been charged yet.*from your dashboard/i)
+    ).toBeTruthy();
+  });
+});
+
+/**
  * #430 — the repriced add-ons must reach the buyer's eyes, not just the
  * Stripe charge. The confirm screen's line items are the last figures a buyer
  * sees before checking out, so they are pinned to the dollar here.
@@ -191,16 +250,18 @@ describe("FastPassSurvey add-on pricing (#430)", () => {
     expect(screen.getByText("Total").parentElement).toHaveTextContent("$2,787");
   });
 
-  it("charges Stripe exactly the displayed basket on pay-now", async () => {
+  it("enrolls the exact basket it displayed — add-ons and cents agree", async () => {
     seedRepricedHandoff();
-    mockPost.mockResolvedValue({ ok: true });
+    mockPost.mockResolvedValue({ ok: true, status: "pending_payment" });
     render(<FastPassSurvey />);
     driveToSubmit();
 
     await screen.findByText("You're in!");
     const [, body] = mockPost.mock.calls[0] as [string, Record<string, unknown>];
     expect(body.selected_upsells).toEqual(REPRICED_UPSELLS);
-    // 278700 cents — the same number the confirm screen just rendered.
+    // 278700 cents — the same number the confirm screen just rendered. The
+    // server re-prices from the catalog and ignores this (#78); sending it
+    // keeps a client/server disagreement visible in CI.
     expect(body.total_cents).toBe(278700);
   });
 });
