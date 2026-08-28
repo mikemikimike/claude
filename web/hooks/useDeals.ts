@@ -100,8 +100,18 @@ function parseNumeric(v: string | null | undefined): number | null {
 }
 
 export function apiDealToFrontend(d: ApiDeal): Deal {
-  // Deal.property.price is a plain number; 0 is the client's TBD sentinel.
-  const price = parseNumeric(d.price) ?? 0;
+  // #411 — a price the app doesn't know stays `null` all the way to the
+  // render. This used to be `?? 0` ("the client's TBD sentinel"), which is
+  // exactly why Pipeline Value and Est. Commission read "$0" on every deal
+  // nobody had priced by hand: a sentinel that looks like a real answer.
+  //
+  // A stored 0 is folded into "unknown" too. `deals.price` has no default and
+  // the create/edit paths only ever write a number the user typed or an offer
+  // amount, so a 0 in the column is legacy noise — and no house is worth $0,
+  // so treating it as a real total would put the same "$0" back on the
+  // dashboard with none of the honesty.
+  const parsedPrice = parseNumeric(d.price);
+  const price = parsedPrice != null && parsedPrice > 0 ? parsedPrice : null;
   const commissionPct = parseNumeric(d.commission_pct) ?? 3;
 
   let loanMilestones: LoanMilestones | undefined;
@@ -165,7 +175,9 @@ export function apiDealToFrontend(d: ApiDeal): Deal {
     // Real lifecycle status from the API (#254). Payloads that don't SELECT it
     // (create RETURNING, /api/me/deals) omit it — a fresh deal is 'active'.
     status: d.status ?? 'active',
-    estimatedCommission: Math.round(price * (commissionPct / 100)),
+    // No price, no commission figure (#411) — 3% of nothing is not $0, it is
+    // "we don't know yet".
+    estimatedCommission: price == null ? null : Math.round(price * (commissionPct / 100)),
     commissionPct,
     agentName: d.agent_name,
     agentEmail: d.agent_email,

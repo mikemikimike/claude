@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
 import { Deal, DealStage, Task } from "@/lib/types";
+import { formatMoney } from "@/lib/deal-money";
 import { STAGE_ORDER } from "@/lib/stages";
 import { useMyDeals } from "@/hooks/useMyDeals";
 import { useTasks } from "@/hooks/useTasks";
@@ -1262,7 +1263,7 @@ function OfferActiveCard({ deal }: { deal: Deal }) {
             {deal.property.address}, {deal.property.city}
           </p>
           <p className="mt-2 text-lg font-black text-amber-900">
-            ${deal.property.price.toLocaleString()}
+            {formatMoney(deal.property.price)}
           </p>
         </div>
         <span className="rounded-full bg-amber-200 px-2.5 py-1 text-[10px] font-bold text-amber-800 uppercase">
@@ -2078,7 +2079,7 @@ export default function BuyerView() {
                 <MapPin size={11} />
                 <span className="truncate">{deal.property.address}, {deal.property.city}</span>
               </div>
-              <p className="font-bold text-brand-navy text-lg">${deal.property.price.toLocaleString()}</p>
+              <p className="font-bold text-brand-navy text-lg">{formatMoney(deal.property.price)}</p>
               {deal.fastPass?.status === 'active' && (
                 <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-green-100 border border-green-200 px-2 py-0.5 text-[11px] font-bold text-green-700">
                   <Zap size={10} /> Fast Pass Active

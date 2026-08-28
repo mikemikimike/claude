@@ -13,6 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { apiDealToFrontend, type ApiDeal } from "@/hooks/useDeals";
+import { sumKnown } from "@/lib/deal-money";
 
 function wireDeal(overrides: Partial<ApiDeal> = {}): ApiDeal {
   return {
@@ -38,9 +39,26 @@ describe("apiDealToFrontend numeric parsing (#85)", () => {
     expect(deal.property.price).toBe(450000);
   });
 
-  it("maps null and empty-string price to 0 — the client Deal.property.price is a plain number with 0 as the TBD sentinel", () => {
-    expect(apiDealToFrontend(wireDeal({ price: null })).property.price).toBe(0);
-    expect(apiDealToFrontend(wireDeal({ price: "" })).property.price).toBe(0);
+  // #411 — the old contract mapped a missing price to the number 0 ("the
+  // client's TBD sentinel"), which is exactly why Pipeline Value and Est.
+  // Commission read "$0" on every deal nobody had priced by hand. A price the
+  // app does not know is now `null` all the way to the render, so the UI can
+  // draw "—" instead of a number that looks computed.
+  it("maps null and empty-string price to null, not 0 (#411)", () => {
+    expect(apiDealToFrontend(wireDeal({ price: null })).property.price).toBeNull();
+    expect(apiDealToFrontend(wireDeal({ price: "" })).property.price).toBeNull();
+  });
+
+  it("maps a stored 0 to null too — no house is worth $0 (#411)", () => {
+    expect(apiDealToFrontend(wireDeal({ price: "0" })).property.price).toBeNull();
+    expect(apiDealToFrontend(wireDeal({ price: "0.00" })).property.price).toBeNull();
+  });
+
+  it("leaves estimatedCommission null when there is no price to take a cut of (#411)", () => {
+    const deal = apiDealToFrontend(wireDeal({ price: null, commission_pct: "3.00" }));
+    expect(deal.estimatedCommission).toBeNull();
+    // The rate itself is still known — only the money is missing.
+    expect(deal.commissionPct).toBe(3);
   });
 
   it("dashboard volume reduce sums to a number — never a concatenated string", () => {
@@ -50,7 +68,7 @@ describe("apiDealToFrontend numeric parsing (#85)", () => {
         wireDeal({ id: "00000000-0000-0000-0000-000000000003", price: null }),
       ),
     ];
-    const total = deals.reduce((s, d) => s + d.property.price, 0);
+    const total = sumKnown(deals.map((d) => d.property.price));
     expect(typeof total).toBe("number");
     expect(total).toBe(450000);
   });
@@ -70,8 +88,8 @@ describe("apiDealToFrontend numeric parsing (#85)", () => {
   });
 
   it("treats garbage and whitespace-only numerics as absent — client defaults apply", () => {
-    expect(apiDealToFrontend(wireDeal({ price: "abc" })).property.price).toBe(0);
-    expect(apiDealToFrontend(wireDeal({ price: "  " })).property.price).toBe(0);
+    expect(apiDealToFrontend(wireDeal({ price: "abc" })).property.price).toBeNull();
+    expect(apiDealToFrontend(wireDeal({ price: "  " })).property.price).toBeNull();
     expect(
       apiDealToFrontend(wireDeal({ price: "100000", commission_pct: "abc" }))
         .commissionPct,

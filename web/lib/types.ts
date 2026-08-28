@@ -175,7 +175,14 @@ export type Deal = {
     city: string;
     state: string;
     zip: string;
-    price: number;
+    /**
+     * `null` when the app genuinely doesn't know the price yet (#411) — most
+     * of a deal's life, until an offer amount or a tracked listing's list
+     * price fills `deals.price` in. Render it with `formatMoney` from
+     * `lib/deal-money`, and total a list of them with `sumKnown`: collapsing
+     * "unknown" to 0 is what made every dashboard read "$0".
+     */
+    price: number | null;
     image?: string;
   };
   timeline: {
@@ -194,7 +201,8 @@ export type Deal = {
   loanMilestones?: LoanMilestones;
   /** Vendors assigned to this file — lender, title company, inspector. */
   vendors?: DealVendors;
-  estimatedCommission: number;
+  /** `null` whenever `property.price` is — there is no cut of an unknown number (#411). */
+  estimatedCommission: number | null;
   commissionPct?: number;
   notes?: string;
   fastPass?: FastPassEnrollment;

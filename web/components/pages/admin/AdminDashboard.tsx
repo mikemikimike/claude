@@ -9,6 +9,7 @@ import { useUsers, AppUser } from "@/hooks/useUsers";
 import { useAgentInvites, AgentInvite } from "@/hooks/useAgentInvites";
 import { useSystemConfig, usePromoCodes, useAuditLog, SystemConfig, CreatePromoCodeInput } from "@/hooks/useAdmin";
 import { Deal } from "@/lib/types";
+import { formatCompactMoney, formatMoney, sumKnown } from "@/lib/deal-money";
 import { FormReview } from "@/components/pages/admin/FormReview";
 import {
   AlertTriangle,
@@ -61,10 +62,12 @@ const HEALTH_BADGE: Record<string, string> = {
   red: 'bg-red-100 text-red-700',
 };
 
-function fmt$(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n}`;
+/**
+ * Stat-card currency. Delegates to the shared helper (#411) so this dashboard
+ * and the agent one agree on what "no price" means — "—", not "$0".
+ */
+function fmt$(n: number | null) {
+  return formatCompactMoney(n, 1);
 }
 
 function initials(name: string) {
@@ -160,8 +163,10 @@ function DealRow({ deal }: { deal: Deal }) {
 
 function PipelineOverview({ deals }: { deals: Deal[] }) {
   const activeDeals = deals.filter((d) => d.stage !== 'post_close');
-  const totalPipeline = activeDeals.reduce((s, d) => s + d.property.price, 0);
-  const totalCommission = activeDeals.reduce((s, d) => s + d.estimatedCommission, 0);
+  // #411 — same rule as the agent dashboard: total the deals whose price the
+  // app knows, and stay `null` (rendered "—") when it knows none of them.
+  const totalPipeline = sumKnown(activeDeals.map((d) => d.property.price));
+  const totalCommission = sumKnown(activeDeals.map((d) => d.estimatedCommission));
   const overdueTaskCount = activeDeals.reduce((s, d) => s + (d.overdueTaskCount ?? 0), 0);
   const pendingDisclosures = activeDeals.filter(
     (d) => d.loanMilestones?.disclosuresOut && !d.loanMilestones?.disclosuresSignedSubmitted,
@@ -271,7 +276,7 @@ function PipelineOverview({ deals }: { deals: Deal[] }) {
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-gray-400">By Agent</h2>
         <div className="space-y-2">
           {agentEntries.map(([agentId, { name, email, deals: agentDeals }]) => {
-            const agentCommission = agentDeals.reduce((s, d) => s + d.estimatedCommission, 0);
+            const agentCommission = sumKnown(agentDeals.map((d) => d.estimatedCommission));
             const agentOverdue = agentDeals.reduce((s, d) => s + (d.overdueTaskCount ?? 0), 0);
             const healthCounts = {
               green: agentDeals.filter((d) => d.health === 'green').length,
@@ -388,7 +393,7 @@ function AllDeals({ deals }: { deals: Deal[] }) {
                   {deal.timeline.closingDate ?? '—'}
                 </td>
                 <td className="px-5 py-3 text-right font-medium text-brand-navy">
-                  ${deal.estimatedCommission.toLocaleString()}
+                  {formatMoney(deal.estimatedCommission)}
                 </td>
               </tr>
             ))}

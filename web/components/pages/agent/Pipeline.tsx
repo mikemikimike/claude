@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { Deal, DealStage, DealType } from "@/lib/types";
 import { AGENT_STAGE_LABELS as STAGE_LABELS, STAGE_ORDER } from "@/lib/stages";
 import { useDeals, type ApiDeal } from "@/hooks/useDeals";
+import { formatMoney } from "@/lib/deal-money";
 import { api } from "@/lib/api-client";
 import { ArrowRight, MapPin, Calendar, Clock, Zap, Plus, X } from 'lucide-react';
 
@@ -353,7 +354,7 @@ export function DealCard({ deal }: { deal: Deal }) {
 
         {/* Middle row: price + timeline */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-sm">
-          <span className="font-semibold text-brand-navy">${deal.property.price.toLocaleString()}</span>
+          <span className="font-semibold text-brand-navy">{formatMoney(deal.property.price)}</span>
           <span className="flex items-center gap-1 text-gray-400 text-xs">
             <Clock size={11} />
             {deal.timeline.daysInStage}d in stage

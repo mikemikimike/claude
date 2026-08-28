@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Deal, LoanMilestones, Task } from "@/lib/types";
 import { api } from "@/lib/api-client";
+import { formatMoney } from "@/lib/deal-money";
 import { useAuthStore } from "@/lib/store/authStore";
 import { BUYER_STATUS_STEPS } from "@/lib/buyer-status";
 import { useParticipants } from "@/hooks/useParticipants";
@@ -440,7 +441,10 @@ function printNetSheet(deal: { clientName: string; property: { address: string }
 function SellerNetSheetCard({ deal }: { deal: import("@/lib/types").Deal }) {
   const { sheet, loading, saveSheet, markReady } = useNetSheet(deal.id);
   const [lines, setLines] = useState<NetSheetLine[]>([]);
-  const [salePrice, setSalePrice] = useState(deal.property.price);
+  // The net sheet is an editable worksheet, not a report: an unknown deal
+  // price (#411) seeds the field at 0 for the agent to type over, which is
+  // what it has always done — the arithmetic below needs a number.
+  const [salePrice, setSalePrice] = useState(deal.property.price ?? 0);
   const [closingDate, setClosingDate] = useState<string>(deal.timeline.closingDate ?? '');
   const [annualTaxes, setAnnualTaxes] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -455,10 +459,10 @@ function SellerNetSheetCard({ deal }: { deal: import("@/lib/types").Deal }) {
   if (sheet !== prevSheet) {
     setPrevSheet(sheet);
     if (sheet) {
-      setSalePrice(sheet.salePrice || deal.property.price);
+      setSalePrice(sheet.salePrice || (deal.property.price ?? 0));
       setClosingDate(sheet.closingDate ?? deal.timeline.closingDate ?? '');
       setAnnualTaxes(sheet.annualTaxes);
-      setLines(recalcLines(sheet.lines, sheet.salePrice || deal.property.price, sheet.annualTaxes, sheet.closingDate));
+      setLines(recalcLines(sheet.lines, sheet.salePrice || (deal.property.price ?? 0), sheet.annualTaxes, sheet.closingDate));
     }
   }
 
@@ -1360,7 +1364,7 @@ function CommissionRateField({ deal, onUpdated }: { deal: Deal; onUpdated: () =>
               className="group flex items-center gap-1 hover:text-green-800 transition-colors"
               title="Edit commission rate"
             >
-              ${deal.estimatedCommission.toLocaleString()}
+              {formatMoney(deal.estimatedCommission)}
               <span className="text-[10px] font-normal text-gray-400 group-hover:text-green-700">
                 ({deal.commissionPct ?? 3}%)
               </span>
@@ -1703,7 +1707,7 @@ export function OverviewTab({ deal, tasks, onRefresh }: { deal: Deal; tasks: Tas
           </div>
           <div>
             <dt className="text-gray-400 text-xs">Price</dt>
-            <dd className="font-semibold text-brand-navy mt-0.5">${deal.property.price.toLocaleString()}</dd>
+            <dd className="font-semibold text-brand-navy mt-0.5">{formatMoney(deal.property.price)}</dd>
           </div>
           <div>
             <dt className="text-gray-400 text-xs">Stage</dt>

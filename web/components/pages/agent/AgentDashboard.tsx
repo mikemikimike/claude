@@ -9,14 +9,18 @@ import { AGENT_STAGE_LABELS as STAGE_LABELS } from "@/lib/stages";
 import { useDeals } from "@/hooks/useDeals";
 import { useAgentTasks } from "@/hooks/useTasks";
 import { useNotifications, AppNotification } from "@/hooks/useNotifications";
+import { formatCompactMoney, sumKnown } from "@/lib/deal-money";
 import { TrendingUp, Layers, CheckSquare, ArrowRight, Clock, AlertCircle, CheckCircle2, DollarSign, Share2, X, Phone } from 'lucide-react';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function formatCurrency(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n}`;
+/**
+ * Stat-card currency. Delegates to the shared helper (#411) so an amount the
+ * app doesn't know renders as "—" rather than "$0"; the two-decimal millions
+ * form is this dashboard's long-standing precision.
+ */
+function formatCurrency(n: number | null) {
+  return formatCompactMoney(n, 2);
 }
 
 const HEALTH_BORDER: Record<string, string> = {
@@ -234,7 +238,10 @@ export default function AgentDashboard() {
   const { deals: agentDeals } = useDeals();
 
   // ── Stats ────────────────────────────────────────────────────────────────
-  const pipelineValue = agentDeals.reduce((sum, d) => sum + d.property.price, 0);
+  // #411 — total the deals whose price the app actually knows. An unpriced
+  // deal contributes nothing; a pipeline where NO deal is priced is `null`,
+  // which the stat card renders as "—" instead of a confident "$0".
+  const pipelineValue = sumKnown(agentDeals.map((d) => d.property.price));
   const activeDeals = agentDeals.length;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -273,7 +280,7 @@ export default function AgentDashboard() {
 
   const getDealForTask = (task: Task) => agentDeals.find((d) => d.id === task.dealId);
 
-  const estCommission = agentDeals.reduce((sum, d) => sum + d.estimatedCommission, 0);
+  const estCommission = sumKnown(agentDeals.map((d) => d.estimatedCommission));
   const fastPassCount = agentDeals.filter((d) => d.fastPass?.status === 'active').length;
 
   return (

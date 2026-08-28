@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
 import { Deal, DealStage, Task } from "@/lib/types";
+import { formatMoney } from "@/lib/deal-money";
 import { STAGE_ORDER } from "@/lib/stages";
 import ClientNotifications from "@/components/ClientNotifications";
 import { BUYER_STATUS_STEPS } from "@/lib/buyer-status";
@@ -733,7 +734,7 @@ function ClosingCard({ deal }: { deal: Deal }) {
         <p className="text-xs font-bold uppercase tracking-widest text-brand-navy/60">Closing Day</p>
         <p className="text-xl font-black text-brand-navy mt-0.5">Today&apos;s the day!</p>
         <p className="text-sm text-brand-navy/70 mt-1">
-          Sale price: ${deal.property.price.toLocaleString()}
+          Sale price: {formatMoney(deal.property.price)}
         </p>
       </div>
       <div className="bg-white border border-brand-gold/30 rounded-b-2xl p-5 space-y-2.5">
@@ -837,7 +838,7 @@ function PostCloseCard({ deal, firstName }: { deal: Deal; firstName: string }) {
         <p className="text-sm text-white/70 mt-1">{deal.property.address}</p>
         <div className="mt-3 rounded-xl bg-white/10 px-4 py-3">
           <p className="text-xs text-white/60">Final sale price</p>
-          <p className="text-2xl font-black">${deal.property.price.toLocaleString()}</p>
+          <p className="text-2xl font-black">{formatMoney(deal.property.price)}</p>
         </div>
       </div>
 
@@ -1118,7 +1119,7 @@ export default function SellerView() {
                 <MapPin size={11} />
                 <span className="truncate">{deal.property.address}, {deal.property.city}</span>
               </div>
-              <p className="font-bold text-brand-navy text-lg">${deal.property.price.toLocaleString()}</p>
+              <p className="font-bold text-brand-navy text-lg">{formatMoney(deal.property.price)}</p>
               {deal.smoothExit?.status === 'active' && (
                 <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-purple-100 border border-purple-200 px-2 py-0.5 text-[11px] font-bold text-purple-700">
                   Smooth Exit Active
