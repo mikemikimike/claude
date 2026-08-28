@@ -2,10 +2,34 @@
 
 import { Auth0Provider } from "@auth0/auth0-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { ReactNode, useState, useSyncExternalStore } from "react";
 import { ApiError } from "@/lib/api-client";
 import AuthSetup from "@/components/AuthSetup";
 import TestAuthSetup from "@/components/TestAuthSetup";
+
+/**
+ * Where to send a user once Auth0 hands them back (#425).
+ *
+ * Every `loginWithRedirect()` in the app already passed
+ * `appState: { returnTo }`, but `Auth0Provider` had no `onRedirectCallback`, so
+ * auth0-react ran its DEFAULT one — which only strips `?code=&state=` from the
+ * URL and drops appState on the floor. Every returning user therefore landed on
+ * `/` regardless, which is why an invited client asking for
+ * `/onboard/buyer` ended up on the portal instead.
+ *
+ * Kept pure and exported so the rules are unit-testable. Relative in-app paths
+ * only: `appState` round-trips through Auth0, so treating it as a destination
+ * is only safe if it can never become another origin.
+ */
+export function resolveReturnTo(appState: unknown): string {
+  const to = (appState as { returnTo?: unknown } | undefined)?.returnTo;
+  if (typeof to !== "string") return "/";
+  // "/x" is in-app; "//host" and "https://host" are not, and a scheme-relative
+  // "//" is the classic open-redirect bypass of a naive startsWith("/") check.
+  if (!to.startsWith("/") || to.startsWith("//")) return "/";
+  return to;
+}
 
 // E2E-only: when Playwright seeds a session we bypass Auth0 entirely (see
 // TestAuthSetup). Off in every normal/production build.
@@ -25,6 +49,7 @@ const getIsServer = () => false;
  */
 function ClientAuthProviders({ children }: { children: ReactNode }) {
   const origin = window.location.origin;
+  const router = useRouter();
 
   // E2E: seeded session via cookie, no Auth0Provider. The E2E flow only visits
   // protected pages (which read identity from the auth store), so nothing calls
@@ -39,6 +64,16 @@ function ClientAuthProviders({ children }: { children: ReactNode }) {
         redirect_uri: origin,
         audience: process.env.NEXT_PUBLIC_AUTH0_AUDIENCE,
       }}
+      // #425 — makes `appState.returnTo` mean something. A client-side
+      // `router.replace` (not `window.location`) so the token auth0-react just
+      // exchanged stays in memory; it also strips the `?code=&state=` query the
+      // library's default callback was the only thing removing.
+      //
+      // This does NOT race the pending-invite claim: AuthSetup lives INSIDE
+      // this provider, so it mounts and fires the claim regardless of which
+      // route we land on, and the onboarding questionnaire only writes minutes
+      // later on its final screen.
+      onRedirectCallback={(appState) => router.replace(resolveReturnTo(appState))}
     >
       <AuthSetup>{children}</AuthSetup>
     </Auth0Provider>

@@ -12,6 +12,20 @@ import { vi } from "vitest";
  * Returns a reset() to call from afterEach; vi.unstubAllGlobals() also works.
  */
 export function stubLocalStorage(): { reset: () => void } {
+  return stubWebStorage("localStorage");
+}
+
+/**
+ * The sessionStorage twin of the above. `sessionStorage` survives a component
+ * unmount but not a page load, which is exactly the lifetime the invite page's
+ * once-per-session auto-signup guard needs (#425) — so a test that re-renders
+ * the page must see the same store, and one that calls reset() must not.
+ */
+export function stubSessionStorage(): { reset: () => void } {
+  return stubWebStorage("sessionStorage");
+}
+
+function stubWebStorage(name: "localStorage" | "sessionStorage"): { reset: () => void } {
   const store = new Map<string, string>();
   const stub = {
     getItem: (key: string) => store.get(key) ?? null,
@@ -23,6 +37,6 @@ export function stubLocalStorage(): { reset: () => void } {
       return store.size;
     },
   };
-  vi.stubGlobal("localStorage", stub);
+  vi.stubGlobal(name, stub);
   return { reset: () => store.clear() };
 }

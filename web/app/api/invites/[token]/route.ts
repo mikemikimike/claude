@@ -41,6 +41,25 @@ export async function GET(_req: Request, ctx: Ctx): Promise<Response> {
     return error("invite expired", 410);
   }
 
+  // #425 — does the invited email already have a RealTourFlow account? The
+  // landing page uses this to skip its "create account / log in" chooser for a
+  // brand-new client (no account → straight to Auth0 signup) and keep the card
+  // for the ambiguous case. Only reachable with the unguessable token for this
+  // exact address, so it discloses nothing the holder doesn't already know.
+  //
+  // Raw SQL, and `lower(email) = lower($1)` deliberately: it matches the
+  // functional index from migration 000062 (Prisma's `mode: "insensitive"`
+  // emits ILIKE, which no btree can serve — see lib/invite-role.ts). Case
+  // matters here because the agent hand-types the invite address while Auth0
+  // normalizes it, and a false negative would walk an existing account into
+  // the signup form.
+  const accountRows = await prisma.$queryRaw<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM users WHERE lower(email) = lower(${row.email})
+    ) AS exists
+  `;
+  const hasAccount = accountRows[0]?.exists === true;
+
   return json({
     token: row.token,
     deal_id: row.deal_id,
@@ -51,5 +70,6 @@ export async function GET(_req: Request, ctx: Ctx): Promise<Response> {
     deal_title: row.deal_title,
     expires_at: row.expires_at.toISOString(),
     claimed,
+    has_account: hasAccount,
   });
 }

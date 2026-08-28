@@ -32,8 +32,12 @@ import InvitePage from "@/components/pages/invite/InvitePage";
 
 // Both pages read the route token via useParams; outside a Next router that
 // returns null and destructuring it throws for reasons unrelated to this test.
+// `useRouter` is here because Providers' client-only subtree now takes one for
+// the `onRedirectCallback` that honours appState.returnTo (#425) — it mounts
+// during hydration below, so the hook has to resolve.
 vi.mock("next/navigation", () => ({
   useParams: () => ({ token: "11111111-1111-4111-8111-111111111111" }),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
 }));
 
 // The real Auth0Provider phones the tenant on mount (checkSession), which we

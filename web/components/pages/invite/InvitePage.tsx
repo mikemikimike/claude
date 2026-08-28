@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -7,17 +8,54 @@ import { useAuth0 } from '@auth0/auth0-react';
 import { api, ApiError } from "@/lib/api-client";
 import { Home, UserPlus, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
+type InviteRole = 'buyer' | 'seller';
+
 type InviteDetails = {
   token: string;
   deal_id: string;
   email: string;
   name: string;
-  role: 'buyer' | 'seller';
+  role: InviteRole;
   agent_name: string;
   deal_title: string;
   expires_at: string;
   claimed: boolean;
+  /**
+   * #425 — whether the invited email already has a RealTourFlow account.
+   * Optional on purpose: a payload that predates the field (or a cached one)
+   * must fall back to showing the chooser card, never to guessing.
+   */
+  has_account?: boolean;
 };
+
+/**
+ * Where a freshly-created client account belongs (#425): their role's
+ * questionnaire. Sending them to `/` put them on the portal, whose only content
+ * at stage `intake` was a card telling them to go and start the onboarding the
+ * invite had already decided they needed.
+ */
+export function onboardingPathFor(role: InviteRole): string {
+  return role === 'seller' ? '/onboard/seller' : '/onboard/buyer';
+}
+
+/**
+ * Guard key for the automatic hop to Auth0's signup form. sessionStorage, not
+ * localStorage: the hop should happen once per browser session per token, so a
+ * client who backs out of the Auth0 form gets the card — with its "I already
+ * have an account" escape hatch — instead of being bounced straight back out.
+ */
+const autoSignUpKey = (token: string) => `inviteAutoSignup:${token}`;
+
+function readAutoSignUpUsed(token: string | undefined): boolean {
+  if (typeof window === 'undefined' || !token) return false;
+  try {
+    return window.sessionStorage.getItem(autoSignUpKey(token)) === '1';
+  } catch {
+    // Safari private mode / storage disabled — treat as "not used yet". Worst
+    // case the redirect can repeat, which is the pre-#425 status quo.
+    return false;
+  }
+}
 
 export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
@@ -55,15 +93,23 @@ export default function InvitePage() {
   // email prefilled. Without screen_hint they landed on the LOG-IN form and had
   // to find "Create new account" themselves, which is where the onboarding
   // dead-ended. Mirrors AgentSignupPage.
+  //
+  // #425 — and come back to the ONBOARDING route for the invited role rather
+  // than `/`. Only this path names an onboarding route: it is the one where we
+  // know the account is brand new, so the questionnaire is definitely still
+  // owed. (Consumed by Providers#resolveReturnTo.)
   function signUp() {
     if (!persistPending()) return;
     loginWithRedirect({
       authorizationParams: { screen_hint: 'signup', login_hint: invite!.email },
-      appState: { returnTo: '/' },
+      appState: { returnTo: onboardingPathFor(invite!.role) },
     });
   }
 
-  // Client who already has a RealTourFlow account (e.g. a second deal).
+  // Client who already has a RealTourFlow account (e.g. a second deal). Stays
+  // on `/` deliberately: they may well be past onboarding already, and
+  // RootRedirect is the one place that knows — it sends a client who still owes
+  // a questionnaire to /onboard/<role> and everyone else to their portal.
   function logIn() {
     if (!persistPending()) return;
     loginWithRedirect({
@@ -72,16 +118,62 @@ export default function InvitePage() {
     });
   }
 
-  // Already signed in — root triggers the claim in AuthSetup.
+  // Already signed in — root triggers the claim in AuthSetup. RootRedirect then
+  // routes on the freshly-claimed role, so `/` is right here too.
   function acceptAsCurrentUser() {
     if (!persistPending()) return;
     window.location.href = '/';
   }
 
-  if (auth0Loading || loading) {
+  // ── #425: skip the chooser for an unambiguously brand-new client ───────────
+  //
+  // The card asked the client to pick "create account" or "log in" when the
+  // invite already knows the answer. Auto-signup applies ONLY when every one of
+  // these holds — each `false` is a case where a human genuinely has to choose,
+  // and three of them are past dead-ends with their own regression tests:
+  //   • the invite loaded cleanly (no 404, and NOT the #278 expired 410 — never
+  //     walk someone into creating an account against a dead invite),
+  //   • it is unclaimed (a claimed invite shows "Already accepted" + Log in),
+  //   • nobody is signed in (an agent previewing the link must see the card and
+  //     its email-mismatch warning),
+  //   • the server positively reported that the email has NO account.
+  //
+  // Read once at mount via a lazy initializer so the render below stays pure.
+  const [autoSignUpUsed] = useState(() => readAutoSignUpUsed(token));
+  const shouldAutoSignUp = Boolean(
+    !auth0Loading &&
+      !loading &&
+      !isExpired &&
+      !error &&
+      invite &&
+      !invite.claimed &&
+      !isAuthenticated &&
+      invite.has_account === false &&
+      !autoSignUpUsed
+  );
+
+  useEffect(() => {
+    if (!shouldAutoSignUp) return;
+    try {
+      window.sessionStorage.setItem(autoSignUpKey(token), '1');
+    } catch {
+      // Storage unavailable — proceed anyway; the redirect is still the right
+      // destination, we just lose the once-per-session guard.
+    }
+    signUp();
+    // signUp closes over `invite`, which `shouldAutoSignUp` already gates on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoSignUp, token]);
+
+  if (auth0Loading || loading || shouldAutoSignUp) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-brand-bg">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-brand-bg">
         <Loader2 size={28} className="animate-spin text-brand-navy/40" />
+        {shouldAutoSignUp && (
+          <p data-testid="invite-auto-signup" className="text-sm text-gray-400">
+            Taking you to sign-up…
+          </p>
+        )}
       </div>
     );
   }

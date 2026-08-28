@@ -35,6 +35,14 @@ export default function AgentSignupPage() {
       ? 'This invite link is invalid or has expired.'
       : null;
 
+  // #425 — the client invite page now names its onboarding route explicitly
+  // (`/onboard/buyer` | `/onboard/seller`) because a client's post-signup
+  // destination is ambiguous: `/` is the portal AND the questionnaire's parent.
+  // An agent has no such ambiguity — RootRedirect sends any agent whose
+  // onboarding is incomplete to `/onboard/agent`, and a brand-new account
+  // always is — so `/` here already lands in onboarding. Same outcome, one
+  // fewer hard-coded route. Keep it that way unless agent onboarding grows a
+  // second entry point.
   function accept() {
     if (!token || !invite) return;
     localStorage.setItem('pendingAgentInvite', token);

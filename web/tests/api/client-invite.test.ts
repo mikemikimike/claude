@@ -691,3 +691,44 @@ describe("GET /api/invites/[token] — expiry (#278)", () => {
     expect(out.claimed).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #425 — the landing page skips its "create account / log in" chooser and sends
+// a brand-new invitee straight to Auth0 signup. It can only do that if the GET
+// tells it whether the invited email already has a RealTourFlow account, so
+// `has_account` is part of the contract, not a nicety.
+// ---------------------------------------------------------------------------
+
+describe("GET /api/invites/[token] — has_account (#425)", () => {
+  const future = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  it("1. reports has_account=false when the invited email has no user row", async () => {
+    const { invite } = await seedInviteRow({ expiresAt: future() });
+    const res = await clientInviteGetRoute(getReq(invite.token), ctx(invite.token));
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as { has_account: boolean };
+    expect(out.has_account).toBe(false);
+  });
+
+  it("2. reports has_account=true when an account already exists for that email", async () => {
+    const { invite } = await seedInviteRow({ expiresAt: future() });
+    await createUser({ role: "buyer", email: "client@example.com" });
+
+    const res = await clientInviteGetRoute(getReq(invite.token), ctx(invite.token));
+    const out = (await res.json()) as { has_account: boolean };
+    expect(out.has_account).toBe(true);
+  });
+
+  it("3. matches case-insensitively — a case difference must not send them to signup", async () => {
+    // users.email is unique only case-SENSITIVELY and the agent types the
+    // invite address by hand, so `Client@Example.com` and `client@example.com`
+    // are the same person. Reporting has_account=false here would auto-walk an
+    // existing account into Auth0's signup form.
+    const { invite } = await seedInviteRow({ expiresAt: future() });
+    await createUser({ role: "buyer", email: "CLIENT@Example.COM" });
+
+    const res = await clientInviteGetRoute(getReq(invite.token), ctx(invite.token));
+    const out = (await res.json()) as { has_account: boolean };
+    expect(out.has_account).toBe(true);
+  });
+});
