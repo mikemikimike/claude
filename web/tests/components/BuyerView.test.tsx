@@ -16,6 +16,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MyDeal } from "@/hooks/useMyDeals";
 import type { AppNotification } from "@/hooks/useNotifications";
+import type { Task } from "@/lib/types";
 
 // ─── Shared mocks (mirror buyer-fastpass-price.test.tsx) ──────────────────────
 
@@ -41,16 +42,22 @@ vi.mock("@/hooks/useMyDeals", () => ({
   useMyDeals: vi.fn(),
 }));
 
+// The deal's tasks + the in-flight optimistic completions. Both are read
+// lazily inside the hook bodies, so a case can set them before rendering.
+let mockTasks: Task[] = [];
+let mockCompletedIds = new Set<string>();
+
 vi.mock("@/hooks/useTasks", () => ({
-  useTasks: () => ({ tasks: [], loading: false, error: null, refresh: vi.fn() }),
+  useTasks: () => ({ tasks: mockTasks, loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock("@/hooks/useTaskCompletion", () => ({
   useTaskCompletion: () => ({
-    completedIds: new Set<string>(),
+    completedIds: mockCompletedIds,
     error: null,
     clearError: vi.fn(),
     complete: vi.fn(),
+    uncomplete: vi.fn(),
   }),
 }));
 
@@ -126,6 +133,11 @@ vi.mock("@/lib/api-client", () => ({
 
 import { useMyDeals } from "@/hooks/useMyDeals";
 import { api } from "@/lib/api-client";
+import {
+  MOUNTAIN_MORTGAGE_APPLICATION_URL,
+  MOUNTAIN_MORTGAGE_PHONE_DISPLAY,
+  MOUNTAIN_MORTGAGE_PHONE_HREF,
+} from "@/lib/lender";
 import BuyerView from "@/components/pages/buyer/BuyerView";
 
 const DEAL_ID = "deal-1";
@@ -176,6 +188,8 @@ function renderView(ui: ReactElement) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockNotifications = [];
+  mockTasks = [];
+  mockCompletedIds = new Set<string>();
   vi.mocked(useMyDeals).mockReturnValue({
     deals: [DEAL],
     loading: false,
@@ -380,5 +394,157 @@ describe("BuyerView — Fast Pass payment card (#440)", () => {
     useDeal({ ...DEAL, fastPass: undefined });
     renderView(<BuyerView />);
     expect(screen.queryByText(/payment needed/i)).toBeNull();
+  });
+});
+
+/**
+ * #435 (FF12) — the buyer can act on the pre-approval task.
+ *
+ * #434/#460 create the task server-side for a Mountain Mortgage / Fast Pass
+ * buyer when onboarding finishes, keyed on `source = 'preapproval'`. This is
+ * the half the buyer sees: a card at the top of their portal offering the only
+ * two things they can usefully do — open the 1003, or call the loan officer.
+ *
+ * The identity the card keys on is the SOURCE, never the title. #460 took the
+ * title out of every structural position precisely so the copy could move; a
+ * test that matched on "Get pre-approved with Mountain Mortgage" would put it
+ * straight back.
+ */
+describe("BuyerView — pre-approval task card (#435)", () => {
+  function preApprovalTask(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-preapproval",
+      dealId: DEAL_ID,
+      title: "Get pre-approved with Mountain Mortgage",
+      description:
+        "Getting your pre-approval letter is the next step — it tells you exactly what you can spend.",
+      assignedTo: "buyer",
+      assignedToId: "u-buyer",
+      status: "pending",
+      priority: "high",
+      source: "preapproval",
+      stageContext: "active_search",
+      ...overrides,
+    };
+  }
+
+  function otherTask(overrides: Partial<Task> = {}): Task {
+    return {
+      ...preApprovalTask(),
+      id: "task-other",
+      title: "Tour three homes",
+      source: "ai",
+      ...overrides,
+    };
+  }
+
+  it("renders the card with both actions when the pre-approval task is open", () => {
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+
+    expect(screen.getByTestId("preapproval-card")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /start my application/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /call paul/i })).toBeTruthy();
+  });
+
+  it("puts the card above the task list rather than inside it", () => {
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+
+    const card = screen.getByTestId("preapproval-card");
+    expect(screen.getByTestId("portal-primary").contains(card)).toBe(true);
+
+    // The tab bar is the top of the general task list — the card must precede it.
+    const tasksTab = screen.getByRole("button", { name: /^tasks/i });
+    expect(
+      card.compareDocumentPosition(tasksTab) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("links to the Mountain Mortgage application and opens it in a new tab safely", () => {
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+
+    const apply = screen.getByRole("link", { name: /start my application/i });
+    expect(apply.getAttribute("href")).toBe(MOUNTAIN_MORTGAGE_APPLICATION_URL);
+    // The NMLS path segment is what attributes the application to Paul (#431).
+    expect(apply.getAttribute("href")).toContain("/2233772/register");
+    // …and no stale cache-buster has crept back in.
+    expect(apply.getAttribute("href")).not.toContain("time=");
+    expect(apply.getAttribute("target")).toBe("_blank");
+    expect(apply.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("offers a tel: link to the loan officer", () => {
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+
+    const call = screen.getByRole("link", { name: /call paul/i });
+    expect(call.getAttribute("href")).toBe("tel:+12054019076");
+    expect(call.getAttribute("href")).toBe(MOUNTAIN_MORTGAGE_PHONE_HREF);
+    // The number is legible on screen, not only in the href.
+    expect(call.textContent).toContain(MOUNTAIN_MORTGAGE_PHONE_DISPLAY);
+  });
+
+  it("does not render the card once the task is completed", () => {
+    mockTasks = [preApprovalTask({ status: "completed" })];
+    renderView(<BuyerView />);
+
+    expect(screen.queryByTestId("preapproval-card")).toBeNull();
+    expect(screen.queryByRole("link", { name: /start my application/i })).toBeNull();
+  });
+
+  it("does not render the card for a task the buyer only just optimistically ticked", () => {
+    mockTasks = [preApprovalTask()];
+    mockCompletedIds = new Set(["task-preapproval"]);
+    renderView(<BuyerView />);
+
+    expect(screen.queryByTestId("preapproval-card")).toBeNull();
+  });
+
+  it("supersedes the pre-approval banner's lender buttons instead of doubling them up", () => {
+    // The real target user: Mountain Mortgage, not yet pre-approved, in Property
+    // Search — so the #266 banner's own "Call Paul Leara" / "Apply Now" pair
+    // would otherwise render the same two actions a screen further down.
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [{ ...DEAL, preApproved: false, flags: ["mountain_mortgage"] }],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+
+    expect(screen.getAllByRole("link", { name: /call paul/i })).toHaveLength(1);
+    expect(screen.queryAllByRole("link", { name: /apply now/i })).toHaveLength(0);
+    // The banner itself (and its buyer-agency-agreement half) is untouched.
+    expect(screen.getByText(/get pre-approved to make an offer/i)).toBeTruthy();
+  });
+
+  it("leaves the pre-approval banner's lender buttons alone when there is no task", () => {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [{ ...DEAL, preApproved: false, flags: ["mountain_mortgage"] }],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockTasks = [];
+    renderView(<BuyerView />);
+
+    expect(screen.queryByTestId("preapproval-card")).toBeNull();
+    // Pre-#434 deals never got a task seeded — they keep the old CTAs.
+    expect(screen.getAllByRole("link", { name: /apply now/i })).toHaveLength(1);
+  });
+
+  it("renders no card, and no error, for a buyer with no pre-approval task", () => {
+    // A cash buyer never gets one seeded (#409/#434).
+    mockTasks = [otherTask()];
+    renderView(<BuyerView />);
+
+    expect(screen.queryByTestId("preapproval-card")).toBeNull();
+    expect(screen.queryByRole("link", { name: /start my application/i })).toBeNull();
+    // The portal itself still renders.
+    expect(screen.getByTestId("portal-root")).toBeTruthy();
+    expect(screen.getByText("Tour three homes")).toBeTruthy();
   });
 });

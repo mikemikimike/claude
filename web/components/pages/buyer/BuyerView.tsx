@@ -38,6 +38,14 @@ import {
   type FastPassPaymentOptionId,
 } from "@/lib/fast-pass-payment";
 import { api } from "@/lib/api-client";
+// #435 — the lender hand-off's URL and phone number live in ONE module so a
+// lender swap is a one-line change, not a grep across the portal.
+import {
+  MOUNTAIN_MORTGAGE_APPLICATION_URL,
+  MOUNTAIN_MORTGAGE_LOAN_OFFICER,
+  MOUNTAIN_MORTGAGE_PHONE_DISPLAY,
+  MOUNTAIN_MORTGAGE_PHONE_HREF,
+} from "@/lib/lender";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -50,6 +58,17 @@ const BUYER_STAGE_LABELS: Record<DealStage, string> = {
   closing:        'Closing Day',
   post_close:     'Closed!',
 };
+
+/**
+ * The pre-approval task's identity (#460), client-side.
+ *
+ * The server writes it as `source = 'preapproval'` (PRE_APPROVAL_TASK_SOURCE in
+ * lib/stage-task-seed.ts — not imported here because that module pulls in
+ * Prisma). Typed as `Task['source']`, so a typo is a compile error rather than
+ * a card that silently never renders. Never match on the task's TITLE: #460
+ * removed the copy from every structural position precisely so it could change.
+ */
+const PRE_APPROVAL_SOURCE: Task['source'] = 'preapproval';
 
 const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
   completed:   <CheckCircle2 size={18} className="text-green-500 flex-shrink-0" />,
@@ -250,6 +269,77 @@ function TaskCard({ task, done = false, onComplete, onUncomplete, onUploaded }: 
 
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Pre-approval task card (#435, FF12) ─────────────────────────────────────
+//
+// The buyer-facing half of the lender hand-off. #434/#460 create the task
+// server-side when a Mountain Mortgage / Fast Pass buyer finishes onboarding;
+// this is where they can actually act on it, at the top of the portal rather
+// than as row four of the task list.
+//
+// Why this is not just `TaskCard` with `actionType: 'link'`: that branch exists
+// (≈ 226) but nothing populates `actionType` — the wire contract in
+// lib/schemas/task.ts has no `action_type`, and `apiTaskToFrontend` never sets
+// one — so it is unreachable for a server task today. It also gives only the
+// apply half, behind a tap-to-expand, with no way to call. The whole point of
+// this ticket is that the ask is the first thing on the page with both actions
+// already showing, so it is its own surface. Everything shared with the task
+// list (title, description, completing it) still comes from the same task row.
+//
+// No "mark as applied" here on purpose — that is FF14 (#437), which needs a
+// two-state model so a buyer can't unlock offer-making on their own say-so.
+// Until it ships the task closes the way any other one does: in the task list
+// below, or by the agent.
+function PreApprovalTaskCard({ task }: { task: Task }) {
+  return (
+    <div
+      data-testid="preapproval-card"
+      className="overflow-hidden rounded-2xl border-2 border-amber-200 bg-white"
+    >
+      <div className="border-b border-amber-100 bg-amber-50 px-5 py-4">
+        <div className="flex items-center gap-2">
+          <AlertCircle size={15} className="text-amber-600" />
+          {/* #460 left this task without the 'ai' source's "Auto" badge. It is
+              not an AI suggestion, it is the one thing they have to do — so it
+              gets this label instead of nothing. */}
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-600">
+            Your next step
+          </span>
+        </div>
+        <p className="mt-1.5 text-sm font-black text-brand-navy">{task.title}</p>
+        {/* `||`, not `??`: an empty-string description survives the wire mapping
+            as "" and would otherwise render an empty paragraph. */}
+        <p className="mt-1 text-sm leading-relaxed text-amber-900/80">
+          {task.description ||
+            'Your pre-approval tells you exactly what you can spend — and lets you make an offer the moment you find the right home.'}
+        </p>
+      </div>
+
+      <div className="space-y-2 px-5 py-4">
+        <a
+          href={MOUNTAIN_MORTGAGE_APPLICATION_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-navy py-3.5 text-sm font-bold text-white transition-colors hover:bg-brand-navy/90 active:scale-[0.99]"
+        >
+          <ExternalLink size={14} /> Start my application
+        </a>
+        <a
+          href={MOUNTAIN_MORTGAGE_PHONE_HREF}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-brand-navy py-3.5 text-sm font-bold text-brand-navy transition-colors hover:bg-brand-navy/5 active:scale-[0.99]"
+        >
+          <Phone size={14} /> Call {MOUNTAIN_MORTGAGE_LOAN_OFFICER} · {MOUNTAIN_MORTGAGE_PHONE_DISPLAY}
+        </a>
+        {/* The 1003 prefills nothing (#431) — say so rather than let them find
+            out after they've clicked. */}
+        <p className="pt-0.5 text-center text-[11px] leading-relaxed text-gray-400">
+          Takes about 10 minutes. You&apos;ll re-enter a few basics — the application is
+          your lender&apos;s, not ours.
+        </p>
+      </div>
     </div>
   );
 }
@@ -879,7 +969,12 @@ function MLSBrowser({ deal, onAddProperty }: {
 
 // ─── Active Search Card ───────────────────────────────────────────────────────
 
-function ActiveSearchCard({ deal }: { deal: Deal }) {
+// `lenderCtaHandledAbove` (#435): the pre-approval card at the top of the
+// portal already offers Apply + Call. When it is on screen this banner drops
+// its own copy of those two buttons rather than showing the buyer the same
+// pair twice. Everything else here — the gate copy, the BAA prompts, the
+// outside-lender letter upload — is untouched.
+function ActiveSearchCard({ deal, lenderCtaHandledAbove = false }: { deal: Deal; lenderCtaHandledAbove?: boolean }) {
   const queryClient = useQueryClient();
   const { properties, addProperty, updateStatus, removeProperty, updateBuyerNote, setOfferRequested } = useProperties(deal.id);
   const preApproved = deal.preApproved ?? false;
@@ -1155,18 +1250,20 @@ function ActiveSearchCard({ deal }: { deal: Deal }) {
 
           {/* Lender / pre-approval-letter CTAs — only for a buyer the gate
               actually applies to. A cash buyer has no letter to send (#409). */}
-          {!canOffer && (isMountainMortgage ? (
+          {!canOffer && (isMountainMortgage ? (lenderCtaHandledAbove ? null : (
             <div className="flex gap-2">
-              <a href="tel:+12054019076"
+              <a href={MOUNTAIN_MORTGAGE_PHONE_HREF}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand-navy py-2.5 text-xs font-bold text-white hover:bg-brand-navy/90 transition-colors">
-                <Phone size={12} /> Call Paul Leara
+                <Phone size={12} /> Call {MOUNTAIN_MORTGAGE_LOAN_OFFICER}
               </a>
-              <a href="https://apply.mountainmortgage.com" target="_blank" rel="noopener noreferrer"
+              {/* Was pointed at apply.mountainmortgage.com, which is not the
+                  application. The real 1003 lives in lib/lender.ts (#431). */}
+              <a href={MOUNTAIN_MORTGAGE_APPLICATION_URL} target="_blank" rel="noopener noreferrer"
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-brand-navy py-2.5 text-xs font-bold text-brand-navy hover:bg-brand-navy/5 transition-colors">
                 <ExternalLink size={12} /> Apply Now →
               </a>
             </div>
-          ) : letterUploaded ? (
+          )) : letterUploaded ? (
             <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
               <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
               <p className="text-xs font-semibold text-green-800">Pre-approval letter uploaded — your agent will review it</p>
@@ -1989,10 +2086,10 @@ function FastPassPitch({ dealId }: { dealId: string }) {
 
 // ─── Stage card dispatcher ────────────────────────────────────────────────────
 
-function StageCard({ deal, firstName }: { deal: Deal; firstName: string; onRefresh?: () => void }) {
+function StageCard({ deal, firstName, lenderCtaHandledAbove = false }: { deal: Deal; firstName: string; lenderCtaHandledAbove?: boolean; onRefresh?: () => void }) {
   switch (deal.stage) {
     case 'intake':         return <IntakeCard deal={deal} firstName={firstName} />;
-    case 'active_search':  return <ActiveSearchCard deal={deal} />;
+    case 'active_search':  return <ActiveSearchCard deal={deal} lenderCtaHandledAbove={lenderCtaHandledAbove} />;
     case 'offer_active':   return <OfferActiveCard deal={deal} />;
     case 'under_contract': return <UnderContractCard deal={deal} />;
     case 'pre_close':      return <PreCloseCard deal={deal} />;
@@ -2027,6 +2124,11 @@ export default function BuyerView() {
   // one-way door (the row disappeared and nothing could bring it back).
   const doneTasks = buyerTasks.filter(isTaskDone);
   const completedCount = doneTasks.length;
+  // #435 — the open pre-approval ask, if there is one. Keyed on the task's
+  // source, so a cash buyer (never seeded one) and a buyer who has closed it
+  // both get nothing. `openTasks` already accounts for the optimistic tick, so
+  // completing it in the list below makes this card go away in the same tick.
+  const preApprovalTask = openTasks.find((t) => t.source === PRE_APPROVAL_SOURCE);
 
   if (dealsLoading) {
     return (
@@ -2149,13 +2251,19 @@ export default function BuyerView() {
         </div>
       )}
 
+      {/* Pre-approval ask (#435) — above the journey tracker, because until it
+          is done it IS the next step. It sits here rather than in the task list
+          so a buyer who lands on the portal straight out of onboarding sees one
+          unambiguous thing to do. */}
+      {preApprovalTask && <PreApprovalTaskCard task={preApprovalTask} />}
+
       {/* Journey tracker */}
       <div className={buyerTasks.some((t) => t.status === 'overdue') ? 'pt-6' : ''}>
         <JourneyTracker deal={deal} />
       </div>
 
       {/* Stage-specific card */}
-      <StageCard deal={deal} firstName={firstName} onRefresh={refreshDeals} />
+      <StageCard deal={deal} firstName={firstName} lenderCtaHandledAbove={!!preApprovalTask} onRefresh={refreshDeals} />
 
       {/* Fast Pass — awaiting payment (#440) takes priority over both the
           tracker and the pitch, and is deliberately NOT gated on stage: the
