@@ -180,6 +180,7 @@ model deals {
   deal_stage_history                        deal_stage_history[]
   users                                     users                 @relation(fields: [agent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   documents                                 documents[]
+  message_reads                             message_reads[]
   messages                                  messages[]
   net_sheets                                net_sheets?
   notifications                             notifications[]
@@ -225,6 +226,7 @@ model messages {
   users      users    @relation(fields: [sender_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([deal_id], map: "idx_messages_deal_id")
+  @@index([deal_id, channel, created_at], map: "idx_messages_deal_channel_created")
 }
 
 model net_sheets {
@@ -429,6 +431,7 @@ model users {
   docusign_recipients                                         docusign_recipients[]
   form_promotions                                             form_promotions[]
   known_forms                                                 known_forms[]
+  message_reads                                               message_reads[]
   messages                                                    messages[]
   notifications                                               notifications[]
   oauth_tokens                                                oauth_tokens[]
@@ -694,6 +697,17 @@ model tc_invites {
 
   @@index([agent_id], map: "tc_invites_agent_open_idx", where: raw("(claimed_at IS NULL)"))
   @@index([token])
+}
+
+model message_reads {
+  user_id      String   @db.Uuid
+  deal_id      String   @db.Uuid
+  channel      String   @default("client_thread") @db.VarChar(20)
+  last_read_at DateTime @default(now()) @db.Timestamptz(6)
+  deals        deals    @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, deal_id, channel])
 }
 
 enum checklist_assignee {

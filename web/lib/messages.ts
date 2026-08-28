@@ -105,3 +105,78 @@ export async function createMessage(input: {
   `;
   return rows[0];
 }
+
+// ─── Unread state (#424) ──────────────────────────────────────────────────────
+
+export type MessageChannel = "client_thread" | "internal";
+
+/**
+ * The one thread that feeds the Messages nav badge. The internal agent+TC
+ * thread has its own read watermark (so reading one never clears the other)
+ * but deliberately does not drive the badge — the badge answers "has a client
+ * written in?".
+ */
+export const BADGED_CHANNEL: MessageChannel = "client_thread";
+
+export type UnreadDealCount = { deal_id: string; unread: number };
+
+/**
+ * Unread client-thread messages, per deal, for one user.
+ *
+ * SCOPING IS SERVER-SIDE AND LIVES HERE: a deal only contributes if the caller
+ * owns it (`deals.agent_id`) or sits on it (`deal_participants`). There is no
+ * caller-supplied filter to get wrong — an agent physically cannot pull another
+ * agent's counts through this.
+ *
+ * Unread = "newer than my watermark for this thread, and not written by me".
+ * No watermark row (thread never opened) means everything in it is unread.
+ *
+ * Raw SQL, like the rest of this module: the LEFT JOIN onto the watermark plus
+ * the aggregate is not expressible in the Prisma query API. The predicate is
+ * served by idx_messages_deal_channel_created (000065) after
+ * idx_deals_agent_id / idx_participants_user_id narrow to the caller's deals.
+ */
+export async function unreadMessageCounts(
+  userId: string
+): Promise<UnreadDealCount[]> {
+  return prisma.$queryRaw<UnreadDealCount[]>`
+    SELECT m.deal_id, COUNT(*)::int AS unread
+    FROM messages m
+    JOIN deals d ON d.id = m.deal_id
+    LEFT JOIN message_reads r
+      ON r.user_id = ${userId}::uuid
+     AND r.deal_id = m.deal_id
+     AND r.channel = ${BADGED_CHANNEL}
+    WHERE m.channel = ${BADGED_CHANNEL}
+      AND m.sender_id <> ${userId}::uuid
+      AND (
+        d.agent_id = ${userId}::uuid
+        OR EXISTS (
+          SELECT 1 FROM deal_participants dp
+          WHERE dp.deal_id = d.id AND dp.user_id = ${userId}::uuid
+        )
+      )
+      AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)
+    GROUP BY m.deal_id
+  `;
+}
+
+/**
+ * Moves the caller's read watermark on one thread to now. Idempotent, and
+ * monotonic via GREATEST — a stale request that lands out of order can never
+ * drag the watermark backwards and resurrect already-read messages.
+ *
+ * Access is the CALLER's job (see the route): this writes unconditionally.
+ */
+export async function markThreadRead(
+  userId: string,
+  dealId: string,
+  channel: MessageChannel
+): Promise<void> {
+  await prisma.$executeRaw`
+    INSERT INTO message_reads (user_id, deal_id, channel, last_read_at)
+    VALUES (${userId}::uuid, ${dealId}::uuid, ${channel}, now())
+    ON CONFLICT (user_id, deal_id, channel) DO UPDATE
+      SET last_read_at = GREATEST(message_reads.last_read_at, EXCLUDED.last_read_at)
+  `;
+}

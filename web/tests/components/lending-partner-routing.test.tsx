@@ -38,6 +38,13 @@ vi.mock("@/hooks/useNotifications", () => ({
   }),
 }));
 
+// AgentLayout's Messages nav badge (#424) reads this; like useNotifications it
+// is react-query backed, and this test renders without a QueryClientProvider.
+vi.mock("@/hooks/useMessages", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/useMessages")>();
+  return { ...actual, useUnreadMessageCount: () => 0 };
+});
+
 // The only network seam any AppLayout child touches in this test. Case 2 asserts
 // the lending_partner placeholder never reaches for it (no agent-scoped calls).
 vi.mock("@/lib/api-client", () => ({

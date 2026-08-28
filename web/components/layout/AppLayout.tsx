@@ -37,6 +37,7 @@ import InviteModal from '../InviteModal';
 import VerifyEmailBanner from '../VerifyEmailBanner';
 import UserMenu from './UserMenu';
 import { useNotifications } from "@/hooks/useNotifications";
+import { useUnreadMessageCount } from "@/hooks/useMessages";
 
 function NotificationBell() {
   const [open, setOpen] = useState(false);
@@ -115,12 +116,26 @@ function NotificationBell() {
 
 // ─── Agent Sidebar Nav ────────────────────────────────────────────────────────
 
-const AGENT_NAV = [
+// A nav item opts into a count badge by naming a badge key; the shell that
+// renders the nav supplies the numbers (see `NavBadges` / `SidebarNavList`).
+// Deliberately generic — TC_NAV and ADMIN_NAV can adopt it without touching
+// the renderer.
+export type NavBadgeKey = 'unreadMessages';
+
+export type NavBadges = Partial<Record<NavBadgeKey, number>>;
+
+// What the badge means, for screen readers. Keyed by badge key so the renderer
+// stays free of any one feature's vocabulary.
+const NAV_BADGE_NOUN: Record<NavBadgeKey, string> = {
+  unreadMessages: 'unread messages',
+};
+
+const AGENT_NAV: SidebarNavItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/agent' },
   { label: 'Pipeline', icon: GitBranch, href: '/agent/pipeline' },
   { label: 'Deals', icon: FolderOpen, href: '/agent/deals' },
   { label: 'Calendar', icon: Calendar, href: '/agent/calendar' },
-  { label: 'Messages', icon: MessageSquare, href: '/agent/messages' },
+  { label: 'Messages', icon: MessageSquare, href: '/agent/messages', badgeKey: 'unreadMessages' },
   { label: 'Documents', icon: FileText, href: '/agent/documents' },
   { label: 'Settings', icon: Settings, href: '/agent/settings' },
 ];
@@ -157,7 +172,12 @@ export const TC_NAV = [
 
 // ─── Sub-layouts ──────────────────────────────────────────────────────────────
 
-type SidebarNavItem = { label: string; icon: LucideIcon; href: string };
+type SidebarNavItem = {
+  label: string;
+  icon: LucideIcon;
+  href: string;
+  badgeKey?: NavBadgeKey;
+};
 
 function SidebarBrand({
   title,
@@ -192,9 +212,11 @@ function SidebarBrand({
 function SidebarNavList({
   items,
   onNavigate,
+  badges,
 }: {
   items: SidebarNavItem[];
   onNavigate?: () => void;
+  badges?: NavBadges;
 }) {
   const location = usePathname();
 
@@ -207,6 +229,9 @@ function SidebarNavList({
             item.href === '/agent' || item.href === '/admin'
               ? location === item.href
               : location.startsWith(item.href);
+          // Generic badge slot (#424): only items that declare a badgeKey can
+          // carry one, and only when the shell supplied a positive count.
+          const badgeCount = item.badgeKey ? badges?.[item.badgeKey] ?? 0 : 0;
           return (
             <li key={item.href}>
               <Link
@@ -219,8 +244,21 @@ function SidebarNavList({
                     : 'text-white/70 hover:bg-white/10 hover:text-white',
                 ].join(' ')}
               >
-                <Icon size={16} />
-                {item.label}
+                <Icon size={16} className="flex-shrink-0" />
+                <span className="flex-1 truncate">{item.label}</span>
+                {item.badgeKey && badgeCount > 0 && (
+                  <span
+                    data-testid="nav-badge"
+                    aria-label={`${badgeCount} ${NAV_BADGE_NOUN[item.badgeKey]}`}
+                    className={[
+                      'flex h-5 min-w-[1.25rem] flex-shrink-0 items-center justify-center rounded-full px-1.5',
+                      'text-[10px] font-bold leading-none',
+                      isActive ? 'bg-brand-navy text-white' : 'bg-red-500 text-white',
+                    ].join(' ')}
+                  >
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
               </Link>
             </li>
           );
@@ -237,19 +275,21 @@ function Sidebar({
   labelColor,
   drawerOpen,
   onClose,
+  badges,
 }: {
   items: SidebarNavItem[];
   title: string;
   labelColor: string;
   drawerOpen: boolean;
   onClose: () => void;
+  badges?: NavBadges;
 }) {
   return (
     <>
       {/* Desktop — persistent sidebar */}
       <aside className="hidden md:flex h-full w-56 flex-shrink-0 flex-col bg-brand-navy text-white">
         <SidebarBrand title={title} labelColor={labelColor} />
-        <SidebarNavList items={items} />
+        <SidebarNavList items={items} badges={badges} />
       </aside>
 
       {/* Mobile — tap-to-dismiss backdrop */}
@@ -270,7 +310,7 @@ function Sidebar({
         aria-label="Navigation menu"
       >
         <SidebarBrand title={title} labelColor={labelColor} onClose={onClose} />
-        <SidebarNavList items={items} onNavigate={onClose} />
+        <SidebarNavList items={items} onNavigate={onClose} badges={badges} />
       </aside>
     </>
   );
@@ -335,6 +375,7 @@ function DashboardFrame({
   labelColor,
   topBar,
   banner,
+  badges,
   children,
 }: {
   items: SidebarNavItem[];
@@ -342,6 +383,8 @@ function DashboardFrame({
   labelColor: string;
   topBar: ReactNode;
   banner?: ReactNode;
+  /** Counts for nav items that declare a `badgeKey`. */
+  badges?: NavBadges;
   children: ReactNode;
 }) {
   // The drawer closes itself on every dismissal path — a nav-link tap
@@ -357,6 +400,7 @@ function DashboardFrame({
         labelColor={labelColor}
         drawerOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        badges={badges}
       />
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <div className="flex h-12 flex-shrink-0 items-center gap-3 bg-white border-b border-gray-100 px-4 sm:px-5 shadow-sm">
@@ -381,6 +425,9 @@ function DashboardFrame({
 function AgentLayout({ children }: { children: ReactNode }) {
   const activeUser = useAuthStore((s) => s.activeUser);
   const [showInvite, setShowInvite] = useState(false);
+  // #424 — a client writing in has to be visible without clicking through.
+  // Separate from the NotificationBell, which counts `notifications` rows.
+  const unreadMessages = useUnreadMessageCount();
 
   const topBar = (
     <div className="ml-auto flex items-center gap-2 sm:gap-3">
@@ -404,6 +451,7 @@ function AgentLayout({ children }: { children: ReactNode }) {
         labelColor="bg-blue-500/30 text-blue-300"
         topBar={topBar}
         banner={<SetupBanner />}
+        badges={{ unreadMessages }}
       >
         {children}
       </DashboardFrame>

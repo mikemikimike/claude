@@ -9,6 +9,7 @@ const USER_DATA_TABLES = [
   "calendar_event_map",
   "oauth_tokens",
   "notifications",
+  "message_reads",
   "messages",
   "documents",
   "checklist_items",

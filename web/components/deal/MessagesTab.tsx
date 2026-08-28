@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Deal } from "@/lib/types";
 import { useAuthStore } from "@/lib/store/authStore";
 import { usePermission } from "@/permissions/usePermission";
 import { PERMISSIONS } from "@/permissions/permissions";
-import { useMessages, postMessage, MessageChannel } from "@/hooks/useMessages";
+import {
+  useMessages,
+  postMessage,
+  useMarkThreadRead,
+  MessageChannel,
+} from "@/hooks/useMessages";
 import { Loader2, MessageSquare, Bot, ChevronRight, Users, AlertTriangle } from "lucide-react";
 import { formatTimestamp } from "@/components/deal/shared";
 
@@ -25,6 +30,17 @@ export function MessagesTab({ deal }: { deal: Deal }) {
   const activeUser = useAuthStore((s) => s.activeUser);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+
+  // #424 — viewing a thread IS reading it. Re-runs when the thread grows, so a
+  // message that lands while the tab is open doesn't leave a stale badge. Keyed
+  // on the count rather than the array so the 10s poll doesn't re-post on every
+  // identical refetch. No-ops until the first load resolves.
+  const markThreadRead = useMarkThreadRead();
+  const messageCount = messages.length;
+  useEffect(() => {
+    if (loading || messageCount === 0) return;
+    markThreadRead(deal.id, channel);
+  }, [deal.id, channel, messageCount, loading, markThreadRead]);
 
   async function handleSend() {
     const body = draft.trim();
