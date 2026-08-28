@@ -25,6 +25,47 @@ const PROMO_PRODUCT = "fast_pass";
  * is never exceeded (#281 double-spend guard). */
 class PromoExhaustedError extends Error {}
 
+/**
+ * Undo the `payment_option: "now"` optimism after Checkout could not be
+ * created (#453).
+ *
+ * The enrollment is persisted BEFORE Stripe is called, so a failed hand-off
+ * would otherwise leave `status: 'active'` / `payment_option: 'now'` / unpaid —
+ * a record that says the buyer is enrolled and settled when no money moved, and
+ * which `/fastpass/pay` then refuses (it requires `pending_payment`), stranding
+ * them with no way to pay. Demoting it to the #439 deferred shape puts it back
+ * in exactly the state FF16 produces, so the dashboard pay card (#440) picks it
+ * up and the buyer can retry. The stored `total_cents` is already the
+ * un-premiumed figure a `pending_payment` enrollment carries, so it stays.
+ *
+ * Guarded on the exact shape this request just wrote, so it can never touch a
+ * concurrently-updated or already-settled enrollment. Best-effort: the caller
+ * is returning a 502 either way, and a failure here must not convert that into
+ * an opaque 500 — but it IS logged, because it leaves a record needing a hand.
+ */
+async function leaveEnrollmentPayable(dealId: string): Promise<void> {
+  try {
+    await prisma.$executeRaw`
+      UPDATE deals
+      SET fast_pass = fast_pass || jsonb_build_object(
+            'status', 'pending_payment',
+            'payment_option', NULL::text
+          ),
+          updated_at = NOW()
+      WHERE id = ${dealId}::uuid
+        AND fast_pass IS NOT NULL
+        AND fast_pass->>'status' = 'active'
+        AND fast_pass->>'payment_option' = 'now'
+        AND COALESCE((fast_pass->>'paid')::boolean, false) = false
+    `;
+  } catch (err) {
+    console.error("fast pass: could not reset a failed pay-now enrollment", {
+      dealId,
+      err,
+    });
+  }
+}
+
 // POST /deals/:dealId/fastpass — owning agent or any deal participant (#169:
 // buyers enroll their own deal from the portal pitch; the price is computed
 // server-side, so opening the route to participants stays tamper-safe).
@@ -34,9 +75,12 @@ class PromoExhaustedError extends Error {}
 // longer asks for money, so it posts the add-on selection with no option at
 // all: the enrollment is persisted `status: "pending_payment"`, `paid: false`,
 // `payment_option: null`, and nothing is charged. The buyer picks how to pay
-// from their dashboard afterwards (#440 / FF17), which posts the same route
-// WITH an option — so the whitelisted `now | at_closing | seller_concession`
-// path below is unchanged, including the Stripe Checkout hand-off on "now".
+// from their dashboard afterwards via POST /fastpass/pay (#440 / FF17).
+//
+// The whitelisted `now | at_closing | seller_concession` path below is kept for
+// direct API callers, but "now" no longer swallows a Stripe failure (#453): it
+// 502s and leaves the enrollment `pending_payment` so /fastpass/pay can settle
+// it. Nothing in the UI posts an option to THIS route any more.
 //
 // Ports EnrollFastPass (backend/internal/handlers/enrollment.go), except the
 // total is priced server-side from lib/fast-pass-catalog.ts (#78) instead of
@@ -179,9 +223,11 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       throw err;
     }
 
-    // Only "now" charges upfront. The enrollment is already persisted, so any
-    // Stripe failure (including no key configured) falls back to a plain ok —
-    // mirrors the Go handler's deferred path.
+    // Only "now" charges upfront. Nothing in the app posts it here any more
+    // (#439 took payment out of the survey, #440 moved it to /fastpass/pay), so
+    // this is a direct-API path only — but it still has to be honest: a Stripe
+    // failure is a 502 and the enrollment is left retryable, never a success
+    // for a payment that did not happen (#412 / #453).
     if (paymentOption === "now") {
       const url = new URL(req.url);
       const origin = `${url.protocol}//${url.host}`;
@@ -195,20 +241,34 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       const cancelUrl = isOwner
         ? `${origin}/agent/deals/${dealId}`
         : `${origin}/fast-pass/survey?deal_id=${dealId}`;
+      // #453 (FF20): BOTH failure shapes are hard errors. This used to catch
+      // the throw, log it, and fall through to `{ ok: true }` — success
+      // reported for a payment that never happened (#412), which the caller
+      // rendered as a paid-and-done screen. `/fastpass/pay` (#440) is the
+      // reference behaviour and this now matches it.
+      let session: { id: string; url: string | null };
       try {
-        const session = await createFastPassCheckout({
+        session = await createFastPassCheckout({
           dealId,
           dealTitle: deal.title,
           amountCents: totalCents,
           successUrl,
           cancelUrl,
         });
-        if (session.url) {
-          return json({ ok: true, status: enrollment.status, checkout_url: session.url });
-        }
       } catch (err) {
-        console.error("stripe fast pass checkout error", err);
+        console.error("stripe fast pass checkout error", { dealId, err });
+        await leaveEnrollmentPayable(dealId);
+        return error("could not start checkout — please try again", 502);
       }
+      if (!session.url) {
+        console.error("stripe fast pass checkout returned no url", {
+          dealId,
+          sessionId: session.id,
+        });
+        await leaveEnrollmentPayable(dealId);
+        return error("could not start checkout — please try again", 502);
+      }
+      return json({ ok: true, status: enrollment.status, checkout_url: session.url });
     }
 
     // Echo the persisted status so a caller can tell a deferred enrollment
