@@ -2,7 +2,7 @@
 
 import { Deal, DealStage } from "@/lib/types";
 import { useProperties } from "@/hooks/useProperties";
-import { ChevronRight, ChevronLeft, AlertTriangle } from "lucide-react";
+import { ChevronRight, ChevronLeft, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { STAGE_LABELS, STAGE_ORDER, STAGE_GATE } from "@/components/deal/shared";
 
 export function StageTransitionBar({
@@ -89,19 +89,27 @@ export function StageTransitionBar({
           <ChevronLeft size={15} />
           {isOfferActive ? 'Offer Rejected' : prevStage ? STAGE_LABELS[prevStage] : 'Back'}
         </button>
-        <button
-          onClick={onAdvance}
-          disabled={!nextStage}
-          className={[
-            'flex flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors shadow-sm',
-            isOfferActive
-              ? 'bg-green-500 hover:bg-green-600'
-              : 'bg-brand-navy hover:bg-brand-navy/85',
-          ].join(' ')}
-        >
-          {isOfferActive ? 'Offer Accepted' : nextStage ? STAGE_LABELS[nextStage] : 'Complete'}
-          <ChevronRight size={15} />
-        </button>
+        {/* No next stage (post_close) — the deal is done, so show the stage as
+            final instead of a permanently disabled "Complete" button (#416). */}
+        {nextStage ? (
+          <button
+            onClick={onAdvance}
+            className={[
+              'flex flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors shadow-sm',
+              isOfferActive
+                ? 'bg-green-500 hover:bg-green-600'
+                : 'bg-brand-navy hover:bg-brand-navy/85',
+            ].join(' ')}
+          >
+            {isOfferActive ? 'Offer Accepted' : STAGE_LABELS[nextStage]}
+            <ChevronRight size={15} />
+          </button>
+        ) : (
+          <div className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-green-200 bg-green-50 px-4 py-2.5 text-sm font-bold text-green-700">
+            <CheckCircle2 size={15} />
+            Final stage
+          </div>
+        )}
       </div>
     </div>
   );
