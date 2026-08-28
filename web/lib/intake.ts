@@ -59,6 +59,63 @@ export function sellerAddressFromAnswers(
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+/** How the buyer is paying, as answered in onboarding (#409). */
+export type FinancingType = "cash" | "loan";
+
+/**
+ * The buyer questionnaire's cash-or-loan answer key. It is screen 0 of
+ * `components/pages/onboarding/BuyerOnboarding.tsx` ("💰 Cash purchase" /
+ * "🏦 Getting a loan") and it also drives that wizard's `CASH_SKIP` set.
+ *
+ * This constant is the ONE place the key name lives on the read side — the
+ * offer gate must not go spelunking through `deals.intake` at each call site.
+ */
+const FINANCING_ANSWER_KEY = "cashOrLoan";
+
+/**
+ * The buyer's financing choice from a validated answers object, or null when
+ * they didn't answer it (or it isn't a buy-side questionnaire).
+ */
+export function financingTypeFromAnswers(
+  role: IntakeRole,
+  answers: Record<string, unknown>
+): FinancingType | null {
+  if (role !== "buyer") return null;
+  const v = answers[FINANCING_ANSWER_KEY];
+  return v === "cash" || v === "loan" ? v : null;
+}
+
+/**
+ * The same derivation, straight off a `deals.intake` JSONB value as read back
+ * out of Postgres (#409).
+ *
+ * `deals.intake` is free-form, client-written JSON, so every level is guarded
+ * and anything unrecognized derives to `null`. That default direction is
+ * load-bearing: `null` keeps the existing pre-approval gate, while a wrong
+ * "cash" would unlock the offer CTA for a financed buyer who has no letter.
+ */
+export function financingTypeFromIntake(intake: unknown): FinancingType | null {
+  if (typeof intake !== "object" || intake === null || Array.isArray(intake)) return null;
+  const { role, answers } = intake as { role?: unknown; answers?: unknown };
+  if (!isIntakeRole(role)) return null;
+  if (typeof answers !== "object" || answers === null || Array.isArray(answers)) return null;
+  return financingTypeFromAnswers(role, answers as Record<string, unknown>);
+}
+
+/**
+ * Row mapper for the deal API payloads: swaps the raw `intake` JSON a query
+ * SELECTed for the derivation with the derived `financing_type` alone.
+ *
+ * Dropping `intake` is deliberate — the questionnaire answers are served by
+ * GET /api/deals/[id]/intake and must not ride along in every deal list.
+ */
+export function withFinancingType<T extends { intake?: unknown }>(
+  row: T
+): Omit<T, "intake"> & { financing_type: FinancingType | null } {
+  const { intake, ...rest } = row;
+  return { ...rest, financing_type: financingTypeFromIntake(intake) };
+}
+
 /**
  * The stage a deal moves into once its client finishes onboarding (#407).
  * `intake` is the questionnaire stage; the next stop is the same for buy and

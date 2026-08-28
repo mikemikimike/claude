@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Deal, DealStatus } from "@/lib/types";
-import { MapPin, Calendar, Clock, CheckCircle2, Circle, Zap, Pencil, Archive } from "lucide-react";
+import { MapPin, Calendar, Clock, CheckCircle2, Circle, Zap, Pencil, Archive, Banknote } from "lucide-react";
 import { STAGE_LABELS, HEALTH_BORDER, HEALTH_BADGE, ClosingDaysBadge } from "@/components/deal/shared";
 
 /** The editable core-identity patch (#254). */
@@ -56,6 +56,14 @@ export function DealHeader({
             {deal.status === 'fallen_through' && (
               <span className="rounded-full bg-red-50 border border-red-200 px-2.5 py-0.5 text-[11px] font-bold text-red-600 uppercase tracking-wide">
                 Fell Through
+              </span>
+            )}
+            {/* #409 — the buyer's own onboarding answer. Without this the
+                agent has no way to know why the pre-approval pill next to it
+                doesn't gate this buyer's offers. */}
+            {deal.type === 'buy' && deal.financingType === 'cash' && (
+              <span className="flex items-center gap-1.5 rounded-full border border-green-200 bg-green-100 px-3 py-1 text-xs font-bold text-green-700">
+                <Banknote size={12} /> Cash Buyer
               </span>
             )}
             {deal.type === 'buy' && (

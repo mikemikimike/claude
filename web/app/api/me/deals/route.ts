@@ -4,6 +4,7 @@ import { error, json, withAuth } from "@/lib/http";
 import { resolveUserId } from "@/lib/users";
 import { healthExpr, stageEnteredAtExpr } from "@/lib/deals";
 import { getStageThresholds } from "@/lib/system-config";
+import { withFinancingType } from "@/lib/intake";
 
 // GET /api/me/deals — deals where the caller is a participant.
 export async function GET(req: Request): Promise<Response> {
@@ -42,6 +43,8 @@ export async function GET(req: Request): Promise<Response> {
         disclosures_complete: boolean;
         buyer_status: string | null;
         intake_submitted: boolean;
+        /** Raw questionnaire JSON — derived from, then stripped, below (#409). */
+        intake: unknown;
         created_at: Date;
         updated_at: Date;
         stage_entered_at: Date;
@@ -63,6 +66,11 @@ export async function GET(req: Request): Promise<Response> {
              -- read through GET /api/deals/[id]/intake, and this endpoint
              -- deliberately carries no agent-facing columns.
              (deals.intake IS NOT NULL) AS intake_submitted,
+             -- #409: the buyer's cash/loan answer lives in this JSON. It is
+             -- read through lib/intake's typed helper and stripped from the
+             -- response by withFinancingType — the answers themselves are
+             -- still only served by GET /api/deals/[id]/intake.
+             deals.intake,
              deals.created_at, deals.updated_at,
              ${stageEnteredAtExpr} AS stage_entered_at,
              u.name AS agent_name, u.email AS agent_email, u.phone AS agent_phone
@@ -71,6 +79,6 @@ export async function GET(req: Request): Promise<Response> {
       JOIN users u ON u.id = deals.agent_id
       ORDER BY deals.updated_at DESC
     `;
-    return json(rows);
+    return json(rows.map(withFinancingType));
   })) as Response;
 }

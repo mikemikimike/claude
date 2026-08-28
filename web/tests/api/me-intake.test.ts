@@ -369,3 +369,101 @@ describe("GET /api/me/deals — exposes the intake-submitted signal (#407)", () 
     expect(afterRows.find((r) => r.id === deal.id)?.intake_submitted).toBe(true);
   });
 });
+
+/**
+ * Issue #409 — a cash buyer was hard-blocked by the pre-approval offer gate.
+ * The questionnaire captured `cashOrLoan`, but nothing carried it onto the
+ * deal, so the portal had nothing to gate on except agent-set `pre_approved`.
+ */
+describe("GET /api/me/deals — exposes the buyer's financing type (#409)", () => {
+  async function myDeals(auth0Id: string) {
+    const { GET: getMyDeals } = await import("@/app/api/me/deals/route");
+    const res = await getMyDeals(
+      new Request("http://localhost/api/me/deals", {
+        headers: { authorization: await authHeader(auth0Id, ["buyer"]) },
+      })
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      id: string;
+      financing_type: string | null;
+      intake?: unknown;
+    }[];
+  }
+
+  // Case 1 — fails against the pre-#409 code: nothing mapped the answer onto
+  // the deal, so the portal could not tell a cash buyer from a financed one.
+  it("10. a 'cash' onboarding answer surfaces as financing_type='cash'", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "cash",
+    });
+
+    const before = await myDeals("auth0|client-cash");
+    expect(before.find((r) => r.id === deal.id)?.financing_type).toBeNull();
+
+    const res = await postIntake(
+      intakeReq(
+        {
+          deal_id: deal.id,
+          role: "buyer",
+          answers: { ...BUYER_ANSWERS, cashOrLoan: "cash" },
+        },
+        await authHeader("auth0|client-cash", ["buyer"])
+      )
+    );
+    expect(res.status).toBe(200);
+
+    const after = await myDeals("auth0|client-cash");
+    expect(after.find((r) => r.id === deal.id)?.financing_type).toBe("cash");
+  });
+
+  it("11. a 'loan' onboarding answer surfaces as financing_type='loan'", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "loan",
+    });
+
+    await postIntake(
+      intakeReq(
+        {
+          deal_id: deal.id,
+          role: "buyer",
+          answers: { ...BUYER_ANSWERS, cashOrLoan: "loan" },
+        },
+        await authHeader("auth0|client-loan", ["buyer"])
+      )
+    );
+
+    const rows = await myDeals("auth0|client-loan");
+    expect(rows.find((r) => r.id === deal.id)?.financing_type).toBe("loan");
+  });
+
+  it("12. keeps the raw questionnaire answers out of the portal payload", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "noleak",
+    });
+
+    await postIntake(
+      intakeReq(
+        {
+          deal_id: deal.id,
+          role: "buyer",
+          answers: { ...BUYER_ANSWERS, cashOrLoan: "cash" },
+        },
+        await authHeader("auth0|client-noleak", ["buyer"])
+      )
+    );
+
+    const rows = await myDeals("auth0|client-noleak");
+    const row = rows.find((r) => r.id === deal.id);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty("intake");
+    // The answers are read through GET /api/deals/[id]/intake, never here.
+    expect(JSON.stringify(row)).not.toContain("lenderChoice");
+  });
+});

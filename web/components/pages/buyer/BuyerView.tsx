@@ -865,6 +865,12 @@ function ActiveSearchCard({ deal }: { deal: Deal }) {
   const queryClient = useQueryClient();
   const { properties, addProperty, updateStatus, removeProperty, updateBuyerNote, setOfferRequested } = useProperties(deal.id);
   const preApproved = deal.preApproved ?? false;
+  // #409 — a cash buyer has no lender and can never satisfy a pre-approval, so
+  // the gate must not apply to them. Derived server-side from their onboarding
+  // answer; anything other than an explicit 'cash' leaves the gate exactly as
+  // it was (an unknown financing type is NOT an unlock).
+  const isCashBuyer = deal.financingType === 'cash';
+  const canOffer = preApproved || isCashBuyer;
   const baaSigned = deal.baaSigned ?? false;
   // The BAA is a real DocuSign envelope now (Stage 1: signed via the secure
   // email link; deals.baa_signed flips when the envelope completes). The
@@ -1051,20 +1057,44 @@ function ActiveSearchCard({ deal }: { deal: Deal }) {
         )}
       </div>
 
-      {/* Pre-approval banner — visible above the list, not blocking it */}
-      {!preApproved && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100">
-              <AlertCircle size={16} className="text-amber-600" />
-            </div>
-            <div>
-              <p className="text-sm font-black text-amber-900">Get pre-approved to make an offer</p>
-              <p className="mt-0.5 text-xs text-amber-700 leading-relaxed">
-                Browse homes your agent has shared below. You&apos;ll need a pre-approval letter before we can submit an offer.
-              </p>
-            </div>
+      {/* Cash buyers get a proof-of-funds nudge instead of the lender track (#409) */}
+      {isCashBuyer && !preApproved && (
+        <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
+          <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-green-500" />
+          <div>
+            <p className="text-sm font-black text-green-900">You&apos;re buying with cash</p>
+            <p className="mt-0.5 text-xs text-green-800 leading-relaxed">
+              No pre-approval needed — you can request an offer on any home below. Your
+              agent may ask for proof of funds when it&apos;s time to submit.
+            </p>
           </div>
+        </div>
+      )}
+
+      {/* Pre-approval banner — visible above the list, not blocking it.
+          The buyer agency agreement prompts live in the same card, so it also
+          renders for a buyer who is past the pre-approval gate but hasn't
+          signed the BAA — including a cash buyer, who never sees the gate at
+          all (#409). */}
+      {(!canOffer || !baaSigned) && (
+        <div
+          className={`rounded-2xl border p-4 space-y-3 ${
+            canOffer ? 'border-gray-200 bg-white' : 'border-amber-200 bg-amber-50'
+          }`}
+        >
+          {!canOffer && (
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100">
+                <AlertCircle size={16} className="text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm font-black text-amber-900">Get pre-approved to make an offer</p>
+                <p className="mt-0.5 text-xs text-amber-700 leading-relaxed">
+                  Browse homes your agent has shared below. You&apos;ll need a pre-approval letter before we can submit an offer.
+                </p>
+              </div>
+            </div>
+          )}
 
           {!baaSigned && baaPending && baaSignable && (
             <button
@@ -1105,7 +1135,9 @@ function ActiveSearchCard({ deal }: { deal: Deal }) {
             </div>
           )}
 
-          {isMountainMortgage ? (
+          {/* Lender / pre-approval-letter CTAs — only for a buyer the gate
+              actually applies to. A cash buyer has no letter to send (#409). */}
+          {!canOffer && (isMountainMortgage ? (
             <div className="flex gap-2">
               <a href="tel:+12054019076"
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand-navy py-2.5 text-xs font-bold text-white hover:bg-brand-navy/90 transition-colors">
@@ -1155,7 +1187,7 @@ function ActiveSearchCard({ deal }: { deal: Deal }) {
                 disabled={uploadingLetter}
               />
             </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -1178,7 +1210,7 @@ function ActiveSearchCard({ deal }: { deal: Deal }) {
         )}
         {properties.map((prop) => (
           <PropertyCard key={prop.id} property={prop}
-            canOffer={preApproved}
+            canOffer={canOffer}
             onStatusChange={(status) => runAction(updateStatus(prop.id, status))}
             onRemove={() => runAction(removeProperty(prop.id))}
             onBuyerNote={(note) => runAction(updateBuyerNote(prop.id, note))}

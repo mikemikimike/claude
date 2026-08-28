@@ -122,6 +122,7 @@ vi.mock("@/lib/api-client", () => ({
 
 import { useMyDeals } from "@/hooks/useMyDeals";
 import { useProperties } from "@/hooks/useProperties";
+import type { TrackedProperty } from "@/hooks/useProperties";
 import { requestUploadUrl, confirmUpload } from "@/hooks/useDocuments";
 import { uploadFileToStorage } from "@/lib/direct-upload";
 import { postMessage } from "@/hooks/useMessages";
@@ -289,5 +290,98 @@ describe("ActiveSearchCard — I have one, send later (#266)", () => {
     expect(
       screen.getByText(/get pre-approved to make an offer/i)
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #409 — the offer gate ran purely off agent-set `pre_approved`, so a
+ * buyer who answered "💰 Cash purchase" in onboarding was told "Pre-approval
+ * required to make an offer" on every property, forever, with no way out.
+ *
+ * The financing answer now rides onto the deal (derived from `deals.intake` —
+ * see lib/intake.ts) and the gate becomes `preApproved || cash`.
+ */
+describe("ActiveSearchCard — cash buyers skip the pre-approval gate (#409)", () => {
+  const PROPERTY: TrackedProperty = {
+    id: "prop-1",
+    dealId: "deal-1",
+    address: "456 Elm St",
+    city: "Hoover",
+    state: "AL",
+    price: 350000,
+    beds: 3,
+    baths: 2,
+    sqft: 1900,
+    thumbnailUrl: "",
+    sourceUrl: "",
+    status: "interested",
+    addedBy: "agent",
+  };
+
+  function renderWithDeal(deal: MyDeal) {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [deal],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    vi.mocked(useProperties).mockReturnValue(
+      makePropertiesReturn({ properties: [PROPERTY] })
+    );
+    return renderView(<BuyerView />);
+  }
+
+  // Case 2 — fails against the pre-#409 code.
+  it("a cash buyer with pre_approved=false can still make an offer", () => {
+    renderWithDeal({ ...DEAL, preApproved: false, financingType: "cash" });
+
+    expect(screen.getByRole("button", { name: /make an offer/i })).toBeInTheDocument();
+    expect(
+      screen.queryByText(/pre-approval required to make an offer/i)
+    ).not.toBeInTheDocument();
+  });
+
+  // Case 2b — the amber banner is the other half of the dead end.
+  it("shows a cash buyer no pre-approval banner anywhere", () => {
+    renderWithDeal({ ...DEAL, preApproved: false, financingType: "cash" });
+
+    expect(
+      screen.queryByText(/get pre-approved to make an offer/i)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /upload pre-approval letter/i })
+    ).not.toBeInTheDocument();
+  });
+
+  // Case 3 — no regression: this is the case the gate exists for.
+  it("still gates a financed buyer with pre_approved=false", () => {
+    renderWithDeal({ ...DEAL, preApproved: false, financingType: "loan" });
+
+    expect(
+      screen.getByText(/pre-approval required to make an offer/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/get pre-approved to make an offer/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /make an offer/i })).not.toBeInTheDocument();
+  });
+
+  // A deal with no intake yet must fall back to the old behaviour, not unlock.
+  it("still gates a buyer whose financing type is unknown", () => {
+    renderWithDeal({ ...DEAL, preApproved: false, financingType: undefined });
+
+    expect(
+      screen.getByText(/pre-approval required to make an offer/i)
+    ).toBeInTheDocument();
+  });
+
+  // Case 4 — no regression.
+  it("lets a pre-approved financed buyer make an offer", () => {
+    renderWithDeal({ ...DEAL, preApproved: true, financingType: "loan" });
+
+    expect(screen.getByRole("button", { name: /make an offer/i })).toBeInTheDocument();
+    expect(
+      screen.queryByText(/pre-approval required to make an offer/i)
+    ).not.toBeInTheDocument();
   });
 });

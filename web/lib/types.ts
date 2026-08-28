@@ -214,6 +214,16 @@ export type Deal = {
    * on the deals still parked in `intake` from before the fix.
    */
   intakeSubmitted?: boolean;
+  /**
+   * How the buyer said they're paying in onboarding (#409). Derived
+   * server-side from `deals.intake`; undefined when they haven't onboarded,
+   * on sell deals, and on payloads that don't carry it.
+   *
+   * `'cash'` is what lets the buyer portal drop the pre-approval offer gate —
+   * a cash buyer has no lender and can never satisfy it. Undefined must keep
+   * the gate, never bypass it.
+   */
+  financingType?: 'cash' | 'loan';
 };
 
 export type Task = {

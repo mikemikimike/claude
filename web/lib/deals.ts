@@ -1,6 +1,7 @@
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "./db";
 import { hasRole } from "./roles";
+import { withFinancingType } from "./intake";
 import {
   DEFAULT_STAGE_THRESHOLDS,
   getStageThresholds,
@@ -82,6 +83,12 @@ END
 `;
 }
 
+/**
+ * A raw deal SELECT before `withFinancingType` runs over it: it still carries
+ * the `deals.intake` JSON the derivation reads. Never returned to a client.
+ */
+type DealRowWithIntake = Omit<DealRow, "financing_type"> & { intake: unknown };
+
 export type DealRow = {
   id: string;
   agent_id: string;
@@ -107,6 +114,13 @@ export type DealRow = {
   disclosures_complete: boolean;
   /** Agent-set "Buyer's Progress" step shown on the seller portal (#184). */
   buyer_status: string | null;
+  /**
+   * How the buyer said they're paying, derived from the onboarding intake
+   * (#409) — `cash` | `loan`, or null when they haven't onboarded / it's a
+   * sell deal. Derived, not stored: see `financingTypeFromIntake` in
+   * lib/intake.ts.
+   */
+  financing_type: "cash" | "loan" | null;
   /**
    * Agent-entered manual closing date (`deals.closing_date`), serialized as
    * `YYYY-MM-DD` text (`closing_date::text`). Fallback closing anchor for
@@ -168,7 +182,13 @@ export async function listDealsForUser(
     ? Prisma.sql`WHERE ${Prisma.join(conds, " AND ")}`
     : Prisma.sql``;
 
-  return prisma.$queryRaw<DealWithStats[]>`
+  const rows = await prisma.$queryRaw<(DealRowWithIntake & {
+    agent_name: string;
+    agent_email: string;
+    agent_phone: string | null;
+    open_task_count: number;
+    overdue_task_count: number;
+  })[]>`
     SELECT deals.id, deals.agent_id, deals.type::text AS type, deals.stage::text AS stage,
            ${healthExpr(thresholds)} AS health, deals.status,
            deals.title, deals.address, deals.price::text AS price, deals.arive_linked,
@@ -176,6 +196,7 @@ export async function listDealsForUser(
            deals.fee_status, deals.fee_amount_cents, deals.fee_paid_at,
            deals.fast_pass, deals.smooth_exit,
            deals.pre_approved, deals.baa_signed, deals.disclosures_complete, deals.buyer_status,
+           deals.intake, -- #409: derived into financing_type, then stripped
            deals.closing_date::text AS closing_date,
            deals.commission_pct::text AS commission_pct,
            deals.created_at, deals.updated_at,
@@ -191,6 +212,7 @@ export async function listDealsForUser(
     ${filter}
     ORDER BY deals.updated_at DESC
   `;
+  return rows.map(withFinancingType);
 }
 
 /**
@@ -201,21 +223,21 @@ export async function getDealForAgent(
   agentId: string
 ): Promise<DealRow | null> {
   const thresholds = await getStageThresholds();
-  const rows = await prisma.$queryRaw<DealRow[]>`
+  const rows = await prisma.$queryRaw<DealRowWithIntake[]>`
     SELECT id, agent_id, type::text AS type, stage::text AS stage,
            ${healthExpr(thresholds)} AS health, status,
            title, address, price::text AS price, arive_linked,
            arive_loan_id, arive_milestones, arive_key_dates, arive_loan_status, arive_synced_at,
            notes, fee_status, fee_amount_cents, fee_paid_at,
            fast_pass, smooth_exit, pre_approved, baa_signed, disclosures_complete,
-           buyer_status, closing_date::text AS closing_date,
+           buyer_status, intake, closing_date::text AS closing_date,
            commission_pct::text AS commission_pct,
            created_at, updated_at,
            ${stageEnteredAtExpr} AS stage_entered_at
     FROM deals
     WHERE id = ${dealId}::uuid AND agent_id = ${agentId}::uuid
   `;
-  return rows[0] ?? null;
+  return rows[0] ? withFinancingType(rows[0]) : null;
 }
 
 /**
@@ -225,21 +247,21 @@ export async function getDealForAgent(
  */
 export async function getDealById(dealId: string): Promise<DealRow | null> {
   const thresholds = await getStageThresholds();
-  const rows = await prisma.$queryRaw<DealRow[]>`
+  const rows = await prisma.$queryRaw<DealRowWithIntake[]>`
     SELECT id, agent_id, type::text AS type, stage::text AS stage,
            ${healthExpr(thresholds)} AS health, status,
            title, address, price::text AS price, arive_linked,
            arive_loan_id, arive_milestones, arive_key_dates, arive_loan_status, arive_synced_at,
            notes, fee_status, fee_amount_cents, fee_paid_at,
            fast_pass, smooth_exit, pre_approved, baa_signed, disclosures_complete,
-           buyer_status, closing_date::text AS closing_date,
+           buyer_status, intake, closing_date::text AS closing_date,
            commission_pct::text AS commission_pct,
            created_at, updated_at,
            ${stageEnteredAtExpr} AS stage_entered_at
     FROM deals
     WHERE id = ${dealId}::uuid
   `;
-  return rows[0] ?? null;
+  return rows[0] ? withFinancingType(rows[0]) : null;
 }
 
 /**

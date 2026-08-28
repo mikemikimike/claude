@@ -160,6 +160,13 @@ export const apiDealSchema = z.object({
    * agent-facing payloads don't SELECT it.
    */
   intake_submitted: z.boolean().optional(),
+  /**
+   * How the buyer said they're paying (#409), derived server-side from the
+   * onboarding intake — never stored, never client-supplied. Null when the
+   * buyer hasn't onboarded or it's a sell deal; absent on the payloads that
+   * don't SELECT the intake (e.g. the create RETURNING).
+   */
+  financing_type: z.enum(["cash", "loan"]).nullish(),
   /** Postgres DECIMAL serialized as text by the API (`commission_pct::text`). */
   commission_pct: z.string().nullish(),
   created_at: z.string(),
