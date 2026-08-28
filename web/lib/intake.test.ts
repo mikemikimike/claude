@@ -14,6 +14,7 @@
  * derives to `null`. Never guess "cash" — guessing wrong unlocks the gate for a
  * financed buyer.
  */
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   financingTypeFromAnswers,
@@ -22,6 +23,7 @@ import {
   needsPreApprovalTask,
   withFinancingType,
 } from "./intake";
+import { PRE_APPROVAL_TASK_SOURCE, PRE_APPROVAL_TASK_TITLE } from "./stage-task-seed";
 
 function buyerIntake(answers: Record<string, unknown>) {
   return { role: "buyer", submitted_at: "2026-08-27T12:00:00.000Z", answers };
@@ -174,5 +176,66 @@ describe("needsPreApprovalTask (#434)", () => {
 
   it("is false for an empty questionnaire", () => {
     expect(needsPreApprovalTask("buyer", {})).toBe(false);
+  });
+});
+
+/**
+ * Issue #460 — the pre-approval task's copy must not be load-bearing.
+ *
+ * #434 used the task's user-facing title as its idempotency key AND as a
+ * hardcoded exception inside `seedStageAutoTasks`'s NOT EXISTS guard, so one
+ * English sentence was doing structural work in two places. #435 renders this
+ * task to the buyer and is the obvious place someone improves the wording;
+ * doing that would have orphaned every existing row and created a duplicate
+ * beside it on every already-onboarded deal.
+ *
+ * The behavioural proof lives in tests/api/me-intake.test.ts (cases 24-27,
+ * against a real database). This is the structural half, and it is a source
+ * check on purpose: the failure mode being guarded is a future edit quietly
+ * reintroducing a title predicate, which the behavioural tests only catch if
+ * whoever writes it also remembers to rename a task in them.
+ */
+describe("stage-task-seed keys on source, not copy (#460)", () => {
+  // Read per test, not once at describe scope: collection-time I/O would make a
+  // watch-mode edit to stage-task-seed.ts invisible until vitest restarts, and
+  // a read that throws during collection reports as an unhelpful file-level
+  // failure rather than a failing assertion.
+  const readSource = () =>
+    readFileSync(new URL("./stage-task-seed.ts", import.meta.url), "utf8");
+
+  /** The text of `seedStageAutoTasks`, up to the next exported function. */
+  function stageSeederSource(): string {
+    const src = readSource();
+    const start = src.indexOf("export async function seedStageAutoTasks");
+    expect(start).toBeGreaterThan(-1);
+    const end = src.indexOf("export async function", start + 1);
+    expect(end).toBeGreaterThan(start);
+    return src.slice(start, end);
+  }
+
+  it("the stage seeder never mentions the pre-approval title", () => {
+    const body = stageSeederSource();
+    expect(body).not.toContain("PRE_APPROVAL_TASK_TITLE");
+    expect(body).not.toContain(PRE_APPROVAL_TASK_TITLE);
+  });
+
+  it("the stage seeder's SQL has no `title <>` / `title !=` predicate", () => {
+    expect(stageSeederSource()).not.toMatch(/title\s*(<>|!=)/);
+  });
+
+  it("the pre-approval seeder's guard matches on source, not on title", () => {
+    const src = readSource();
+    const start = src.indexOf("export async function seedPreApprovalTask");
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start);
+    expect(body).toMatch(/t\.source\s*=\s*\$\{PRE_APPROVAL_TASK_SOURCE\}/);
+    expect(body).not.toMatch(/t\.title\s*=/);
+  });
+
+  it("uses a source value that is neither 'ai' nor too wide for varchar(20)", () => {
+    expect(PRE_APPROVAL_TASK_SOURCE).not.toBe("ai");
+    expect(PRE_APPROVAL_TASK_SOURCE).not.toBe("manual");
+    expect(PRE_APPROVAL_TASK_SOURCE.length).toBeGreaterThan(0);
+    expect(PRE_APPROVAL_TASK_SOURCE.length).toBeLessThanOrEqual(20);
   });
 });

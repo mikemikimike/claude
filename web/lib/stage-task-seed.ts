@@ -4,6 +4,34 @@ import { stageAutoTasks, type AutoTaskDeal } from "./stage-auto-tasks";
 import { autoTaskDueDate } from "./task-due-dates";
 
 /**
+ * The pre-approval task's identity (#460).
+ *
+ * `tasks.source` has always been free-form (`varchar(20) NOT NULL DEFAULT
+ * 'manual'`, no CHECK constraint) and already carries two values: `'manual'`
+ * for anything a human created and `'ai'` for the stage seeder's auto-tasks.
+ * `'preapproval'` is a third, and it is what makes this task findable without
+ * reading its copy.
+ *
+ * #434 shipped it as an `'ai'` task keyed on its TITLE, which made one English
+ * sentence structural in two separate places — the idempotency guard below and
+ * a hardcoded exception inside `seedStageAutoTasks`'s NOT EXISTS. Rewording it
+ * (#435 renders this task to the buyer, so that is exactly where the instinct
+ * lands) would have orphaned every existing row and inserted a duplicate beside
+ * it on every already-onboarded deal.
+ *
+ * Two consequences worth knowing before changing this value:
+ *   - `seedStageAutoTasks` counts only `source = 'ai'`, so this task is no
+ *     longer in the set it looks at and cannot suppress the agent's
+ *     `active_search` auto-tasks. That is why the title exception is gone.
+ *   - The forward-advance gate's #445 exemption also covers only `'ai'`, so
+ *     this task is NEVER treated as a stage leftover: it gates every forward
+ *     advance out of Property Search until it is completed, skipped, or
+ *     force-advanced past. Deliberate — the pre-approval has to be real before
+ *     offers are written. Pinned by test 27 in tests/api/me-intake.test.ts.
+ */
+export const PRE_APPROVAL_TASK_SOURCE = "preapproval";
+
+/**
  * The pre-approval task (#434).
  *
  * A buyer who picks Mountain Mortgage — or Fast Pass, which is the same lender
@@ -12,10 +40,10 @@ import { autoTaskDueDate } from "./task-due-dates";
  * typed; a buyer who ignored that link was never asked again. The ask now lives
  * on their dashboard as a real task row, so the agent sees it too.
  *
- * The title is the idempotency key (there is deliberately no schema change for
- * this — see the ticket), so it must stay stable: changing it on an existing
- * deployment orphans the old row and creates a second one. `seedStageAutoTasks`
- * knows the same constant for the inverse reason — see its NOT EXISTS guard.
+ * This is COPY, and since #460 it is only copy: nothing keys off it. Reword it
+ * freely — existing rows keep their old wording (there is deliberately no
+ * migration or backfill), new ones get the new wording, and no deal ends up
+ * with two. `PRE_APPROVAL_TASK_SOURCE` above is the identity.
  */
 export const PRE_APPROVAL_TASK_TITLE = "Get pre-approved with Mountain Mortgage";
 
@@ -75,13 +103,16 @@ export async function seedStageAutoTasks(
       AS v(deal_id, title, description, priority, source, stage_context, role, due_date)
     WHERE NOT EXISTS (
       SELECT 1 FROM tasks
+      -- source = 'ai' is what "this stage already seeded itself" means, and it
+      -- is the ONLY thing this guard reads. The pre-approval task (#434) also
+      -- carries stage_context = active_search but is created by the intake
+      -- write rather than by entering the stage; it used to be counted here,
+      -- which made this seeder believe active_search was already done and
+      -- silently swallow the agent's three real auto-tasks. #434 bought its way
+      -- out with a hardcoded title inequality; #460 gave that task its own
+      -- source instead, so it is simply not in this set. No exception needed —
+      -- and nothing here depends on a user-facing string any more.
       WHERE deal_id = ${dealId}::uuid AND source = 'ai' AND stage_context = ${stage}
-        -- ...ignoring the pre-approval task (#434). It is an ai-sourced task
-        -- carrying stage_context = active_search, but it is created by the
-        -- intake write, not by entering the stage. Counted here it would make
-        -- this seeder think active_search had already been seeded, and
-        -- silently swallow the agent's three real auto-tasks.
-        AND title <> ${PRE_APPROVAL_TASK_TITLE}
     )
   `;
 }
@@ -103,6 +134,14 @@ export async function seedStageAutoTasks(
  * read-then-write for the same reason: it shrinks the window in which the
  * agent could flip the flag to nothing worth reasoning about.
  *
+ * What "already has one" means is `source = PRE_APPROVAL_TASK_SOURCE` (#460),
+ * NOT the title. A row written under older copy is still recognised, so
+ * rewording the task never duplicates it — and never replaces the existing row
+ * either, so whatever the buyer or agent already did to it (status, assignee,
+ * due date) survives. The trade that buys: an existing task keeps its old
+ * wording until someone edits or recreates it. That is the right side of the
+ * trade — a stale sentence beats a duplicated, orphaned task.
+ *
  * Callers decide WHETHER the buyer needs it (`needsPreApprovalTask` in
  * lib/intake.ts reads the questionnaire); this function only decides whether
  * the deal already has one.
@@ -115,7 +154,7 @@ export async function seedPreApprovalTask(dealId: string): Promise<void> {
       ${PRE_APPROVAL_TASK_TITLE}::text,
       ${PRE_APPROVAL_TASK_DESCRIPTION}::text,
       'high'::varchar,
-      'ai'::varchar,
+      ${PRE_APPROVAL_TASK_SOURCE}::varchar,
       ${PRE_APPROVAL_TASK_STAGE}::varchar,
       'buyer'::varchar,
       ${autoTaskDueDate(PRE_APPROVAL_TASK_STAGE, "high")}::date
@@ -123,9 +162,10 @@ export async function seedPreApprovalTask(dealId: string): Promise<void> {
     WHERE d.id = ${dealId}::uuid
       -- The agent already has the letter — don't ask for it again.
       AND d.pre_approved = FALSE
+      -- Keyed on source, never on the copy (#460).
       AND NOT EXISTS (
         SELECT 1 FROM tasks t
-        WHERE t.deal_id = d.id AND t.title = ${PRE_APPROVAL_TASK_TITLE}
+        WHERE t.deal_id = d.id AND t.source = ${PRE_APPROVAL_TASK_SOURCE}
       )
   `;
 }

@@ -283,7 +283,19 @@ export type Task = {
   assignedToId: string;
   status: 'pending' | 'in_progress' | 'completed' | 'overdue' | 'blocked';
   priority: 'high' | 'medium' | 'low';
-  source: 'ai' | 'manual';
+  /**
+   * Where the row came from. `'manual'` = a person created it, `'ai'` = the
+   * stage seeder created it on stage entry, `'preapproval'` = the Mountain
+   * Mortgage / Fast Pass pre-approval ask created by onboarding (#434/#460).
+   *
+   * `'preapproval'` is a distinct value rather than another `'ai'` row because
+   * `'ai'` is read as "seeded by entering this stage" by both the stage seeder
+   * and the forward-advance gate's #445 exemption — see lib/stage-task-seed.ts.
+   * Note it therefore does NOT get the "AI"/"Auto" badge the UI shows for
+   * `'ai'`, which is correct: nothing auto-generated it on stage entry, and it
+   * is a genuine ask of the buyer rather than a reminder.
+   */
+  source: 'ai' | 'manual' | 'preapproval';
   stageContext: DealStage;
   dueDate?: string;
   completedAt?: string;

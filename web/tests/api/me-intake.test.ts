@@ -47,6 +47,7 @@ import { setVerifyOptionsForTesting } from "@/lib/auth";
 import { setEmailForTesting } from "@/lib/email";
 import { prisma } from "@/lib/db";
 import {
+  PRE_APPROVAL_TASK_SOURCE,
   PRE_APPROVAL_TASK_STAGE,
   PRE_APPROVAL_TASK_TITLE,
   seedPreApprovalTask,
@@ -518,7 +519,8 @@ describe("GET /api/me/deals — exposes the buyer's financing type (#409)", () =
  * renders it).
  *
  * Contract asserted here:
- *   - exactly ONE task, `role='buyer'`, `priority='high'`, `source='ai'`,
+ *   - exactly ONE task, `role='buyer'`, `priority='high'`,
+ *     `source='preapproval'` (#460 — it was `'ai'`),
  *     `stage_context='active_search'`,
  *   - only for `lenderChoice` mountain | fastpass — never cash, never an
  *     outside lender, never a deal already `pre_approved`,
@@ -528,10 +530,17 @@ describe("GET /api/me/deals — exposes the buyer's financing type (#409)", () =
  *     claim's ride-along intake).
  */
 describe("pre-approval task on onboarding (#434)", () => {
-  /** The pre-approval task rows on a deal, whatever else was seeded alongside. */
+  /**
+   * The pre-approval task rows on a deal, whatever else was seeded alongside.
+   *
+   * Matched on `source`, not on the title (#460). The title is copy — #435 is
+   * free to reword it — so a helper that looked for the exact string would stop
+   * finding the row the moment someone did, and every count assertion below
+   * would silently start passing for the wrong reason.
+   */
   function preApprovalTasks(dealId: string) {
     return prisma.tasks.findMany({
-      where: { deal_id: dealId, title: PRE_APPROVAL_TASK_TITLE },
+      where: { deal_id: dealId, source: PRE_APPROVAL_TASK_SOURCE },
       select: {
         id: true,
         title: true,
@@ -565,9 +574,10 @@ describe("pre-approval task on onboarding (#434)", () => {
 
     const tasks = await preApprovalTasks(deal.id);
     expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toBe(PRE_APPROVAL_TASK_TITLE);
     expect(tasks[0].role).toBe("buyer");
     expect(tasks[0].priority).toBe("high");
-    expect(tasks[0].source).toBe("ai");
+    expect(tasks[0].source).toBe(PRE_APPROVAL_TASK_SOURCE);
     expect(tasks[0].stage_context).toBe(PRE_APPROVAL_TASK_STAGE);
     expect(tasks[0].status).toBe("pending");
     // A due date, so the overdue/health/calendar machinery has real data —
@@ -807,9 +817,10 @@ describe("pre-approval task on onboarding (#434)", () => {
     ).toBe(200);
 
     // Clear every OTHER high-priority blocker (the stage's own auto-tasks) so
-    // the 422 below can only be about the pre-approval task.
+    // the 422 below can only be about the pre-approval task. Selected by
+    // source, not title (#460).
     await prisma.tasks.updateMany({
-      where: { deal_id: deal.id, title: { not: PRE_APPROVAL_TASK_TITLE } },
+      where: { deal_id: deal.id, source: { not: PRE_APPROVAL_TASK_SOURCE } },
       data: { status: "completed" },
     });
 
@@ -831,14 +842,20 @@ describe("pre-approval task on onboarding (#434)", () => {
     };
     expect(body.gate).toBe(true);
     expect(body.blocking_tasks.map((t) => t.title)).toEqual([PRE_APPROVAL_TASK_TITLE]);
-    expect(body.blocking_tasks[0].source).toBe("ai");
+    expect(body.blocking_tasks[0].source).toBe(PRE_APPROVAL_TASK_SOURCE);
   });
 
   /**
    * Guard-rail on the shared seeder. `seedStageAutoTasks` no-ops when the deal
    * already has ANY `source='ai'` task for the stage, so a pre-approval task
    * sitting there first would silently swallow the agent's three active_search
-   * auto-tasks. The seeder ignores this one title for exactly that reason.
+   * auto-tasks.
+   *
+   * #434 bought that with a hardcoded title exception inside the seeder's SQL;
+   * #460 removed it, because the pre-approval task no longer carries
+   * `source='ai'` at all and so is not in the set the seeder counts. The
+   * assertion below no longer needs to exclude the task by title — it simply
+   * is not an `ai` row.
    */
   it("23. a pre-approval task present first does not suppress the stage auto-tasks", async () => {
     const agent = await createUser({ role: "agent", auth0_id: "auth0|agent-seedorder" });
@@ -855,15 +872,218 @@ describe("pre-approval task on onboarding (#434)", () => {
     await seedStageAutoTasks(deal.id, "active_search", { type: "buy", clientName: "Ordering Test" });
 
     const seeded = await prisma.tasks.findMany({
-      where: {
-        deal_id: deal.id,
-        source: "ai",
-        stage_context: "active_search",
-        title: { not: PRE_APPROVAL_TASK_TITLE },
-      },
+      where: { deal_id: deal.id, source: "ai", stage_context: "active_search" },
       select: { title: true },
     });
     expect(seeded).toHaveLength(3);
     expect(seeded.some((t) => /pre-approval checklist/i.test(t.title))).toBe(true);
+  });
+});
+
+/**
+ * Issue #460 — the pre-approval task's identity is `source = 'preapproval'`,
+ * not its copy.
+ *
+ * #434 shipped it idempotent via `INSERT … SELECT … WHERE NOT EXISTS` matching
+ * on the task's **user-facing title string**. That made the copy load-bearing in
+ * two places at once — the idempotency guard here, and a hardcoded title
+ * exception inside `seedStageAutoTasks` — so the first person to improve the
+ * wording (#435 renders this task, and is exactly where that instinct lands)
+ * would orphan every existing row and create a duplicate beside it.
+ *
+ * The fix is a dedicated `source` value. It also deletes the seeder collision
+ * outright rather than papering over it: `seedStageAutoTasks` only ever counts
+ * `source = 'ai'`, and this task is no longer one.
+ *
+ * The tests below deliberately exercise a CHANGED title. There is no way to
+ * reassign an exported `const` at runtime, so they model the deploy that
+ * actually breaks things: a row already in the database carrying the OLD copy,
+ * met by code that now has new copy. Renaming the row is the same situation
+ * from the guard's point of view, and it is the situation #435 creates.
+ */
+describe("pre-approval task identity is not its copy (#460)", () => {
+  const OLD_COPY = "Get pre-approved with Mountain Mortgage (old wording)";
+
+  /** Every pre-approval row on the deal, found by source — never by title. */
+  function preApprovalRows(dealId: string) {
+    return prisma.tasks.findMany({
+      where: { deal_id: dealId, source: PRE_APPROVAL_TASK_SOURCE },
+      select: { id: true, title: true, source: true, stage_context: true },
+      orderBy: { created_at: "asc" },
+    });
+  }
+
+  async function buyDeal(suffix: string) {
+    const agent = await createUser({ role: "agent", auth0_id: `auth0|agent-${suffix}` });
+    return {
+      agent,
+      deal: await createDeal({
+        agent_id: agent.id,
+        stage: "intake",
+        type: "buy",
+        title: "Copy Change Test",
+      }),
+    };
+  }
+
+  /**
+   * Case 1 — THE test. Fails against #434's code, which matched the guard on
+   * the title and so saw the renamed row as "no task yet" and inserted a
+   * second one, orphaning the first.
+   */
+  it("24. a title change does not duplicate the task on an already-onboarded deal", async () => {
+    const { deal } = await buyDeal("copychange");
+
+    await seedPreApprovalTask(deal.id);
+    const [original] = await preApprovalRows(deal.id);
+    expect(original).toBeDefined();
+
+    // The deal was onboarded under the previous copy; the code now carries
+    // different copy. Exactly the state #435's rewording produces.
+    await prisma.tasks.update({ where: { id: original.id }, data: { title: OLD_COPY } });
+
+    await seedPreApprovalTask(deal.id);
+
+    const rows = await preApprovalRows(deal.id);
+    expect(rows).toHaveLength(1);
+    // ...and it is still the SAME row — not a replacement, so nothing the
+    // buyer or agent already did to it (status, assignee, due date) is lost.
+    expect(rows[0].id).toBe(original.id);
+    expect(rows[0].title).toBe(OLD_COPY);
+    // Nothing snuck in under the new copy either.
+    expect(
+      await prisma.tasks.count({ where: { deal_id: deal.id, title: PRE_APPROVAL_TASK_TITLE } })
+    ).toBe(0);
+  });
+
+  // Case 2 — the identity constant itself. `source='ai'` is what caused the
+  // seeder collision, so this must never quietly drift back to it.
+  it("25. the task is sourced 'preapproval', which is not the stage-seeder's 'ai'", async () => {
+    const { deal } = await buyDeal("srcvalue");
+
+    await seedPreApprovalTask(deal.id);
+
+    expect(PRE_APPROVAL_TASK_SOURCE).toBe("preapproval");
+    expect(PRE_APPROVAL_TASK_SOURCE).not.toBe("ai");
+    // varchar(20) on tasks.source — a longer value would be silently rejected
+    // by Postgres at insert time, not caught by a type.
+    expect(PRE_APPROVAL_TASK_SOURCE.length).toBeLessThanOrEqual(20);
+
+    const rows = await preApprovalRows(deal.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe("preapproval");
+    expect(rows[0].stage_context).toBe(PRE_APPROVAL_TASK_STAGE);
+  });
+
+  /**
+   * Case 3 — the seeder's title exception is gone, and provably so: a
+   * pre-approval task carrying arbitrary copy still leaves the agent's three
+   * `active_search` auto-tasks alone. This is #434's test 23 with the one
+   * assumption it silently relied on — the exact title string — removed.
+   */
+  it("26. a RENAMED pre-approval task still does not suppress the stage auto-tasks", async () => {
+    const { deal } = await buyDeal("renamedseed");
+
+    await seedPreApprovalTask(deal.id);
+    const [row] = await preApprovalRows(deal.id);
+    await prisma.tasks.update({ where: { id: row.id }, data: { title: OLD_COPY } });
+
+    await seedStageAutoTasks(deal.id, "active_search", {
+      type: "buy",
+      clientName: "Copy Change Test",
+    });
+
+    const seeded = await prisma.tasks.findMany({
+      where: { deal_id: deal.id, source: "ai", stage_context: "active_search" },
+      select: { title: true },
+    });
+    expect(seeded).toHaveLength(3);
+    // And the seeder is still idempotent for its own rows.
+    await seedStageAutoTasks(deal.id, "active_search", {
+      type: "buy",
+      clientName: "Copy Change Test",
+    });
+    expect(
+      await prisma.tasks.count({
+        where: { deal_id: deal.id, source: "ai", stage_context: "active_search" },
+      })
+    ).toBe(3);
+  });
+
+  /**
+   * Case 4 — the #445 interaction, confirmed rather than discovered.
+   *
+   * #445 narrowed the forward-advance gate so that `source = 'ai'` tasks which
+   * were already open when the deal last departed the stage stop re-gating a
+   * re-advance. A `source = 'preapproval'` task is not `'ai'`, so it is never
+   * covered by that exemption: it gates EVERY forward advance out of Property
+   * Search until it is completed, skipped, or force-advanced past.
+   *
+   * That is a real behaviour change from #434 (where the task was `'ai'` and
+   * would have gone quiet after the first departure) and it is the behaviour we
+   * want: this is a client ask that must actually be resolved before offers are
+   * written, not a seeded reminder the agent has already answered for once.
+   * Pinned here so a future change to the source value cannot flip it silently.
+   */
+  it("27. an open pre-approval task gates a REPEAT advance out of active_search too", async () => {
+    const { agent, deal } = await buyDeal("regate");
+    const auth = await authHeader(agent.auth0_id, ["agent"]);
+
+    // `force` is a query param on this route, not a body field.
+    const patchStage = (stage: string, force = false) =>
+      advanceStageRoute(
+        new Request(
+          `http://localhost/api/deals/${deal.id}/stage${force ? "?force=true" : ""}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json", authorization: auth },
+            body: JSON.stringify({ stage }),
+          }
+        ),
+        { params: Promise.resolve({ id: deal.id }) }
+      );
+
+    // intake → active_search (seeds the stage's own auto-tasks), then the
+    // pre-approval task lands on top of them.
+    expect((await patchStage("active_search")).status).toBe(200);
+    await seedPreApprovalTask(deal.id);
+
+    // Leave, and come back. The departure is what #445 measures against.
+    expect((await patchStage("offer_active", true)).status).toBe(200);
+    expect((await patchStage("active_search")).status).toBe(200);
+
+    // Nothing is completed on purpose: the stage's own high-priority `ai`
+    // auto-tasks are still open and still predate that departure, so #445
+    // exempts them. Both halves of the contract are therefore visible in this
+    // one response — the exempt leftovers are absent from `blocking_tasks`, and
+    // the pre-approval task is the only thing in it.
+    const stillOpen = await prisma.tasks.count({
+      where: {
+        deal_id: deal.id,
+        source: "ai",
+        stage_context: "active_search",
+        priority: "high",
+        status: { notIn: ["completed", "skipped"] },
+      },
+    });
+    expect(stillOpen).toBeGreaterThan(0);
+
+    const res = await patchStage("offer_active");
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      gate: boolean;
+      blocking_tasks: { title: string; source: string }[];
+    };
+    expect(body.gate).toBe(true);
+    expect(body.blocking_tasks.map((t) => t.source)).toEqual([PRE_APPROVAL_TASK_SOURCE]);
+    expect(body.blocking_tasks.map((t) => t.title)).toEqual([PRE_APPROVAL_TASK_TITLE]);
+
+    // Completing it clears the gate — the task is a real ask, not a wall — and
+    // the exempt `ai` leftovers still do not gate on their own.
+    await prisma.tasks.updateMany({
+      where: { deal_id: deal.id, source: PRE_APPROVAL_TASK_SOURCE },
+      data: { status: "completed" },
+    });
+    expect((await patchStage("offer_active")).status).toBe(200);
   });
 });
