@@ -48,10 +48,23 @@ export default function AuthSetup({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    const agentInviteToken = localStorage.getItem('pendingAgentInvite');
-    const agentInviteEmail = localStorage.getItem('pendingAgentInviteEmail');
-    const clientInviteToken = localStorage.getItem('pendingInvite');
-    const clientInviteEmail = localStorage.getItem('pendingInviteEmail');
+    // Every pending-invite flavour, in precedence order. A table rather than a
+    // third copy of the same if/else: the claim-then-sync dance below is
+    // identical for all of them, and the copies had already started to drift
+    // (only one of them defaulted the name).
+    const PENDING = [
+      { tokenKey: 'pendingAgentInvite', emailKey: 'pendingAgentInviteEmail', path: 'agent-invites' },
+      { tokenKey: 'pendingInvite', emailKey: 'pendingInviteEmail', path: 'invites' },
+      // #446 — the TC invite is tokened now, so it claims like the others
+      // instead of being inferred from the email at sync time.
+      { tokenKey: 'pendingTcInvite', emailKey: 'pendingTcInviteEmail', path: 'tc-invites' },
+    ] as const;
+
+    const pending = PENDING.map((p) => ({
+      ...p,
+      token: localStorage.getItem(p.tokenKey),
+      email: localStorage.getItem(p.emailKey),
+    })).find((p) => p.token && p.email);
 
     const adopt = (dbUser: SyncUserResponse) =>
       setFromAuth0(dbUser.id, dbUser.name, dbUser.email, dbUser.role, dbUser.onboarding_complete, user.picture);
@@ -88,34 +101,19 @@ export default function AuthSetup({ children }: { children: React.ReactNode }) {
     // sync would, so the second round-trip is pure latency. (It is not the
     // fix for the role clobber — every later page load syncs with no pending
     // invite, so lib/roles.ts#decideRole is what actually holds the line.)
-    if (agentInviteToken && agentInviteEmail) {
-      api.post<SyncUserResponse>(`/agent-invites/${agentInviteToken}/claim`, {
-        email: agentInviteEmail,
-        name: user.name ?? '',
+    if (pending) {
+      const clear = () => {
+        localStorage.removeItem(pending.tokenKey);
+        localStorage.removeItem(pending.emailKey);
+      };
+      api.post<SyncUserResponse>(`/${pending.path}/${pending.token}/claim`, {
+        email: pending.email,
+        name: user.name || pending.email,
       }).then((dbUser) => {
-        localStorage.removeItem('pendingAgentInvite');
-        localStorage.removeItem('pendingAgentInviteEmail');
+        clear();
         adopt(dbUser);
       }).catch((err) => {
-        if (isTerminal(err)) {
-          localStorage.removeItem('pendingAgentInvite');
-          localStorage.removeItem('pendingAgentInviteEmail');
-        }
-        return doSync();
-      });
-    } else if (clientInviteToken && clientInviteEmail) {
-      api.post<SyncUserResponse>(`/invites/${clientInviteToken}/claim`, {
-        email: clientInviteEmail,
-        name: user.name || clientInviteEmail,
-      }).then((dbUser) => {
-        localStorage.removeItem('pendingInvite');
-        localStorage.removeItem('pendingInviteEmail');
-        adopt(dbUser);
-      }).catch((err) => {
-        if (isTerminal(err)) {
-          localStorage.removeItem('pendingInvite');
-          localStorage.removeItem('pendingInviteEmail');
-        }
+        if (isTerminal(err)) clear();
         return doSync();
       });
     } else {

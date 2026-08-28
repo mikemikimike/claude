@@ -299,40 +299,58 @@ through **`decideRole()` in `web/lib/roles.ts`** — the single place this rule 
 a second guard in `upsertUser` or the route):
 
 1. An explicit **non-default** claim (`admin`, `tc`, `seller`, `buyer`, `lending_partner`) wins.
-2. A persisted **`buyer`/`seller`/`tc`** is never overwritten by a default `agent` claim.
-3. For a user with **no row yet**, a pending invite for their email beats the default claim —
-   the safety net when the claim POST never ran. Two sources, checked in this order by
-   `pendingRoleForEmail()` (`web/lib/invite-role.ts`):
-   - an open (unclaimed, unexpired) `deal_invites` row → `buyer`/`seller`
-   - an agent's unlinked TC assignment (`users.tc_contact` with `tc_user_id IS NULL`) → `tc`
+2. **(a)** A persisted **`buyer`/`seller`** is never overwritten by a default `agent` claim.
+   **(b)** A persisted **`tc`** is protected the same way, but *only while they are still
+   somebody's linked TC* (`users.tc_user_id` points at them) — see TC revocation below.
+3. For a user with **no row yet**, an open (unclaimed, unexpired) `deal_invites` row for their
+   email beats the default claim → `buyer`/`seller`. The safety net when the claim POST never
+   ran. **Client roles only** — a `tc` never arrives this way (#446).
 4. Otherwise the claim, else the persisted role. No role anywhere = 403.
 
 **To make someone an admin or TC:** unchanged — assign the role in the Auth0 prod tenant
 (User Management → Users → *Roles* tab), then have them log out and back in. Rule 1 honours it.
 
-**To move a client or TC to agent:** the `agent` claim alone will not do it (rule 2). Update
-the row (`UPDATE users SET role='agent' WHERE …`) **and then** have them re-login — once
-`users.role` is no longer an invited role, rule 4 honours the claim again. (Same caveat for
-*demoting* a TC: revoking the Auth0 `tc` role is no longer sufficient on its own.)
+**To move a client to agent:** the `agent` claim alone will not do it (rule 2a). Update the row
+(`UPDATE users SET role='agent' WHERE …`) **and then** have them re-login — once `users.role`
+is no longer a client role, rule 4 honours the claim again.
 
-### TC onboarding — the invite is the agent's own `tc_contact` row (#415)
+**To revoke a TC:** no SQL. The agent removes them in Settings → Transaction Coordinator
+(`DELETE /api/me/tc`), which clears `tc_user_id` and kills any outstanding invite; their next
+login demotes them to whatever the claim says (rule 2b). A TC serving several agents stays a
+`tc` until the **last** one removes them. A TC granted the role in Auth0 RBAC is unaffected —
+that is rule 1 — so revoke that in the tenant.
 
-There is deliberately **no `tc_invites` table**. When an agent saves a TC in Settings
-(`PUT /api/me/tc`), the `users.tc_contact` JSON on their own row *is* the pending invite:
+### TC onboarding — a tokened `tc_invites` row (#415, hardened by #446)
 
-- `PUT /api/me/tc` links any account whose email matches (by **email alone** — requiring
-  `role='tc'` is what made this unfixable, since the tenant hands every signup `agent`), and
-  emails a real invite via `sendTcInviteEmail` when there is no account. Best-effort; the
-  response's `invited` says whether it went out.
-- The invite link carries **no token** — it points at the app root and is bound to the email.
-- On signup, rule 3 above gives them `tc`; `linkTcContacts()` (`web/lib/users.ts`), called
-  from `POST /api/users/sync`, sets the agent's `tc_user_id`. That also repairs TCs typed in
-  before the fix, on their next login.
-- `POST /api/deals/:id/participants` with `role: 'tc'` and an unknown email sends the **same**
-  invite (202) rather than 404ing, and 409s instead of replacing an already-assigned TC.
-- ⚠️ `lower(tc_contact->>'email')` has **no functional index** (that needs a migration). It is
-  a seq scan over `users`, on first-sync role resolution and on every sync's backfill. Free at
-  today's size; index it (mirroring 000061/000062) before `users` grows.
+An agent adds their TC in Settings (`PUT /api/me/tc`) or from a deal
+(`POST /api/deals/:id/participants` with `role: 'tc'`). Both paths go through `web/lib/tc.ts`
+and behave identically.
+
+**The invariant: `users.tc_user_id` is written by exactly one thing** —
+`POST /api/tc-invites/:token/claim`, presenting a valid, unexpired, unclaimed token. Nothing
+links a TC by email. That matters because a linked TC reads the agent's *entire* pipeline
+(`listDealsForUser` scopes a TC by `tc_user_id`), so one typo'd domain would otherwise hand a
+stranger every deal, client, and document.
+
+- `PUT /api/me/tc` writes `tc_contact` (display only), issues a `tc_invites` row, and emails
+  `/tc-invite/<token>`. `user_id` in the response stays **null until they accept** — including
+  when the address already has an account. Best-effort send; `invited` says whether it went out.
+- `tc_invites` mirrors `deal_invites` (migration **000064**): `token UUID UNIQUE`, 7-day
+  `expires_at`, `claimed_at`/`claimed_by`. One open invite per agent — re-saving or clearing
+  the TC expires the outstanding one, so a link in an old inbox stops working.
+- `/tc-invite/[token]` (`TcInvitePage`) shows who invited them and the expiry *before* Auth0
+  signup, stashes `pendingTcInvite{,Email}`, and `AuthSetup` claims it after the round-trip —
+  exactly the deal-invite flow. The claim creates a brand-new account **as `tc`**; an existing
+  account keeps its role and is just linked.
+- `POST /api/deals/:id/participants` with `role: 'tc'`: 202 invited (no `deal_participants`
+  row — a per-deal TC never reaches the TC dashboard), 200 no-op if they are already linked,
+  409 if a *different* TC is assigned, 400 self-assignment.
+- **Pre-#446 rows in prod:** a `tc_contact` with `tc_user_id IS NULL` is an untokenized invite
+  and is **no longer honoured** — nothing was backfilled. It still shows as "Invite pending";
+  the agent re-saves to issue a real one. Already-linked TCs are untouched.
+- The login path no longer does TC work: `linkTcContacts()` — which scanned `users` on
+  `lower(tc_contact->>'email')` on *every* sync — is gone. `users.tc_user_id` is indexed
+  (`users_tc_user_id_idx`, 000064) for the rule-2b check and `listDealsForUser`.
 
 ---
 
@@ -389,7 +407,8 @@ fast-follow milestone, now live:
 | `web/lib/http.ts` | `withAuth`, `json`, `error` helpers |
 | `web/lib/db.ts` | Prisma client (lazy driver-adapter) |
 | `web/lib/users.ts` / `web/lib/roles.ts` / `web/lib/auth.ts` | `resolveUserId`/`upsertUser`/`resolveSyncRole`, `hasRole`/`decideRole`, JWKS verification |
-| `web/lib/invite-role.ts` | Email→role lookups (`pendingInviteRole`, `roleForEmail`). ⚠️ **Raw SQL on purpose** — `lower(email) = lower($1)` matches the functional indexes in migrations 000061/000062. Prisma's `mode: "insensitive"` emits `ILIKE`, which no btree can serve; "simplifying" it back silently restores a sequential scan on the login path |
+| `web/lib/invite-role.ts` | Email→role lookups (`pendingInviteRole`, `roleForEmail`). ⚠️ **Raw SQL on purpose** — `lower(email) = lower($1)` matches the functional indexes in migrations 000061/000062. Prisma's `mode: "insensitive"` emits `ILIKE`, which no btree can serve; "simplifying" it back silently restores a sequential scan on the login path. **Deal invites only** — there is deliberately no email-keyed TC lookup here (#446) |
+| `web/lib/tc.ts` | TC assignment + tokened invites (`inviteTc`, `createTcInvite`, `expireOpenTcInvites`, `isLinkedTc`). Shared by `PUT /api/me/tc` and the participants route; `POST /api/tc-invites/:token/claim` is the only writer of `users.tc_user_id` |
 | `web/hooks/useLogout.ts` / `web/components/layout/UserMenu.tsx` | The only logout path, in every role shell + onboarding + the RootRedirect error screens |
 | `web/lib/s3.ts` | Storage facade (Blob-backed) — capability URLs + get/put/delete object; `setStorageForTesting` seam lives in `blob-storage.ts` |
 | `web/lib/blob-storage.ts` | Vercel Blob backend + HMAC capability signing; `/api/storage/blob-{put,get}` proxy the private-store uploads/downloads |

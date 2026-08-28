@@ -16,6 +16,7 @@ const USER_DATA_TABLES = [
   "deal_stage_history",
   "deal_participants",
   "deal_invites",
+  "tc_invites",
   "offers",
   "net_sheets",
   "tracked_properties",

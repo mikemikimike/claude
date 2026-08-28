@@ -2,7 +2,8 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./auth";
 import { decideRole, resolveRole, type Role } from "./roles";
-import { pendingRoleForEmail } from "./invite-role";
+import { pendingInviteRole } from "./invite-role";
+import { isLinkedTc } from "./tc";
 
 export type SyncedUser = {
   id: string;
@@ -199,41 +200,24 @@ export async function resolveUserId(auth0Id: string): Promise<string | null> {
   return row?.id ?? null;
 }
 
-/**
- * Links this user into every agent's Transaction Coordinator slot that names
- * their email, and returns how many rows were linked (#415).
+/*
+ * REMOVED in #446: `linkTcContacts(userId, email)`.
  *
- * Before this, `tc_user_id` was resolved exactly once — at the moment the agent
- * typed the TC into Settings. A TC without an account resolved to NULL and
- * stayed NULL forever, so they were excluded from GET /api/me/agents,
- * hasDealAccess's linked-TC branch, and the internal message thread. Running
- * this on every /users/sync makes the link form on the TC's first login and
- * also repairs the TCs typed in before the fix.
+ * #415 ran it from POST /api/users/sync — i.e. on EVERY login — to link a
+ * freshly signed-up TC into any agent whose `tc_contact` named their email.
+ * Two problems, both fixed by moving the link to a tokened claim
+ * (POST /api/tc-invites/:token/claim):
  *
- * Matching is by email alone, case-insensitively, deliberately: the invitee's
- * role is `tc` for a fresh signup but stays `agent` for someone who already had
- * an account, and requiring `role = 'tc'` here would reintroduce exactly the
- * bug this fixes. The consent is the agent having typed that address into their
- * own TC field.
+ *   1. Security. Matching on email alone meant control of an invited address
+ *      was enough to inherit an agent's whole pipeline, forever, with no token,
+ *      no expiry, and no claim step.
+ *   2. Performance. It filtered on `lower(tc_contact->>'email')`, a JSONB
+ *      extraction no index can serve, so every login sequentially scanned
+ *      `users` — the regression class #393/#394 already fixed twice.
  *
- * `id <> $1` stops a user from becoming their own TC if their own address ever
- * ends up in their own tc_contact.
+ * The login path now does no TC work at all beyond the indexed `isLinkedTc`
+ * check that decideRole rule 2b needs for a persisted `tc`.
  */
-export async function linkTcContacts(
-  userId: string,
-  email: string
-): Promise<number> {
-  if (!email) return 0;
-  return prisma.$executeRaw`
-    UPDATE users
-       SET tc_user_id = ${userId}::uuid,
-           updated_at = NOW()
-     WHERE tc_contact IS NOT NULL
-       AND lower(tc_contact->>'email') = lower(${email})
-       AND id <> ${userId}::uuid
-       AND (tc_user_id IS NULL OR tc_user_id <> ${userId}::uuid)
-  `;
-}
 
 /**
  * Resolves the role POST /api/users/sync writes for a caller. Owns the IO only
@@ -250,7 +234,7 @@ export async function resolveSyncRole(input: {
 }): Promise<Role | null> {
   const row = await prisma.users.findUnique({
     where: { auth0_id: input.auth0Id },
-    select: { role: true, deactivated_at: true },
+    select: { id: true, role: true, deactivated_at: true },
   });
   if (row?.deactivated_at) {
     throw new AuthError("account deactivated", 403);
@@ -260,11 +244,20 @@ export async function resolveSyncRole(input: {
   // The invite lookup can only change the answer when there is no row yet
   // (decideRole rule 3), so skip the query entirely for returning users — this
   // costs one extra read on first login and nothing after that.
-  const inviteRole = row ? null : await pendingRoleForEmail(input.email);
+  const inviteRole = row ? null : await pendingInviteRole(input.email);
+
+  // Same trick for the TC-linkage read (decideRole rule 2b): it can only change
+  // the answer for someone whose PERSISTED role is already `tc`, so every other
+  // login skips it entirely. When it does run it is an indexed EXISTS
+  // (users_tc_user_id_idx, migration 000064), not the `tc_contact` JSONB scan
+  // #415 ran on every single sync.
+  const tcLinked =
+    row && dbRole === "tc" ? await isLinkedTc(row.id) : false;
 
   return decideRole({
     claimedRole: resolveRole(input.claimRoles),
     dbRole,
     inviteRole,
+    tcLinked,
   });
 }

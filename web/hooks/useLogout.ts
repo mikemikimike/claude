@@ -21,6 +21,8 @@ const PENDING_INVITE_KEYS = [
   "pendingInviteEmail",
   "pendingAgentInvite",
   "pendingAgentInviteEmail",
+  "pendingTcInvite",
+  "pendingTcInviteEmail",
 ];
 
 /**

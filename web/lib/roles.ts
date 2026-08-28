@@ -83,23 +83,6 @@ export function isClientRole(role: string | null | undefined): role is Role {
 }
 
 /**
- * Every role an INVITE can establish — the two client-portal roles plus `tc`.
- *
- * `tc` joined this set with #415: an agent adds their Transaction Coordinator
- * in Settings, we email them, and the pending assignment on the agent's row
- * (`users.tc_contact`) is the only thing that says the person signing up is a
- * TC rather than yet another self-serve agent. Auth0 RBAC can still grant `tc`
- * directly (that path goes through rule 1, not here).
- *
- * Deliberately a SUPERSET of isClientRole rather than a widening of it —
- * isClientRole answers "is this a portal client?", which drives portal-only
- * behaviour elsewhere and must keep excluding TCs.
- */
-export function isInvitedRole(role: string | null | undefined): role is Role {
-  return isClientRole(role) || role === "tc";
-}
-
-/**
  * THE role-precedence rule for POST /api/users/sync. Pure — all IO lives in
  * resolveSyncRole (lib/users.ts). This is the ONLY place the rule lives: do not
  * add a second guard in upsertUser or in the route handler.
@@ -115,28 +98,53 @@ export function decideRole(input: {
   claimedRole: Role | null;
   dbRole: Role | null;
   inviteRole: Role | null;
+  /**
+   * Whether some agent still has this user as their linked transaction
+   * coordinator (`users.tc_user_id`). Only consulted for a persisted `tc` —
+   * see rule 2b. Defaults to false, which is the safe direction: it can only
+   * ever demote a `tc` back to whatever the claim says.
+   */
+  tcLinked?: boolean;
 }): Role | null {
-  const { claimedRole, dbRole, inviteRole } = input;
+  const { claimedRole, dbRole, inviteRole, tcLinked = false } = input;
 
   // 1. An explicit (non-default) claim always wins. This is the documented
   //    promotion path: assign the role in Auth0 RBAC → log out → log back in.
   if (claimedRole && claimedRole !== DEFAULT_TENANT_ROLE) return claimedRole;
 
-  // 2. An established buyer/seller/tc is NEVER overwritten by the tenant's
-  //    default `agent` claim. Without this an invited TC (#415) is demoted back
-  //    to agent on their SECOND login, since the tenant keeps handing them the
-  //    default claim. Escape hatch for a genuine client/TC→agent move: update
-  //    users.role directly, then re-login — dbRole is no longer an invited
+  // 2a. An established buyer/seller is NEVER overwritten by the tenant's
+  //    default `agent` claim. Escape hatch for a genuine client→agent move:
+  //    update users.role directly, then re-login — dbRole is no longer a client
   //    role, so rule 4 takes over and the claim is honoured again.
-  if (isInvitedRole(dbRole)) return dbRole;
+  if (isClientRole(dbRole)) return dbRole;
+
+  // 2b. A persisted `tc` is protected the same way, but only WHILE THE LINK
+  //    THAT MADE THEM ONE STILL EXISTS (#446). The protection is needed for the
+  //    same reason as 2a — the tenant keeps handing an invited TC the default
+  //    `agent` claim, which would demote them on their second login — but
+  //    making it unconditional (as #415 did) meant TC revocation silently
+  //    stopped working: dropping their Auth0 `tc` role left them a `tc`
+  //    forever, and only a hand-written `UPDATE users SET role='agent'` could
+  //    undo it.
+  //
+  //    Tying it to the link makes revocation an in-product action with no SQL:
+  //    the agent removes them in Settings → Transaction Coordinator (which
+  //    clears `tc_user_id`), and their next login returns them to `agent`. A TC
+  //    who serves several agents stays a `tc` until the LAST one removes them.
+  //    Auth0-granted TCs are unaffected — that is an explicit claim, rule 1.
+  if (dbRole === "tc") return tcLinked ? dbRole : (claimedRole ?? dbRole);
 
   // 3. No row yet — the invite claim POST is slow, failed, or they logged in on
   //    a device that never saw the invite link. An OPEN invite addressed to
   //    them is better evidence than the tenant default. Gated on !dbRole so an
   //    agent who happens to hold a client invite for their own email is never
-  //    demoted (cf. #174) — which is also what stops an established agent whom
-  //    someone typed into their TC settings from being turned into a TC (#415).
-  if (!dbRole && isInvitedRole(inviteRole)) return inviteRole;
+  //    demoted (cf. #174).
+  //
+  //    Client roles ONLY. A TC never arrives this way: #446 removed the
+  //    email-keyed TC lookup that fed this branch, because for a TC the role
+  //    and the pipeline access are the same grant, so an email-only safety net
+  //    WAS the vulnerability. A TC's role comes from claiming their token.
+  if (!dbRole && isClientRole(inviteRole)) return inviteRole;
 
   // 4. Normal path — including self-serve agent signup with no invite at all.
   return claimedRole ?? dbRole;

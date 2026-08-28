@@ -4,7 +4,6 @@ import {
   DEFAULT_TENANT_ROLE,
   decideRole,
   isClientRole,
-  isInvitedRole,
   requireRole,
   hasRole,
   type Role,
@@ -61,19 +60,6 @@ describe("isClientRole", () => {
   });
 });
 
-describe("isInvitedRole", () => {
-  it("covers every role an invite can grant — the portal roles plus tc", () => {
-    expect(isInvitedRole("buyer")).toBe(true);
-    expect(isInvitedRole("seller")).toBe(true);
-    expect(isInvitedRole("tc")).toBe(true);
-    expect(isInvitedRole("agent")).toBe(false);
-    expect(isInvitedRole("admin")).toBe(false);
-    expect(isInvitedRole("lending_partner")).toBe(false);
-    expect(isInvitedRole(null)).toBe(false);
-    expect(isInvitedRole(undefined)).toBe(false);
-  });
-});
-
 /**
  * The invited-client-becomes-an-agent bug. The Auth0 tenant hands every new
  * signup a default `agent` role; before decideRole, /users/sync let that claim
@@ -86,6 +72,7 @@ describe("decideRole", () => {
     claimedRole: Role | null;
     dbRole: Role | null;
     inviteRole: Role | null;
+    tcLinked?: boolean;
     expected: Role | null;
   }> = [
     // Rule 2 — the regression this whole rule exists for.
@@ -142,22 +129,34 @@ describe("decideRole", () => {
       name: "no claim and no row still honours an open invite",
       claimedRole: null, dbRole: null, inviteRole: "buyer", expected: "buyer",
     },
-    // Rule 3 — a TC invited from an agent's Settings (#415). The tenant hands
-    // them the default `agent` claim; the pending TC assignment is the only
-    // thing that says otherwise.
+    // Rule 3 no longer knows about TCs (#446). A `tc` role comes from claiming
+    // a token, never from an email appearing in some agent's settings — for a
+    // TC the role and the pipeline are one grant, so an email-only safety net
+    // WAS the vulnerability.
     {
-      name: "a pending TC invite beats a default agent claim for a brand-new user",
-      claimedRole: "agent", dbRole: null, inviteRole: "tc", expected: "tc",
+      name: "an invite-derived tc role is IGNORED — only client roles use rule 3",
+      claimedRole: "agent", dbRole: null, inviteRole: "tc", expected: "agent",
+    },
+    // Rule 2b — once they ARE a TC, the tenant's default agent claim must not
+    // take it back on their second login (#415)…
+    {
+      name: "a default agent claim does NOT overwrite a persisted, still-linked tc",
+      claimedRole: "agent", dbRole: "tc", inviteRole: null, tcLinked: true, expected: "tc",
+    },
+    // …but that protection is tied to the link, so revocation actually works
+    // (#446). The agent removes them in Settings → next login demotes them, no
+    // hand-written UPDATE required.
+    {
+      name: "an UNLINKED tc is demoted by a bare agent claim — revocation works",
+      claimedRole: "agent", dbRole: "tc", inviteRole: null, tcLinked: false, expected: "agent",
     },
     {
-      name: "a pending TC invite does NOT demote an established agent",
-      claimedRole: "agent", dbRole: "agent", inviteRole: "tc", expected: "agent",
+      name: "an unlinked tc with no claim at all keeps tc rather than becoming null",
+      claimedRole: null, dbRole: "tc", inviteRole: null, tcLinked: false, expected: "tc",
     },
-    // Rule 2 — once they ARE a TC, the tenant's default agent claim must not
-    // take it back on their second login (#415).
     {
-      name: "a default agent claim does NOT overwrite a persisted tc",
-      claimedRole: "agent", dbRole: "tc", inviteRole: null, expected: "tc",
+      name: "an explicit Auth0 tc claim outranks the link check entirely (rule 1)",
+      claimedRole: "tc", dbRole: "tc", inviteRole: null, tcLinked: false, expected: "tc",
     },
     // Removing an admin's RBAC role must still demote them on next login.
     {
@@ -177,6 +176,7 @@ describe("decideRole", () => {
           claimedRole: c.claimedRole,
           dbRole: c.dbRole,
           inviteRole: c.inviteRole,
+          tcLinked: c.tcLinked,
         })
       ).toBe(c.expected);
     });

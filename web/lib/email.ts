@@ -177,15 +177,18 @@ export type SendTcInviteInput = {
   name: string;
   /** The inviting agent's name, so the recipient knows who this is from. */
   agentName: string;
-  /** Where to sign up — the app root; RootRedirect drops a TC into /tc. */
+  /** The tokened `/tc-invite/<token>` landing page. */
   inviteUrl: string;
 };
 
 /**
  * Delivers the Transaction Coordinator invitation an agent's Settings save
- * promises (#415). There is no token in this link: the pending assignment on
- * the agent's row is keyed by EMAIL, so whoever signs up with the invited
- * address is resolved to `tc` by decideRole and linked by linkTcContacts.
+ * promises (#415).
+ *
+ * The link carries a TOKEN (#446) and is the ONLY way to become that agent's
+ * TC — signing up with the invited address and no token grants nothing. It
+ * expires after 7 days and can be claimed once, so this email is a key: it is
+ * worth saying so in the copy.
  *
  * Called best-effort — a delivery failure must not block saving the TC.
  */
@@ -200,17 +203,18 @@ export async function sendTcInviteEmail(input: SendTcInviteInput): Promise<void>
       <h2>You've been added as a Transaction Coordinator</h2>
       <p>${greeting}</p>
       <p>${safeAgent} added you as their Transaction Coordinator on RealTourFlow.
-         Create your account with <strong>this email address</strong> and you'll land in
-         your TC dashboard, with their deals, checklists, tasks, and internal
-         messages already waiting for you.</p>
+         Accept below and you'll land in your TC dashboard, with their deals,
+         checklists, tasks, and internal messages already waiting for you.</p>
       <p style="margin: 24px 0;">
         <a href="${safeUrl}"
            style="background: #2563eb; color: #fff; padding: 12px 20px; border-radius: 6px; text-decoration: none;">
-          Set up my TC account
+          Accept and set up my TC account
         </a>
       </p>
       <p style="color: #6b7280; font-size: 13px;">
-        Sign up with a different address and you won't be connected to ${safeAgent}.
+        This link is personal to you and expires in 7 days — don't forward it.
+        Just creating an account with this address won't connect you to
+        ${safeAgent}; accepting through this link is what does.
       </p>
       <p style="color: #6b7280; font-size: 13px;">
         If the button doesn't work, paste this link into your browser:<br />

@@ -2,7 +2,7 @@ import { error, json, withAuth } from "@/lib/http";
 import { prisma } from "@/lib/db";
 import { resolveUserId } from "@/lib/users";
 import {
-  currentTcContact,
+  currentTcAssignment,
   findAccountByEmail,
   inviteTc,
   saveTcAssignment,
@@ -106,19 +106,18 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       const account = await findAccountByEmail(email);
 
       if (role === "tc") {
-        // Both TC branches — known account or not — write the agent-level
-        // assignment, because that is what actually makes the deal visible to
-        // a TC (listDealsForUser scopes a TC by users.tc_user_id, NOT by
-        // deal_participants). A participant row alone would leave the deal
-        // reachable only by direct URL and invisible in their dashboard.
-        const outcome = await assignTcParticipant({
+        // The TC branch never returns a participant id: it writes the
+        // AGENT-LEVEL assignment instead, because that is what actually makes
+        // deals visible to a TC (listDealsForUser scopes a TC by
+        // users.tc_user_id, NOT by deal_participants). A participant row alone
+        // would leave the deal reachable only by direct URL and invisible in
+        // their dashboard — a third, inconsistent notion of "TC".
+        return assignTcParticipant({
           agentId: userId,
           email,
           account,
           origin: new URL(req.url).origin,
         });
-        if (outcome instanceof Response) return outcome;
-        targetUserId = outcome;
       } else {
         if (!account) {
           return error(
@@ -141,40 +140,49 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
 
 /**
  * Points the calling agent's TC assignment at `email`, from the deal's Add
- * Participant flow, and invites them when they have no account yet.
+ * Participant flow, and invites that person to accept.
  *
- * It writes the agent's own TC assignment rather than only a per-deal
- * participant row on purpose: a TC in this product is assigned once and covers
- * every deal that agent works — `users.tc_user_id` is what `listDealsForUser`
- * and `canReadDeal` read for a TC. A deal-scoped TC would be a third,
- * inconsistent notion of "TC", and one whose deals never show up in the TC
- * dashboard.
+ * It writes the agent's own TC assignment rather than a per-deal participant
+ * row on purpose: a TC in this product is assigned once and covers every deal
+ * that agent works — `users.tc_user_id` is what `listDealsForUser` and
+ * `canReadDeal` read for a TC.
  *
  * Because it IS an assignment, it must not silently replace one: an agent who
  * already has a different TC gets a 409 pointing at Settings.
  *
- * Returns the account id to add as a participant, or a Response to return
- * as-is (400 self-assignment, 409 conflict, 202 invited).
+ * #446 — the account is never LINKED here, whether or not it already exists.
+ * Typing an address is the agent's half of the handshake; the other half is the
+ * invitee accepting a tokened, 7-day, single-use link. Until then `tc_user_id`
+ * stays null and this deal (and every other) stays invisible to them.
+ *
+ * Always a Response: 400 self-assignment, 409 conflict, 200 no-op when they are
+ * already the linked TC, 202 invited.
  */
 async function assignTcParticipant(input: {
   agentId: string;
   email: string;
   account: { id: string; name: string } | null;
   origin: string;
-}): Promise<Response | string> {
+}): Promise<Response> {
   const { agentId, email, account, origin } = input;
 
   if (account?.id === agentId) {
     return error("you can't be your own transaction coordinator", 400);
   }
 
-  const existing = await currentTcContact(agentId);
+  const { contact: existing, tcUserId } = await currentTcAssignment(agentId);
   if (existing && existing.email && existing.email.toLowerCase() !== email) {
     return error(
       `You already have a transaction coordinator (${existing.email}). ` +
         "Change it in Settings → Transaction Coordinator first.",
       409
     );
+  }
+
+  // Already accepted, same person — nothing to do, and re-inviting would only
+  // retire the link that is currently working.
+  if (tcUserId && account && tcUserId === account.id) {
+    return json({ status: "ok" });
   }
 
   // No name is collected here — fall back to the account's own name, then to
@@ -184,24 +192,22 @@ async function assignTcParticipant(input: {
   await saveTcAssignment({
     agentId,
     contact: { name, email, phone: existing?.phone ?? "" },
-    tcUserId: account?.id ?? null,
+    tcUserId: null,
   });
-
-  // Known account: the caller adds the deal_participants row as usual.
-  if (account) return account.id;
 
   const agent = await prisma.users.findUnique({
     where: { id: agentId },
     select: { name: true },
   });
-  const invited = await inviteTc({
+  const { sent } = await inviteTc({
+    agentId,
     email,
     name,
     agentName: agent?.name ?? "",
     origin,
   });
 
-  // 202: accepted, but they are not a participant yet — they become one
-  // implicitly (via tc_user_id) once they accept and sign up.
-  return json({ status: "invited", role: "tc", email, invited }, 202);
+  // 202: accepted, but they are not the TC yet — they become one when they
+  // claim the token.
+  return json({ status: "invited", role: "tc", email, invited: sent }, 202);
 }

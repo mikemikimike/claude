@@ -11,6 +11,8 @@ import { GET as getChecklistRoute } from "@/app/api/deals/[id]/checklist/route";
 import { GET as getContingenciesRoute } from "@/app/api/deals/[id]/contingencies/route";
 import { POST as syncRoute } from "@/app/api/users/sync/route";
 import { POST as addParticipantRoute } from "@/app/api/deals/[id]/participants/route";
+import { GET as getTcInviteRoute } from "@/app/api/tc-invites/[token]/route";
+import { POST as claimTcInviteRoute } from "@/app/api/tc-invites/[token]/claim/route";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
 import { setEmailForTesting } from "@/lib/email";
 import { prisma } from "@/lib/db";
@@ -139,27 +141,33 @@ describe("PUT /api/me/tc", () => {
     expect(row?.tc_user_id).toBeNull();
   });
 
-  it("links tc_user_id when a role='tc' platform user matches the email", async () => {
+  it("does NOT link an existing role='tc' account — it invites them (#446)", async () => {
+    // #444 linked here, on the email alone. That made typing an address the
+    // whole handshake: one typo'd domain that happened to belong to a real
+    // account handed a stranger the agent's pipeline. The link now needs the
+    // invitee to accept a token.
     const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
-    const tcUser = await createUser({
+    await createUser({
       role: "tc",
       auth0_id: "auth0|tc",
       email: "linked@tc.test",
       name: "Linked TC",
     });
+    const { client, sent } = fakeEmail();
+    setEmailForTesting(client);
 
     const res = await putTcRoute(
       await req("PUT", { name: "Linked TC", email: "Linked@TC.test", phone: "555-0200" })()
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { user_id: string | null };
-    expect(body.user_id).toBe(tcUser.id);
+    expect(await res.json()).toMatchObject({ user_id: null, invited: true });
 
     const row = await prisma.users.findUnique({
       where: { id: agent.id },
       select: { tc_user_id: true },
     });
-    expect(row?.tc_user_id).toBe(tcUser.id);
+    expect(row?.tc_user_id).toBeNull();
+    expect(sent).toHaveLength(1);
   });
 
   it("400 when name or email missing", async () => {
@@ -519,6 +527,45 @@ async function addParticipant(
   );
 }
 
+// ── #446 tokened-invite helpers ──────────────────────────────────────────────
+
+/** The token of the agent's one open (unclaimed) invite. */
+async function openTokenFor(agentId: string): Promise<string> {
+  const row = await prisma.tc_invites.findFirstOrThrow({
+    where: { agent_id: agentId, claimed_at: null },
+    orderBy: { created_at: "desc" },
+  });
+  return row.token;
+}
+
+/** POST /api/tc-invites/:token/claim as `sub`, with the default agent claim. */
+async function claimTcInvite(
+  token: string,
+  sub: string,
+  body: { email: string; name?: string },
+  roles: string[] = ["agent"]
+): Promise<Response> {
+  return claimTcInviteRoute(
+    new Request(`http://localhost/api/tc-invites/${token}/claim`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(sub, roles),
+      },
+      body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ token }) }
+  );
+}
+
+/** GET /api/tc-invites/:token — public, no auth. */
+async function getTcInvite(token: string): Promise<Response> {
+  return getTcInviteRoute(
+    new Request(`http://localhost/api/tc-invites/${token}`),
+    { params: Promise.resolve({ token }) }
+  );
+}
+
 describe("PUT /api/me/tc — invites a TC who has no account yet (#415)", () => {
   it("emails an invite and reports invited: true", async () => {
     await createUser({ role: "agent", auth0_id: "auth0|agent", name: "Agent Able" });
@@ -536,8 +583,15 @@ describe("PUT /api/me/tc — invites a TC who has no account yet (#415)", () => 
     expect(sent).toHaveLength(1);
     expect(sent[0].to).toBe("tina@tc.test");
     expect(sent[0].subject).toMatch(/transaction coordinator/i);
-    // The link has to get them to the app so they can create the account.
-    expect(sent[0].html).toContain("http://localhost");
+    // The link has to carry the token — it is the whole grant (#446).
+    const invite = await prisma.tc_invites.findFirstOrThrow({
+      where: { email: "tina@tc.test" },
+    });
+    expect(sent[0].html).toContain(`http://localhost/tc-invite/${invite.token}`);
+    // …and it has to die. deal_invites' 7 days, same shape.
+    expect(invite.expires_at.getTime()).toBeGreaterThan(Date.now());
+    expect(invite.expires_at.getTime()).toBeLessThan(Date.now() + 8 * 864e5);
+    expect(invite.claimed_at).toBeNull();
   });
 
   it("does not blow up the save when the send fails", async () => {
@@ -553,11 +607,11 @@ describe("PUT /api/me/tc — invites a TC who has no account yet (#415)", () => 
     expect(await res.json()).toMatchObject({ email: "tina@tc.test", invited: false });
   });
 
-  it("links an EXISTING account by email alone, whatever role it holds", async () => {
-    // The old lookup required role='tc'. A TC invited through any other path
-    // (or an existing agent doubling as a TC) could never be linked.
+  it("invites — never silently links — an EXISTING account (#446)", async () => {
+    // #444 linked an existing account straight from the PUT. Same hole as the
+    // signup case, just faster: the agent's typo is the only step.
     const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
-    const other = await createUser({
+    await createUser({
       role: "agent",
       auth0_id: "auth0|other",
       email: "coordinator@tc.test",
@@ -569,15 +623,14 @@ describe("PUT /api/me/tc — invites a TC who has no account yet (#415)", () => 
       await req("PUT", { name: "Coordinator", email: "Coordinator@TC.test" })()
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ user_id: other.id, invited: false });
-    // Nothing to invite — they already have an account.
-    expect(sent).toHaveLength(0);
+    expect(await res.json()).toMatchObject({ user_id: null, invited: true });
+    expect(sent).toHaveLength(1);
 
     const row = await prisma.users.findUnique({
       where: { id: agent.id },
       select: { tc_user_id: true },
     });
-    expect(row?.tc_user_id).toBe(other.id);
+    expect(row?.tc_user_id).toBeNull();
   });
 
   it("refuses to make the agent their own TC", async () => {
@@ -603,8 +656,10 @@ describe("PUT /api/me/tc — invites a TC who has no account yet (#415)", () => 
   });
 });
 
-describe("TC invite → signup → link, end to end (#415)", () => {
-  it("makes the invitee a tc, backfills tc_user_id, and lists the agent", async () => {
+describe("TC invite → signup → claim → link, end to end (#415, tokened by #446)", () => {
+  it("makes the invitee a tc, links tc_user_id, and lists the agent", async () => {
+    // THE #415 happy path, and the required regression guard: the only thing
+    // #446 changes is that the token — not the email — is what carries it.
     const agent = await createUser({
       role: "agent",
       auth0_id: "auth0|agent",
@@ -614,19 +669,24 @@ describe("TC invite → signup → link, end to end (#415)", () => {
     const { client } = fakeEmail();
     setEmailForTesting(client);
 
-    // 1. The agent adds a TC who has no account.
+    // 1. The agent adds a TC who has no account. She is NOT linked yet.
     expect(
       (await putTcRoute(await req("PUT", { name: "Tina Coord", email: "tina@tc.test" })()))
         .status
     ).toBe(200);
+    const token = await openTokenFor(agent.id);
 
-    // 2. Tina signs up. The tenant hands her the DEFAULT agent claim.
-    const sync = await syncUser("auth0|tina", "tina@tc.test", "Tina Coord", ["agent"]);
-    expect(sync.status).toBe(200);
-    const tina = (await sync.json()) as { id: string; role: string };
+    // 2. Tina signs up from the link. The tenant hands her the DEFAULT agent
+    //    claim; the claim runs FIRST (AuthSetup), which is what makes her a tc.
+    const claim = await claimTcInvite(token, "auth0|tina", {
+      email: "tina@tc.test",
+      name: "Tina Coord",
+    });
+    expect(claim.status).toBe(200);
+    const tina = (await claim.json()) as { id: string; role: string };
     expect(tina.role).toBe("tc");
 
-    // 3. The agent's row is backfilled.
+    // 3. The agent's row is linked.
     const row = await prisma.users.findUnique({
       where: { id: agent.id },
       select: { tc_user_id: true },
@@ -650,15 +710,32 @@ describe("TC invite → signup → link, end to end (#415)", () => {
     const resync = await syncUser("auth0|tina", "tina@tc.test", "Tina Coord", ["agent"]);
     expect(resync.status).toBe(200);
     expect((await resync.json()) as { role: string }).toMatchObject({ role: "tc" });
+
+    // 6. …and she can actually see the agent's deals, which is the point.
+    await createDeal({ agent_id: agent.id, title: "Tina's Deal" });
+    const deals = await listDealsRoute(
+      new Request("http://localhost/api/deals", {
+        headers: { authorization: await authHeader("auth0|tina", ["tc"]) },
+      })
+    );
+    expect((await deals.json()) as { title: string }[]).toMatchObject([
+      { title: "Tina's Deal" },
+    ]);
   });
 
-  it("matches the TC contact case-insensitively", async () => {
+  it("matches the invited email case-insensitively", async () => {
     const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
     setEmailForTesting(fakeEmail().client);
     await putTcRoute(await req("PUT", { name: "Tina", email: "TINA@TC.test" })());
+    const token = await openTokenFor(agent.id);
 
-    const sync = await syncUser("auth0|tina", "Tina@Tc.TEST", "Tina");
-    const tina = (await sync.json()) as { id: string; role: string };
+    // The address is stored lowercased; the claim presents whatever the page
+    // read back. Neither side may be case-sensitive.
+    const claim = await claimTcInvite(token, "auth0|tina", {
+      email: "Tina@Tc.TEST",
+      name: "Tina",
+    });
+    const tina = (await claim.json()) as { id: string; role: string };
     expect(tina.role).toBe("tc");
 
     const row = await prisma.users.findUnique({
@@ -668,48 +745,54 @@ describe("TC invite → signup → link, end to end (#415)", () => {
     expect(row?.tc_user_id).toBe(tina.id);
   });
 
-  it("backfills a TC who was added BEFORE this fix and already has an account", async () => {
-    // The repair case: tc_contact written by the old code, tc_user_id null,
-    // and the TC signed up on their own (so they exist as an agent).
+  it("leaves a PRE-#446 untokenized tc_contact unclaimable — it grants nothing", async () => {
+    // What happens to the invites already sitting in prod: the contact text
+    // survives (the agent still sees "Invite pending"), but it is no longer a
+    // key. Re-saving in Settings issues a real, tokened one.
     const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
     await prisma.users.update({
       where: { id: agent.id },
       data: { tc_contact: { name: "Old TC", email: "old@tc.test", phone: "" } },
     });
-    const old = await createUser({
-      role: "agent",
-      auth0_id: "auth0|old",
-      email: "old@tc.test",
-      name: "Old TC",
-    });
 
-    // Their next login repairs the link (their role stays agent — decideRole
-    // rule 3 is gated on there being no row yet).
     const sync = await syncUser("auth0|old", "old@tc.test", "Old TC");
     expect(sync.status).toBe(200);
+    expect((await sync.json()) as { role: string }).toMatchObject({ role: "agent" });
 
     const row = await prisma.users.findUnique({
       where: { id: agent.id },
-      select: { tc_user_id: true },
+      select: { tc_user_id: true, tc_contact: true },
     });
-    expect(row?.tc_user_id).toBe(old.id);
+    expect(row?.tc_user_id).toBeNull();
+    expect(row?.tc_contact).toMatchObject({ email: "old@tc.test" });
   });
 
-  it("does NOT demote an established agent who someone lists as their TC", async () => {
+  it("does NOT demote an established agent who accepts a TC invite", async () => {
+    // An agent who also coordinates for someone keeps their agent account —
+    // the link is made, the role is left alone.
     const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
-    await prisma.users.update({
-      where: { id: agent.id },
-      data: { tc_contact: { name: "Busy Agent", email: "busy@agent.test", phone: "" } },
-    });
-    await createUser({
+    const busy = await createUser({
       role: "agent",
       auth0_id: "auth0|busy",
       email: "busy@agent.test",
       name: "Busy Agent",
     });
+    setEmailForTesting(fakeEmail().client);
+    await putTcRoute(await req("PUT", { name: "Busy Agent", email: "busy@agent.test" })());
+    const token = await openTokenFor(agent.id);
 
-    const sync = await syncUser("auth0|busy", "busy@agent.test", "Busy Agent");
-    expect((await sync.json()) as { role: string }).toMatchObject({ role: "agent" });
+    const claim = await claimTcInvite(token, "auth0|busy", {
+      email: "busy@agent.test",
+      name: "Busy Agent",
+    });
+    expect(claim.status).toBe(200);
+    expect((await claim.json()) as { role: string }).toMatchObject({ role: "agent" });
+
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBe(busy.id);
   });
 });
 
@@ -753,7 +836,7 @@ describe("POST /api/deals/:id/participants — role tc (#415)", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("adds a known TC AND links them, so the deal reaches their dashboard", async () => {
+  it("invites a KNOWN TC too — no deal_participants row, no link until they accept (#446)", async () => {
     const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
     const deal = await createDeal({ agent_id: agent.id });
     const tc = await createUser({
@@ -762,28 +845,65 @@ describe("POST /api/deals/:id/participants — role tc (#415)", () => {
       email: "tc@tc.test",
       name: "Tina Coord",
     });
+    const { client, sent } = fakeEmail();
+    setEmailForTesting(client);
 
     const res = await addParticipant(deal.id, { email: "TC@tc.test", role: "tc" });
-    expect(res.status).toBe(200);
-    const rows = await prisma.deal_participants.findMany({ where: { deal_id: deal.id } });
-    expect(rows).toMatchObject([{ user_id: tc.id, role: "tc" }]);
+    expect(res.status).toBe(202);
+    expect(sent).toHaveLength(1);
 
-    // A deal_participants row alone is NOT enough: listDealsForUser scopes a
-    // TC by users.tc_user_id, so without this the deal would be invisible in
-    // the TC dashboard.
+    // #444 wrote a deal_participants row here AND set tc_user_id. Neither is
+    // right: a per-deal TC row is a third notion of "TC" that never reaches the
+    // TC dashboard, and the link is not the agent's to make unilaterally.
+    const rows = await prisma.deal_participants.findMany({ where: { deal_id: deal.id } });
+    expect(rows).toHaveLength(0);
     const row = await prisma.users.findUnique({
       where: { id: agent.id },
       select: { tc_user_id: true, tc_contact: true },
     });
-    expect(row?.tc_user_id).toBe(tc.id);
+    expect(row?.tc_user_id).toBeNull();
     expect(row?.tc_contact).toMatchObject({ name: "Tina Coord", email: "tc@tc.test" });
 
+    // After the claim, the assignment is live and the agent is listed.
+    const token = await openTokenFor(agent.id);
+    expect((await claimTcInvite(token, tc.auth0_id, { email: "tc@tc.test" })).status).toBe(200);
     const listed = await getAgentsRoute(
       new Request("http://localhost/api/me/agents", {
         headers: { authorization: await authHeader("auth0|tc", ["tc"]) },
       })
     );
     expect((await listed.json()) as { id: string }[]).toMatchObject([{ id: agent.id }]);
+  });
+
+  it("is a no-op 200 when the person is ALREADY the linked TC", async () => {
+    // Re-adding the TC you already have must not retire the working link and
+    // demand they accept all over again.
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
+    const deal = await createDeal({ agent_id: agent.id });
+    const tc = await createUser({
+      role: "tc",
+      auth0_id: "auth0|tc",
+      email: "tc@tc.test",
+      name: "Tina Coord",
+    });
+    await prisma.users.update({
+      where: { id: agent.id },
+      data: {
+        tc_user_id: tc.id,
+        tc_contact: { name: "Tina Coord", email: "tc@tc.test", phone: "" },
+      },
+    });
+    const { client, sent } = fakeEmail();
+    setEmailForTesting(client);
+
+    const res = await addParticipant(deal.id, { email: "TC@tc.test", role: "tc" });
+    expect(res.status).toBe(200);
+    expect(sent).toHaveLength(0);
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBe(tc.id);
   });
 
   it("refuses to make the agent their own TC", async () => {
@@ -804,5 +924,239 @@ describe("POST /api/deals/:id/participants — role tc (#415)", () => {
 
     const res = await addParticipant(deal.id, { email: "nobody@x.test", role: "buyer" });
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── #446 — the TC invite needs a TOKEN ──────────────────────────────────────
+//
+// #415 bound the invite to the EMAIL alone, with no token and no expiry, so
+// whoever controlled an invited address could sign up at any point in the
+// future and inherit the agent's whole pipeline (listDealsForUser scopes a TC
+// by users.tc_user_id). These lock the door.
+
+describe("TC invite hardening (#446)", () => {
+  it("does NOT make a tc, or link, when the invited email signs up WITHOUT the token", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
+    setEmailForTesting(fakeEmail().client);
+    expect(
+      (await putTcRoute(await req("PUT", { name: "Tina Coord", email: "tina@tc.test" })()))
+        .status
+    ).toBe(200);
+
+    // Someone who merely controls tina@tc.test signs up. No token anywhere.
+    const sync = await syncUser("auth0|impostor", "tina@tc.test", "Not Tina");
+    expect(sync.status).toBe(200);
+    expect((await sync.json()) as { role: string }).toMatchObject({ role: "agent" });
+
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBeNull();
+  });
+
+  it("does not link on an EXPIRED token", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
+    setEmailForTesting(fakeEmail().client);
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" })());
+    const token = await openTokenFor(agent.id);
+    await prisma.tc_invites.update({
+      where: { token },
+      data: { expires_at: new Date(Date.now() - 1000) },
+    });
+
+    const res = await claimTcInvite(token, "auth0|tina", { email: "tina@tc.test" });
+    expect(res.status).toBe(410);
+
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBeNull();
+    // The landing page must say so BEFORE anyone creates an Auth0 account.
+    expect((await getTcInvite(token)).status).toBe(410);
+  });
+
+  it("is single-use — a second account can't replay a claimed token", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
+    setEmailForTesting(fakeEmail().client);
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" })());
+    const token = await openTokenFor(agent.id);
+
+    const first = await claimTcInvite(token, "auth0|tina", { email: "tina@tc.test" });
+    expect(first.status).toBe(200);
+    const tina = (await first.json()) as { id: string };
+
+    // Someone else who got hold of the forwarded link.
+    const second = await claimTcInvite(token, "auth0|second", { email: "tina@tc.test" });
+    expect(second.status).toBe(409);
+
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBe(tina.id);
+  });
+
+  it("links only the agent named on the token — A's invite can't reach B", async () => {
+    const agentA = await createUser({
+      role: "agent",
+      auth0_id: "auth0|a",
+      email: "a@agent.test",
+    });
+    const agentB = await createUser({
+      role: "agent",
+      auth0_id: "auth0|b",
+      email: "b@agent.test",
+    });
+    setEmailForTesting(fakeEmail().client);
+    // Both agents invite the same person; only A's token is used.
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" }, "auth0|a")());
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" }, "auth0|b")());
+    const tokenA = await openTokenFor(agentA.id);
+
+    const res = await claimTcInvite(tokenA, "auth0|tina", { email: "tina@tc.test" });
+    expect(res.status).toBe(200);
+    const tina = (await res.json()) as { id: string };
+
+    const rows = await prisma.users.findMany({
+      where: { id: { in: [agentA.id, agentB.id] } },
+      select: { id: true, tc_user_id: true },
+      orderBy: { email: "asc" },
+    });
+    expect(rows).toMatchObject([
+      { id: agentA.id, tc_user_id: tina.id },
+      { id: agentB.id, tc_user_id: null },
+    ]);
+  });
+
+  it("binds the claim to the invited email — a token holder can't self-provision", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
+    setEmailForTesting(fakeEmail().client);
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" })());
+    const token = await openTokenFor(agent.id);
+
+    const res = await claimTcInvite(token, "auth0|thief", { email: "thief@x.test" });
+    expect(res.status).toBe(404);
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBeNull();
+  });
+
+  it("retires the outstanding invite when the agent re-points or clears the TC", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
+    setEmailForTesting(fakeEmail().client);
+
+    // Re-pointed: the first inbox's link stops working.
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" })());
+    const firstToken = await openTokenFor(agent.id);
+    await putTcRoute(await req("PUT", { name: "Terry", email: "terry@tc.test" })());
+    expect(
+      (await claimTcInvite(firstToken, "auth0|tina", { email: "tina@tc.test" })).status
+    ).toBe(409);
+
+    // Cleared: so does the second's.
+    const secondToken = await openTokenFor(agent.id);
+    expect((await deleteTcRoute(await req("DELETE")())).status).toBe(204);
+    expect(
+      (await claimTcInvite(secondToken, "auth0|terry", { email: "terry@tc.test" })).status
+    ).toBe(409);
+
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBeNull();
+  });
+
+  it("refuses a self-claim and a claim from a portal client", async () => {
+    const agent = await createUser({
+      role: "agent",
+      auth0_id: "auth0|agent",
+      email: "agent@x.test",
+    });
+    await createUser({ role: "buyer", auth0_id: "auth0|buyer", email: "tina@tc.test" });
+    setEmailForTesting(fakeEmail().client);
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" })());
+    const token = await openTokenFor(agent.id);
+
+    // The inviting agent opening their own link.
+    expect(
+      (await claimTcInvite(token, "auth0|agent", { email: "tina@tc.test" })).status
+    ).toBe(400);
+    // A buyer whose address the agent typed by mistake.
+    expect(
+      (await claimTcInvite(token, "auth0|buyer", { email: "tina@tc.test" })).status
+    ).toBe(409);
+
+    const row = await prisma.users.findUnique({
+      where: { id: agent.id },
+      select: { tc_user_id: true },
+    });
+    expect(row?.tc_user_id).toBeNull();
+  });
+});
+
+// ─── #446 scope item 3 — TC role revocation actually works ───────────────────
+//
+// #444 protected a persisted `tc` unconditionally, so dropping someone's Auth0
+// `tc` role no longer demoted them: it took a hand-written
+// `UPDATE users SET role='agent'`. The protection is now tied to the link that
+// made them a TC, which puts revocation in the agent's hands.
+
+describe("TC role revocation (#446)", () => {
+  it("demotes an unlinked ex-TC on their next login, with no manual SQL", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|agent" });
+    setEmailForTesting(fakeEmail().client);
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" })());
+    const token = await openTokenFor(agent.id);
+    expect(
+      (await claimTcInvite(token, "auth0|tina", { email: "tina@tc.test" })).status
+    ).toBe(200);
+
+    // Still linked → still a tc, even on a bare default `agent` claim.
+    expect(
+      (await (await syncUser("auth0|tina", "tina@tc.test", "Tina")).json()) as { role: string }
+    ).toMatchObject({ role: "tc" });
+
+    // The agent removes them in Settings.
+    expect((await deleteTcRoute(await req("DELETE")())).status).toBe(204);
+
+    // Next login: back to agent, and they see nobody's pipeline.
+    expect(
+      (await (await syncUser("auth0|tina", "tina@tc.test", "Tina")).json()) as { role: string }
+    ).toMatchObject({ role: "agent" });
+    const agents = await getAgentsRoute(
+      new Request("http://localhost/api/me/agents", {
+        headers: { authorization: await authHeader("auth0|tina", ["agent"]) },
+      })
+    );
+    expect((await agents.json()) as unknown[]).toHaveLength(0);
+  });
+
+  it("keeps an Auth0-granted tc a tc even with no link (rule 1)", async () => {
+    await createUser({ role: "tc", auth0_id: "auth0|rbac", email: "rbac@tc.test" });
+    const sync = await syncUser("auth0|rbac", "rbac@tc.test", "RBAC TC", ["tc"]);
+    expect((await sync.json()) as { role: string }).toMatchObject({ role: "tc" });
+  });
+
+  it("keeps a TC who still serves ANOTHER agent", async () => {
+    const agentA = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const agentB = await createUser({ role: "agent", auth0_id: "auth0|b" });
+    setEmailForTesting(fakeEmail().client);
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" }, "auth0|a")());
+    const tokenA = await openTokenFor(agentA.id);
+    await claimTcInvite(tokenA, "auth0|tina", { email: "tina@tc.test" });
+    await putTcRoute(await req("PUT", { name: "Tina", email: "tina@tc.test" }, "auth0|b")());
+    const tokenB = await openTokenFor(agentB.id);
+    await claimTcInvite(tokenB, "auth0|tina", { email: "tina@tc.test" });
+
+    // A drops her; B has not.
+    expect((await deleteTcRoute(await req("DELETE", undefined, "auth0|a")())).status).toBe(204);
+    expect(
+      (await (await syncUser("auth0|tina", "tina@tc.test", "Tina")).json()) as { role: string }
+    ).toMatchObject({ role: "tc" });
   });
 });

@@ -34,49 +34,22 @@ export async function pendingInviteRole(email: string): Promise<Role | null> {
 }
 
 /**
- * "tc" when some agent has this email sitting in their Transaction Coordinator
- * assignment (`users.tc_contact`) and has not been linked to an account yet.
+ * NOTE (#446): there is deliberately NO email-keyed lookup for a pending TC
+ * invite here any more.
  *
- * There is no `tc_invites` table and #415 deliberately did not add one: the
- * agent's own `tc_contact` row IS the pending invite. It is created by the
- * agent (PUT /api/me/tc), it names exactly one email, and it stops being
- * pending the moment the backfill sets `tc_user_id` — which is what
- * `tc_user_id IS NULL` checks.
+ * #415 added `pendingTcContactRole()`, which returned "tc" for any email that
+ * appeared in some agent's `users.tc_contact` — no token, no expiry. That made
+ * control of an email address sufficient to be resolved as that agent's TC,
+ * and it scanned `users` on `lower(tc_contact->>'email')` (an unindexable JSONB
+ * extraction) on the login path to do it. Both are gone: a TC's role now comes
+ * from claiming a tokened `tc_invites` row (POST /api/tc-invites/:token/claim),
+ * the same way a client's comes from claiming a `deal_invites` row.
  *
- * Raw SQL for the same reason as pendingInviteRole: `lower(...) = lower($1)` is
- * the only case-insensitive form a functional index can serve, and Prisma's
- * `mode: "insensitive"` emits ILIKE. NOTE: unlike deal_invites/users there is
- * no functional index on `lower(tc_contact->>'email')` yet — that needs a
- * migration and is a follow-up. It is a sequential scan over `users`, run only
- * on a brand-new user's first sync (resolveSyncRole skips it for returning
- * users) and on the Post-Login Action's role lookup.
+ * Deal invites keep their email-keyed safety net below because there the token
+ * still gates the ACCESS — an unclaimed deal invite grants a role label and no
+ * deal. For a TC the role label and the pipeline are the same grant, so the
+ * safety net would have been the hole.
  */
-export async function pendingTcContactRole(email: string): Promise<Role | null> {
-  if (!email) return null;
-  const rows = await prisma.$queryRaw<{ exists: number }[]>`
-    SELECT 1 AS exists
-      FROM users
-     WHERE tc_contact IS NOT NULL
-       AND tc_user_id IS NULL
-       AND lower(tc_contact->>'email') = lower(${email})
-     LIMIT 1
-  `;
-  return rows.length > 0 ? "tc" : null;
-}
-
-/**
- * The role any PENDING invitation implies for an email — a deal invite first
- * (buyer/seller), then a pending TC assignment. Deal invites win: they are
- * token-bound and deal-scoped, so a person who is both somebody's client and
- * somebody's TC lands in the portal they were explicitly invited to.
- *
- * This is the single lookup both resolveSyncRole and roleForEmail consult, so
- * /users/sync and the Auth0 Post-Login Action can never disagree.
- */
-export async function pendingRoleForEmail(email: string): Promise<Role | null> {
-  if (!email) return null;
-  return (await pendingInviteRole(email)) ?? (await pendingTcContactRole(email));
-}
 
 /**
  * The role that applies to an email: the users row first, then any open invite,
@@ -103,5 +76,5 @@ export async function roleForEmail(email: string): Promise<Role | ""> {
   `;
   const user = rows[0];
   if (user) return isValidRole(user.role) ? user.role : "";
-  return (await pendingRoleForEmail(email)) ?? "";
+  return (await pendingInviteRole(email)) ?? "";
 }

@@ -436,6 +436,8 @@ model users {
   promo_codes                                                 promo_codes[]
   system_config                                               system_config[]
   tasks                                                       tasks[]
+  tc_invites_tc_invites_agent_idTousers                       tc_invites[]          @relation("tc_invites_agent_idTousers")
+  tc_invites_tc_invites_claimed_byTousers                     tc_invites[]          @relation("tc_invites_claimed_byTousers")
   uploaded_forms_uploaded_forms_agent_idTousers               uploaded_forms[]      @relation("uploaded_forms_agent_idTousers")
   uploaded_forms_uploaded_forms_attested_byTousers            uploaded_forms[]      @relation("uploaded_forms_attested_byTousers")
   uploaded_forms_uploaded_forms_placement_confirmed_byTousers uploaded_forms[]      @relation("uploaded_forms_placement_confirmed_byTousers")
@@ -443,6 +445,8 @@ model users {
   user_settings                                               user_settings?
   users                                                       users?                @relation("usersTousers", fields: [tc_user_id], references: [id], onUpdate: NoAction)
   other_users                                                 users[]               @relation("usersTousers")
+
+  @@index([tc_user_id], where: raw("(tc_user_id IS NOT NULL)"))
 }
 
 model docusign_recipients {
@@ -672,6 +676,24 @@ model deal_links {
 
   @@index([agent_id], map: "idx_deal_links_agent")
   @@index([sell_deal_id], map: "idx_deal_links_sell")
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model tc_invites {
+  id                                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id                           String    @db.Uuid
+  email                              String
+  name                               String    @default("")
+  token                              String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  claimed_at                         DateTime? @db.Timestamptz(6)
+  claimed_by                         String?   @db.Uuid
+  expires_at                         DateTime  @default(dbgenerated("(now() + '7 days'::interval)")) @db.Timestamptz(6)
+  created_at                         DateTime  @default(now()) @db.Timestamptz(6)
+  users_tc_invites_agent_idTousers   users     @relation("tc_invites_agent_idTousers", fields: [agent_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_tc_invites_claimed_byTousers users?    @relation("tc_invites_claimed_byTousers", fields: [claimed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([agent_id], map: "tc_invites_agent_open_idx", where: raw("(claimed_at IS NULL)"))
+  @@index([token])
 }
 
 enum checklist_assignee {

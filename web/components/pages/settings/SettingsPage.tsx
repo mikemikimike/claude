@@ -1358,22 +1358,22 @@ function TransactionCoordinatorSection({ agentId: _agentId }: { agentId: string 
       </div>
 
       <p className="text-xs text-gray-300">
-        If your TC doesn&apos;t have a RealTourFlow account yet, we&apos;ll email them an invite when you save. They connect to you by signing up with this exact email address.
+        We&apos;ll email them an invite when you save. They&apos;re connected once they open that link and accept — the link expires in 7 days, and signing up without it won&apos;t connect them to you.
       </p>
 
       {outcome === 'invited' && (
         <p className="text-xs font-semibold text-green-600">
-          Invite sent to {form.email.trim().toLowerCase()}. They&apos;ll show as connected once they sign up with that address.
+          Invite sent to {form.email.trim().toLowerCase()}. They&apos;ll show as connected once they accept it.
         </p>
       )}
       {outcome === 'linked' && (
         <p className="text-xs font-semibold text-green-600">
-          Connected — they already have a RealTourFlow account.
+          Connected — no change to their access.
         </p>
       )}
       {outcome === 'send-failed' && (
         <p className="text-xs font-semibold text-amber-600">
-          Saved, but we couldn&apos;t send the invite email. Save again to retry, or ask them to sign up with {form.email.trim().toLowerCase()}.
+          Saved, but we couldn&apos;t send the invite email to {form.email.trim().toLowerCase()}. Save again to retry — they can&apos;t connect without that link.
         </p>
       )}
       {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
