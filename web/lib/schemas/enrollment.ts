@@ -48,3 +48,21 @@ export const smoothExitEnrollBodySchema = z.object({
   upsell_total_cents: z.unknown().optional(),
 });
 export type SmoothExitEnrollBody = z.output<typeof smoothExitEnrollBodySchema>;
+
+/**
+ * POST /api/deals/[id]/fastpass/pay (#440) — the buyer settles an enrollment
+ * that is already persisted and priced.
+ *
+ * Deliberately ONE field. Everything that decides the amount (the add-on
+ * basket, any promo discount, the agreed total) is read from the stored
+ * enrollment, and the payer's identity comes from the JWT — so there is nothing
+ * else here a client could tamper with. In particular there is no
+ * `customer_email`: Stripe's prefill is read server-side from `users.email`
+ * (#413), never from the wire.
+ */
+export const fastPassPayBodySchema = z.object({
+  // now | at_closing | seller_concession — the whitelist (and its 400 message)
+  // stays in the handler, matching the enrollment route.
+  payment_option: z.string().nullish(),
+});
+export type FastPassPayBody = z.output<typeof fastPassPayBodySchema>;

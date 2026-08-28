@@ -43,6 +43,14 @@ export type FastPassEnrollment = {
   selectedUpsells: FastPassUpsellId[];
   totalPaid: number;
   surveyAnswers?: FastPassSurveyAnswers;
+  /**
+   * The enrollment's server-computed total in CENTS, straight off
+   * `deals.fast_pass.total_cents` (#440). `totalPaid` is the same figure rounded
+   * to whole dollars for display; anything that has to agree with what Stripe
+   * charges — the buyer's payment card — must use this instead, because a promo
+   * discount can leave a total that isn't a round dollar.
+   */
+  totalCents: number;
 };
 
 // ── Smooth Exit enrollment (deal.smoothExit) ─────────────────────────────────

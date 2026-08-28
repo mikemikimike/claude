@@ -153,6 +153,13 @@ export type CreateUpsellCheckoutInput = {
   amountCents: number;
   successUrl: string;
   cancelUrl: string;
+  /**
+   * #413 — prefill Stripe Checkout with the PAYING USER's account email so they
+   * don't retype it (and so the receipt lands in the right inbox). Callers must
+   * read this server-side from `users.email` for the authenticated user; it is
+   * never accepted from a request body. Omitted → Stripe collects it.
+   */
+  customerEmail?: string;
 };
 
 /**
@@ -218,6 +225,10 @@ export async function createFastPassCheckout(
       },
     ],
     mode: "payment",
+    // #413 — prefilled from the paying user's users.email by the caller.
+    // Spread so an absent email leaves the field off entirely rather than
+    // sending `undefined` (Stripe then collects the address itself).
+    ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
     // Stamp deal_id/type onto the PaymentIntent so a later refund/dispute webhook
     // (which references only the PaymentIntent, not the checkout metadata) can
     // resolve the deal and reverse the enrollment (#365). Same pattern as the fee (#364).

@@ -29,6 +29,14 @@ import { uploadFileToStorage } from "@/lib/direct-upload";
 import ClientNotifications from "@/components/ClientNotifications";
 import { useNotifications } from "@/hooks/useNotifications";
 import { FAST_PASS_BASE_PRICE, FAST_PASS_UPSELLS, FastPassUpsellId } from "@/lib/fast-pass-display";
+// #440 — the payment card prices every option through the SAME helper the
+// /fastpass/pay route charges from, so the buyer is never shown a figure that
+// differs from what Stripe takes. The +15% premium math stays in the catalog.
+import {
+  fastPassTotalForPaymentOption,
+  type FastPassPaymentOptionId,
+} from "@/lib/fast-pass-payment";
+import { api } from "@/lib/api-client";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1737,6 +1745,201 @@ function FastPassTracker({ deal }: { deal: Deal }) {
   );
 }
 
+// ─── Fast Pass payment card (enrolled, awaiting payment) ─────────────────────
+//
+// FF17 (#440). FF16 (#439) took payment out of the onboarding survey, so an
+// enrollment now lands `pending_payment` with nothing collected — this card is
+// the only place that gets settled, in context, next to what they bought.
+//
+// Two rules it exists to keep:
+//   - Every figure comes from the SERVER's `fast_pass.total_cents` (via
+//     fastPassTotalForPaymentOption, the same helper /fastpass/pay prices from),
+//     never from a client-side stash or a local `* 1.15`.
+//   - An unpaid enrollment never gets a success state. If Checkout can't be
+//     started, the card stays put and shows a real, retryable error (#412).
+
+/** Dollars for display, with cents only when a promo left some. */
+function fpMoney(cents: number): string {
+  return (cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+const FP_PAYMENT_CHOICES: {
+  value: FastPassPaymentOptionId;
+  title: string;
+  badge: string;
+  badgeCls: string;
+  desc: string;
+}[] = [
+  {
+    value: 'now',
+    title: 'Pay now',
+    badge: 'Best value',
+    badgeCls: 'bg-green-500 text-white',
+    desc: 'Secure card checkout. Your Fast Pass activates as soon as payment clears.',
+  },
+  {
+    value: 'at_closing',
+    title: 'Pay at closing',
+    badge: '+15%',
+    badgeCls: 'bg-gray-100 text-gray-500',
+    desc: 'Nothing due today — the fee is added to your closing costs.',
+  },
+  {
+    value: 'seller_concession',
+    title: 'Seller concession',
+    badge: '$0 out of pocket',
+    badgeCls: 'bg-blue-100 text-blue-700',
+    desc: 'Ask your agent to negotiate the fee into your offer. The seller pays at closing.',
+  },
+];
+
+function FastPassPaymentCard({ deal, onSettled }: { deal: Deal; onSettled: () => void }) {
+  const [choice, setChoice] = useState<FastPassPaymentOptionId | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // Double-submit guard. `disabled={submitting}` is not enough on its own —
+  // setState is async, so two clicks landing in the same tick both see the old
+  // value and both fire. This ref flips synchronously, and this action moves
+  // money, so it gets the stricter guard.
+  const inFlight = useRef(false);
+
+  const fp = deal.fastPass;
+  if (!fp) return null;
+
+  const selectedUpsells = fp.selectedUpsells ?? [];
+  const enrolledUpsells = FAST_PASS_UPSELLS.filter((u) => selectedUpsells.includes(u.id));
+  // The authoritative, already-discounted total the server persisted at enroll.
+  const enrolledCents = fp.totalCents;
+  const totalFor = (option: FastPassPaymentOptionId) =>
+    fastPassTotalForPaymentOption(enrolledCents, selectedUpsells, option);
+
+  async function submit() {
+    if (!choice || inFlight.current) return;
+    inFlight.current = true;
+    setSubmitting(true);
+    setFailed(false);
+    try {
+      const res = await api.post<{ ok?: boolean; checkout_url?: string }>(
+        `/deals/${deal.id}/fastpass/pay`,
+        { payment_option: choice },
+      );
+      if (choice === 'now') {
+        // No URL means Checkout never started, whatever the body claims — treat
+        // it exactly like a thrown error rather than pretending it worked
+        // (#412). Otherwise navigate and stay disabled; the page is unloading.
+        if (!res?.checkout_url) throw new Error('checkout session was not created');
+        window.location.href = res.checkout_url;
+        return;
+      }
+      // Deferred: the enrollment is active now — refetch so this card gives way
+      // to the service tracker.
+      onSettled();
+    } catch {
+      setFailed(true);
+      inFlight.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl overflow-hidden border-2 border-amber-200 bg-white">
+      <div className="bg-amber-50 px-5 py-4 border-b border-amber-100">
+        <div className="flex items-center gap-2">
+          <Zap size={15} className="text-amber-600" />
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-600">
+            Fast Pass · Payment needed
+          </span>
+        </div>
+        <p className="mt-1.5 text-sm text-amber-900/80 leading-relaxed">
+          You&apos;re enrolled and your concierge has your details. Pick how you&apos;d
+          like to pay to activate it.
+        </p>
+      </div>
+
+      {/* What they bought — itemised, so the total is never a mystery number */}
+      <div className="divide-y divide-gray-50">
+        <div className="flex items-center justify-between px-5 py-2.5">
+          <span className="text-sm text-gray-700">Fast Pass concierge</span>
+          <span className="text-sm text-gray-500">${FAST_PASS_BASE_PRICE.toLocaleString()}</span>
+        </div>
+        {enrolledUpsells.map((u) => (
+          <div key={u.id} className="flex items-center justify-between px-5 py-2.5">
+            <span className="text-sm text-gray-700">{u.name}</span>
+            <span className="text-sm text-gray-500">${u.price.toLocaleString()}</span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between px-5 py-3 bg-gray-50">
+          <span className="text-sm font-bold text-brand-navy">Total</span>
+          <span className="text-sm font-black text-brand-navy">
+            ${fpMoney(totalFor('now'))}
+          </span>
+        </div>
+      </div>
+
+      {/* How to pay */}
+      <div className="px-5 py-4 space-y-2">
+        {FP_PAYMENT_CHOICES.map((opt) => {
+          const isSelected = choice === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => setChoice(opt.value)}
+              aria-pressed={isSelected}
+              className={[
+                'w-full rounded-xl border-2 p-4 text-left transition-all active:scale-[0.99]',
+                isSelected
+                  ? 'border-brand-navy bg-brand-navy/5'
+                  : 'border-gray-100 bg-white hover:border-gray-200',
+              ].join(' ')}
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-brand-navy">{opt.title}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${opt.badgeCls}`}>
+                    {opt.badge}
+                  </span>
+                </div>
+                <span className="text-sm font-black text-brand-navy">
+                  ${fpMoney(totalFor(opt.value))}
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed text-gray-400">{opt.desc}</p>
+            </button>
+          );
+        })}
+
+        {failed && (
+          <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+            <p className="text-sm font-semibold text-red-700">
+              We couldn&apos;t start your payment.
+            </p>
+            <p className="text-xs text-red-400">
+              Nothing was charged. Please try again, or call your concierge.
+            </p>
+          </div>
+        )}
+
+        <button
+          onClick={submit}
+          disabled={!choice || submitting}
+          className={[
+            'flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold transition-all',
+            choice && !submitting
+              ? 'bg-green-500 text-white hover:bg-green-600 active:scale-[0.98]'
+              : 'cursor-not-allowed bg-gray-100 text-gray-300',
+          ].join(' ')}
+        >
+          {submitting && <Loader2 size={14} className="animate-spin" />}
+          {choice === 'now' || choice === null ? 'Continue to payment' : 'Confirm choice'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Fast Pass pitch card (unenrolled buyers) ─────────────────────────────────
 
 function FastPassPitch({ dealId }: { dealId: string }) {
@@ -1919,8 +2122,17 @@ export default function BuyerView() {
       {/* Stage-specific card */}
       <StageCard deal={deal} firstName={firstName} onRefresh={refreshDeals} />
 
+      {/* Fast Pass — awaiting payment (#440) takes priority over both the
+          tracker and the pitch, and is deliberately NOT gated on stage: the
+          survey runs during onboarding, so the buyer who owes for it is
+          usually still sitting at `intake`. Without this they'd be shown the
+          "enroll in Fast Pass" pitch for something they already enrolled in. */}
+      {deal.fastPass?.status === 'pending_payment' && (
+        <FastPassPaymentCard deal={deal} onSettled={refreshDeals} />
+      )}
+
       {/* Fast Pass tracker (enrolled) or pitch (unenrolled) */}
-      {deal.stage !== 'intake' && (
+      {deal.stage !== 'intake' && deal.fastPass?.status !== 'pending_payment' && (
         deal.fastPass?.status === 'active'
           ? <FastPassTracker deal={deal} />
           : deal.stage !== 'post_close' && <FastPassPitch dealId={deal.id} />

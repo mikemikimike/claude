@@ -28,6 +28,9 @@ function fastPassFromApi(d: FastPassApiData): FastPassEnrollment {
     paymentOption: (d.payment_option as FastPassEnrollment['paymentOption']) ?? null,
     selectedUpsells: (d.selected_upsells ?? []) as FastPassEnrollment['selectedUpsells'],
     totalPaid: Math.round((d.total_cents ?? 0) / 100),
+    // Unrounded (#440) — the buyer's payment card has to show the exact figure
+    // Stripe will charge, and a promo discount can leave sub-dollar cents.
+    totalCents: d.total_cents ?? 0,
   };
 }
 

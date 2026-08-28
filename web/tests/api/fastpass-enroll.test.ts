@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import type Stripe from "stripe";
 import { POST as fastPassRoute } from "@/app/api/deals/[id]/fastpass/route";
+// #440 (FF17) — paying for an existing enrollment from the buyer's dashboard.
+import { POST as fastPassPayRoute } from "@/app/api/deals/[id]/fastpass/pay/route";
+import { fastPassTotalForPaymentOption } from "@/lib/fast-pass-payment";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
 import { setStripeForTesting } from "@/lib/stripe";
 import {
@@ -961,5 +964,547 @@ describe("Fast Pass add-on prices (#430)", () => {
     for (const key of Object.keys(FAST_PASS_UPSELL_PRICE_CENTS)) {
       expect(displayedIds.has(key)).toBe(true);
     }
+  });
+});
+
+/**
+ * #440 (FF17) — the buyer pays for an EXISTING Fast Pass enrollment from their
+ * dashboard. FF16 (#439) stopped the survey taking money, so an enrollment now
+ * lands `status: 'pending_payment'` with no `payment_option`; this route is how
+ * one gets chosen and how the money actually moves.
+ *
+ * It is a SEPARATE route from POST /fastpass on purpose: enrolling and paying
+ * are different operations with different failure semantics, and this one must
+ * never silently succeed.
+ *
+ * Absorbed here:
+ *   - #412 — a Stripe failure returns a NON-2xx, never `{ ok: true }`. The
+ *     enrollment route caught the error, logged it, and returned success, so
+ *     the caller showed a "you're paid" screen for an unpaid enrollment.
+ *   - #413 — Checkout is created with `customer_email` read SERVER-SIDE from
+ *     the paying user's `users.email`, never from the request body.
+ */
+describe("POST /api/deals/[id]/fastpass/pay (#440)", () => {
+  // Enrollment shaped exactly as POST /fastpass persists a #439 deferred one.
+  const PENDING_UPSELLS = ["utility_setup", "staging_consult"];
+  const PENDING_TOTAL = EXPECTED_TOTAL; // base + 9700 + 10000, no premium
+
+  async function seedPending(
+    dealId: string,
+    overrides: Record<string, unknown> = {}
+  ): Promise<void> {
+    await prisma.deals.update({
+      where: { id: dealId },
+      data: {
+        fast_pass: {
+          status: "pending_payment",
+          payment_option: null,
+          selected_upsells: PENDING_UPSELLS,
+          total_cents: PENDING_TOTAL,
+          paid: false,
+          enrolled_at: "2026-08-01T00:00:00.000Z",
+          survey_answers: { currentSituation: "renting" },
+          ...overrides,
+        },
+      },
+    });
+  }
+
+  async function pay(
+    dealId: string,
+    auth0Sub: string,
+    roles: string[],
+    body: Record<string, unknown>
+  ): Promise<Response> {
+    const r = new Request(`http://localhost/api/deals/${dealId}/fastpass/pay`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(auth0Sub, roles),
+      },
+      body: JSON.stringify(body),
+    });
+    return fastPassPayRoute(r, ctx(dealId));
+  }
+
+  async function readFastPass(dealId: string) {
+    const rows = await prisma.$queryRaw<
+      {
+        status: string | null;
+        payment_option: string | null;
+        total_cents: string | null;
+        paid: boolean | null;
+        session_id: string | null;
+        selected_upsells: unknown;
+        enrolled_at: string | null;
+        survey_situation: string | null;
+      }[]
+    >`
+      SELECT fast_pass->>'status'                              AS status,
+             fast_pass->>'payment_option'                      AS payment_option,
+             fast_pass->>'total_cents'                         AS total_cents,
+             (fast_pass->>'paid')::boolean                     AS paid,
+             fast_pass->>'checkout_session_id'                 AS session_id,
+             fast_pass->'selected_upsells'                     AS selected_upsells,
+             fast_pass->>'enrolled_at'                         AS enrolled_at,
+             fast_pass->'survey_answers'->>'currentSituation'  AS survey_situation
+      FROM deals WHERE id = ${dealId}::uuid
+    `;
+    return rows[0];
+  }
+
+  /** Records every Checkout session params object the route sends to Stripe. */
+  /**
+   * `retrieve` is optional and mirrors the real seam: a stub that doesn't
+   * provide it makes retrieveCheckoutSession throw, which is the
+   * "can't read the session" branch. Pass one to exercise open / expired /
+   * complete.
+   */
+  function captureStripe(
+    result: { id: string; url: string | null } | (() => never),
+    retrieve?: (
+      id: string
+    ) => Promise<Pick<Stripe.Checkout.Session, "id" | "url" | "status">>
+  ): Stripe.Checkout.SessionCreateParams[] {
+    const calls: Stripe.Checkout.SessionCreateParams[] = [];
+    setStripeForTesting({
+      checkout: {
+        sessions: {
+          create: async (params) => {
+            calls.push(params);
+            if (typeof result === "function") result();
+            return result as { id: string; url: string | null };
+          },
+          ...(retrieve ? { retrieve } : {}),
+        },
+      },
+      webhooks: {
+        constructEvent: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+    return calls;
+  }
+
+  /** A Checkout session snapshot in the shape retrieveCheckoutSession returns. */
+  function snapshot(
+    id: string,
+    status: Stripe.Checkout.Session["status"],
+    url: string | null
+  ): Pick<Stripe.Checkout.Session, "id" | "url" | "status"> {
+    return { id, status, url } as Pick<
+      Stripe.Checkout.Session,
+      "id" | "url" | "status"
+    >;
+  }
+
+  // ── 1. Happy path: pay now ────────────────────────────────────────────────
+  it("pay now on a pending_payment enrollment returns a checkout_url for the enrolled total", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const buyer = await createUser({
+      role: "buyer",
+      auth0_id: "auth0|buyer",
+      email: "betty@buyer.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id, title: "9 Pending Ln" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+    await seedPending(deal.id);
+    const calls = captureStripe({ id: "cs_ff17_1", url: "https://stripe.test/cs_ff17_1" });
+
+    const res = await pay(deal.id, "auth0|buyer", ["buyer"], { payment_option: "now" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok?: boolean;
+      checkout_url?: string;
+      total_cents?: number;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.checkout_url).toBe("https://stripe.test/cs_ff17_1");
+    // Charged the total the enrollment already agreed to — no premium on "now".
+    expect(body.total_cents).toBe(PENDING_TOTAL);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].line_items?.[0]?.price_data?.unit_amount).toBe(PENDING_TOTAL);
+
+    // Still awaiting payment — only Stripe's webhook may mark it paid.
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    expect(row.paid).toBe(false);
+    expect(row.payment_option).toBe("now");
+    expect(row.session_id).toBe("cs_ff17_1");
+    // Sibling enrollment fields survive the merge.
+    expect(row.selected_upsells).toEqual(PENDING_UPSELLS);
+    expect(row.enrolled_at).toBe("2026-08-01T00:00:00.000Z");
+    expect(row.survey_situation).toBe("renting");
+  });
+
+  // ── 2. #412: Stripe throws → non-2xx, never a false success ───────────────
+  it("a Stripe failure returns a NON-2xx and never {ok:true} (#412)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id);
+    captureStripe(() => {
+      throw new Error("stripe is down");
+    });
+
+    const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    const text = await res.text();
+    expect(text).not.toContain('"ok":true');
+
+    // Nothing was recorded as chosen or paid — the buyer can retry cleanly.
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    expect(row.paid).toBe(false);
+    expect(row.payment_option).toBeNull();
+    expect(row.session_id).toBeNull();
+  });
+
+  // ── 3. #412: session with a null url → non-2xx ────────────────────────────
+  it("a Checkout session with no url returns a NON-2xx (#412)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id);
+    captureStripe({ id: "cs_no_url", url: null });
+
+    const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBeGreaterThanOrEqual(400);
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    expect(row.paid).toBe(false);
+    expect(row.payment_option).toBeNull();
+  });
+
+  // ── Session reuse: never mint a SECOND payable session (#282 pattern) ─────
+  //
+  // Fast Pass is a $1,787+ charge. Two payable Checkout sessions means a buyer
+  // with two tabs open can genuinely pay twice, and refunding that is a trust
+  // problem, not an accounting one. The closing-fee route already solved this
+  // (#282): re-read the stored session's LIVE status with Stripe and reuse it
+  // unless it has genuinely expired. Same rule here.
+  describe("does not mint a second payable session", () => {
+    it("two sequential pay-now calls create ONE session and return the same URL", async () => {
+      const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+      const deal = await createDeal({ agent_id: agent.id });
+      await seedPending(deal.id);
+      // The session minted by call #1 is still open when call #2 arrives.
+      const calls = captureStripe(
+        { id: "cs_reuse_1", url: "https://stripe.test/cs_reuse_1" },
+        async (id) => snapshot(id, "open", `https://stripe.test/${id}`)
+      );
+
+      const first = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+      const second = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+
+      const firstBody = (await first.json()) as { checkout_url?: string };
+      const secondBody = (await second.json()) as { checkout_url?: string };
+      // The buyer lands on the ONE live checkout, not a second payable one.
+      expect(secondBody.checkout_url).toBe(firstBody.checkout_url);
+      expect(calls).toHaveLength(1);
+
+      const row = await readFastPass(deal.id);
+      expect(row.session_id).toBe("cs_reuse_1");
+      expect(row.paid).toBe(false);
+    });
+
+    it("an EXPIRED stored session falls through and mints a fresh, retryable one", async () => {
+      const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+      const deal = await createDeal({ agent_id: agent.id });
+      // An abandoned session from an earlier attempt.
+      await seedPending(deal.id, { checkout_session_id: "cs_stale" });
+      const calls = captureStripe(
+        { id: "cs_fresh", url: "https://stripe.test/cs_fresh" },
+        async (id) => snapshot(id, "expired", null)
+      );
+
+      const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+      expect(res.status).toBe(200);
+      expect((await res.json()).checkout_url).toBe("https://stripe.test/cs_fresh");
+      expect(calls).toHaveLength(1);
+
+      const row = await readFastPass(deal.id);
+      expect(row.session_id).toBe("cs_fresh");
+    });
+
+    it("a COMPLETED stored session is a 409 — the webhook just hasn't landed yet", async () => {
+      const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+      const deal = await createDeal({ agent_id: agent.id });
+      await seedPending(deal.id, { checkout_session_id: "cs_done" });
+      // Completed sessions carry no payable URL.
+      const calls = captureStripe({ id: "cs_never", url: "https://stripe.test/never" }, async (id) =>
+        snapshot(id, "complete", null)
+      );
+
+      const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+      expect(res.status).toBe(409);
+      // This is the money-critical assertion: charging again is never the answer.
+      expect(calls).toHaveLength(0);
+
+      const row = await readFastPass(deal.id);
+      expect(row.session_id).toBe("cs_done");
+      expect(row.paid).toBe(false);
+    });
+
+    it("an UNREADABLE stored session is a 409 — we never mint on an unknown state", async () => {
+      const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+      const deal = await createDeal({ agent_id: agent.id });
+      await seedPending(deal.id, { checkout_session_id: "cs_unknown" });
+      const calls = captureStripe(
+        { id: "cs_never", url: "https://stripe.test/never" },
+        async () => {
+          throw new Error("stripe unreachable");
+        }
+      );
+
+      const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+      expect(res.status).toBe(409);
+      expect(calls).toHaveLength(0);
+    });
+
+    it("a live session also blocks a DEFERRAL — it would charge a total we no longer agree with", async () => {
+      const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+      const deal = await createDeal({ agent_id: agent.id });
+      await seedPending(deal.id, { checkout_session_id: "cs_live" });
+      captureStripe({ id: "cs_never", url: "https://stripe.test/never" }, async (id) =>
+        snapshot(id, "open", `https://stripe.test/${id}`)
+      );
+
+      const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "at_closing" });
+      expect(res.status).toBe(409);
+
+      // Untouched: still awaiting payment at the un-premiumed total, so the
+      // live session can't collect an amount the record disagrees with.
+      const row = await readFastPass(deal.id);
+      expect(row.status).toBe("pending_payment");
+      expect(row.payment_option).toBeNull();
+      expect(row.total_cents).toBe(String(PENDING_TOTAL));
+    });
+
+    it("an expired session does NOT block a deferral", async () => {
+      const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+      const deal = await createDeal({ agent_id: agent.id });
+      await seedPending(deal.id, { checkout_session_id: "cs_gone" });
+      captureStripe({ id: "cs_never", url: "https://stripe.test/never" }, async (id) =>
+        snapshot(id, "expired", null)
+      );
+
+      const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "at_closing" });
+      expect(res.status).toBe(200);
+
+      const row = await readFastPass(deal.id);
+      expect(row.status).toBe("active");
+      expect(row.payment_option).toBe("at_closing");
+      expect(row.total_cents).toBe(String(EXPECTED_AT_CLOSING_TOTAL));
+    });
+  });
+
+  // ── 4. at_closing records the deferral + the +15% premium, once ───────────
+  it("at_closing records the deferral, applies +15% to the whole basket once, and returns no checkout URL", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id);
+    const calls = captureStripe({ id: "cs_nope", url: "https://stripe.test/nope" });
+
+    const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "at_closing" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok?: boolean;
+      status?: string;
+      checkout_url?: string;
+      total_cents?: number;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.status).toBe("active");
+    expect(body.checkout_url).toBeUndefined();
+    // Identical to today's math: round(basket * 1.15), applied once.
+    expect(body.total_cents).toBe(EXPECTED_AT_CLOSING_TOTAL);
+    // Deferring takes no money — Stripe is never touched.
+    expect(calls).toHaveLength(0);
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("active");
+    expect(row.payment_option).toBe("at_closing");
+    expect(row.total_cents).toBe(String(EXPECTED_AT_CLOSING_TOTAL));
+    // Deferred is not paid — the money still has to arrive at closing.
+    expect(row.paid).toBe(false);
+    expect(row.selected_upsells).toEqual(PENDING_UPSELLS);
+  });
+
+  it("seller_concession activates the enrollment at the un-premiumed total", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id);
+
+    const res = await pay(deal.id, "auth0|a", ["agent"], {
+      payment_option: "seller_concession",
+    });
+    expect(res.status).toBe(200);
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("active");
+    expect(row.payment_option).toBe("seller_concession");
+    expect(row.total_cents).toBe(String(PENDING_TOTAL));
+  });
+
+  // ── 5. #413: customer_email from the paying user's users.email ────────────
+  it("creates the Checkout session with customer_email from the paying user's users.email (#413)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const buyer = await createUser({
+      role: "buyer",
+      auth0_id: "auth0|buyer",
+      email: "betty@buyer.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+    await seedPending(deal.id);
+    const calls = captureStripe({ id: "cs_email", url: "https://stripe.test/cs_email" });
+
+    const res = await pay(deal.id, "auth0|buyer", ["buyer"], {
+      payment_option: "now",
+      // A hostile client cannot pick whose email Stripe prefills.
+      customer_email: "attacker@evil.test",
+    });
+    expect(res.status).toBe(200);
+    expect(calls[0].customer_email).toBe("betty@buyer.test");
+  });
+
+  // ── 6. Scoping ────────────────────────────────────────────────────────────
+  it("a non-participant cannot start checkout for someone else's enrollment (403)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    await createUser({ role: "buyer", auth0_id: "auth0|stranger" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id);
+    const calls = captureStripe({ id: "cs_x", url: "https://stripe.test/x" });
+
+    const res = await pay(deal.id, "auth0|stranger", ["buyer"], { payment_option: "now" });
+    expect(res.status).toBe(403);
+    expect(calls).toHaveLength(0);
+
+    const row = await readFastPass(deal.id);
+    expect(row.payment_option).toBeNull();
+    expect(row.status).toBe("pending_payment");
+  });
+
+  // ── 7. An already-paid enrollment cannot be charged again ─────────────────
+  it("an already-paid enrollment cannot be charged again (409, nothing touched)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id, {
+      status: "active",
+      payment_option: "now",
+      paid: true,
+      total_cents: 111111,
+    });
+    const calls = captureStripe({ id: "cs_x", url: "https://stripe.test/x" });
+
+    const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "at_closing" });
+    expect(res.status).toBe(409);
+    expect(calls).toHaveLength(0);
+
+    const row = await readFastPass(deal.id);
+    expect(row.paid).toBe(true);
+    expect(row.payment_option).toBe("now");
+    expect(row.total_cents).toBe("111111");
+  });
+
+  it("a second deferral submit is rejected — the pending_payment guard is in the UPDATE", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id);
+
+    const first = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "at_closing" });
+    expect(first.status).toBe(200);
+    // A double-click / retry must not re-price the now-active enrollment.
+    const second = await pay(deal.id, "auth0|a", ["agent"], {
+      payment_option: "seller_concession",
+    });
+    expect(second.status).toBe(409);
+
+    const row = await readFastPass(deal.id);
+    expect(row.payment_option).toBe("at_closing");
+    expect(row.total_cents).toBe(String(EXPECTED_AT_CLOSING_TOTAL));
+  });
+
+  // ── Input + existence guards ──────────────────────────────────────────────
+  it("a deal with no enrollment is a 404", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+    expect(res.status).toBe(404);
+  });
+
+  it("a missing or unrecognised payment_option is a 400", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await seedPending(deal.id);
+    const calls = captureStripe({ id: "cs_x", url: "https://stripe.test/x" });
+
+    expect((await pay(deal.id, "auth0|a", ["agent"], {})).status).toBe(400);
+    expect(
+      (await pay(deal.id, "auth0|a", ["agent"], { payment_option: "later" })).status
+    ).toBe(400);
+    expect(calls).toHaveLength(0);
+
+    const row = await readFastPass(deal.id);
+    expect(row.payment_option).toBeNull();
+    expect(row.status).toBe("pending_payment");
+  });
+});
+
+/**
+ * #440 — the shared helper that applies a payment option to an ALREADY-AGREED
+ * enrollment total. The buyer's dashboard card and the /fastpass/pay route both
+ * price from this, so the figure on screen is always the figure Stripe charges
+ * (the survey's success screen reading a stale sessionStorage number is exactly
+ * the class of bug this closes).
+ *
+ * It owns NO arithmetic of its own — computeFastPassTotalCents() stays the only
+ * home of the +15% premium and the discount ordering.
+ */
+describe("fastPassTotalForPaymentOption (#440)", () => {
+  const UPSELLS: ("utility_setup" | "staging_consult")[] = ["utility_setup", "staging_consult"];
+
+  it("returns the agreed total unchanged for now / seller_concession", () => {
+    expect(fastPassTotalForPaymentOption(EXPECTED_TOTAL, UPSELLS, "now")).toBe(EXPECTED_TOTAL);
+    expect(fastPassTotalForPaymentOption(EXPECTED_TOTAL, UPSELLS, "seller_concession")).toBe(
+      EXPECTED_TOTAL
+    );
+  });
+
+  it("adds the +15% deferral premium to the agreed total exactly once for at_closing", () => {
+    expect(fastPassTotalForPaymentOption(EXPECTED_TOTAL, UPSELLS, "at_closing")).toBe(
+      EXPECTED_AT_CLOSING_TOTAL
+    );
+    // Literal 1.15 so a wrong multiplier is still caught here too.
+    expect(fastPassTotalForPaymentOption(EXPECTED_TOTAL, UPSELLS, "at_closing")).toBe(
+      Math.round(EXPECTED_TOTAL * 1.15)
+    );
+  });
+
+  it("honours a DISCOUNTED agreed total — the promo is not silently dropped", () => {
+    // A #281 promo took $200 off at enrollment; the premium multiplies the
+    // discounted basket, never the list price.
+    const discounted = EXPECTED_TOTAL - 20000;
+    expect(fastPassTotalForPaymentOption(discounted, UPSELLS, "now")).toBe(discounted);
+    expect(fastPassTotalForPaymentOption(discounted, UPSELLS, "at_closing")).toBe(
+      Math.round(discounted * 1.15)
+    );
+  });
+
+  it("never charges more than the current catalog price if the catalog is repriced DOWN", () => {
+    // Agreed total above today's subtotal (add-ons were cheapened after they
+    // enrolled) — the buyer gets the lower number, never the stale higher one.
+    const stale = EXPECTED_TOTAL + 50000;
+    expect(fastPassTotalForPaymentOption(stale, UPSELLS, "now")).toBe(EXPECTED_TOTAL);
   });
 });

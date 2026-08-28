@@ -160,6 +160,15 @@ async function markSmoothExitUpsellPaid(
 // Touches ONLY fast_pass — fee_status and smooth_exit are left alone. COALESCE
 // preserves the payment evidence even if the enrollment was cleared between
 // checkout and webhook delivery.
+//
+// #440: it also PROMOTES a `pending_payment` enrollment to `active`. This flip
+// used to be missing, which was harmless only because nothing produced
+// `pending_payment` — FF16 (#439) makes it the normal post-survey state, so a
+// buyer who paid would have been left `paid: true, status: 'pending_payment'`:
+// still showing "payment needed" on their dashboard and still sitting in the
+// admin's awaiting-payment queue. The CASE keeps it narrow — a later lifecycle
+// status (`active`, `complete`, `collected`) is never rewritten backwards, and
+// this stays the same single UPDATE, so it can't half-apply.
 async function markFastPassPaid(
   dealId: string,
   sessionId: string
@@ -172,7 +181,11 @@ async function markFastPassPaid(
         '{checkout_session_id}', to_jsonb(${sessionId}::text)
       ),
       '{paid_at}', to_jsonb(NOW()::text)
-    )
+    ) || CASE
+      WHEN fast_pass->>'status' = 'pending_payment'
+        THEN jsonb_build_object('status', 'active')
+      ELSE '{}'::jsonb
+    END
     WHERE id = ${dealId}::uuid
   `;
 }

@@ -330,6 +330,97 @@ describe("POST /api/stripe/webhook", () => {
     expect(row?.fee_paid_at).toBeNull();
   });
 
+  /**
+   * #440 — the webhook used to flip `paid` and leave `status` alone. Harmless
+   * while nothing produced `pending_payment`, but FF16 (#439) makes that the
+   * NORMAL post-survey state, so a buyer who pays would have landed as
+   * `paid: true, status: 'pending_payment'` — an enrollment that is paid for
+   * but still renders "payment needed" on their dashboard and still counts as
+   * awaiting payment in the admin queue.
+   */
+  it("a fast_pass payment promotes a pending_payment enrollment to active (#440)", async () => {
+    const agent = await createUser({ role: "agent" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: {
+        fast_pass: {
+          status: "pending_payment",
+          payment_option: "now",
+          selected_upsells: ["staging_consult"],
+          total_cents: 188700,
+          paid: false,
+          enrolled_at: "2026-08-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    setSessionCompleted({
+      id: "cs_fastpass_pending_1",
+      payment_status: "paid",
+      metadata: { deal_id: deal.id, type: "fast_pass" },
+    });
+    expect((await stripeWebhook(webhookReq())).status).toBe(200);
+
+    const rows = await prisma.$queryRaw<
+      {
+        status: string;
+        paid: boolean;
+        session_id: string | null;
+        option: string | null;
+        total_cents: string | null;
+      }[]
+    >`
+      SELECT fast_pass->>'status'              AS status,
+             (fast_pass->>'paid')::boolean     AS paid,
+             fast_pass->>'checkout_session_id' AS session_id,
+             fast_pass->>'payment_option'      AS option,
+             fast_pass->>'total_cents'         AS total_cents
+      FROM deals WHERE id = ${deal.id}::uuid
+    `;
+    expect(rows[0].paid).toBe(true);
+    // The bit that was missing: paid AND active, not paid-but-pending.
+    expect(rows[0].status).toBe("active");
+    expect(rows[0].session_id).toBe("cs_fastpass_pending_1");
+    // Everything else about the enrollment is preserved.
+    expect(rows[0].option).toBe("now");
+    expect(rows[0].total_cents).toBe("188700");
+  });
+
+  it("a fast_pass payment does not downgrade a 'collected' enrollment to active (#440)", async () => {
+    // Only `pending_payment` is promoted — a later lifecycle status stands.
+    const agent = await createUser({ role: "agent" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: {
+        fast_pass: {
+          status: "collected",
+          payment_option: "at_closing",
+          selected_upsells: [],
+          total_cents: 205505,
+          paid: false,
+          enrolled_at: "2026-08-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    setSessionCompleted({
+      id: "cs_fastpass_collected_1",
+      payment_status: "paid",
+      metadata: { deal_id: deal.id, type: "fast_pass" },
+    });
+    expect((await stripeWebhook(webhookReq())).status).toBe(200);
+
+    const rows = await prisma.$queryRaw<{ status: string; paid: boolean }[]>`
+      SELECT fast_pass->>'status'          AS status,
+             (fast_pass->>'paid')::boolean AS paid
+      FROM deals WHERE id = ${deal.id}::uuid
+    `;
+    expect(rows[0].paid).toBe(true);
+    expect(rows[0].status).toBe("collected");
+  });
+
   it("payment_status !== 'paid' changes nothing", async () => {
     const agent = await createUser({ role: "agent" });
     const deal = await createDeal({ agent_id: agent.id });
