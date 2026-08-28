@@ -30,8 +30,16 @@ vi.mock("@/hooks/useNotifications", () => ({
 vi.mock("@/hooks/useTasks", () => ({
   useAgentTasks: () => ({ tasks: [], loading: false, refresh: vi.fn() }),
 }));
+// The dashboard also runs a closed-status query for its Completed Deals
+// section (#417); only the un-filtered call is this test's pipeline.
 vi.mock("@/hooks/useDeals", () => ({
-  useDeals: () => ({ deals, loading: false, error: null, refresh: vi.fn() }),
+  CLOSED_DEAL_STATUSES: "archived,fallen_through",
+  useDeals: (statusFilter?: string) => ({
+    deals: statusFilter ? [] : deals,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
 }));
 
 import AgentDashboard from "@/components/pages/agent/AgentDashboard";

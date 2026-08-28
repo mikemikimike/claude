@@ -6,11 +6,11 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { useSettings } from "@/hooks/useSettings";
 import { Deal, Task } from "@/lib/types";
 import { AGENT_STAGE_LABELS as STAGE_LABELS } from "@/lib/stages";
-import { useDeals } from "@/hooks/useDeals";
+import { useDeals, CLOSED_DEAL_STATUSES } from "@/hooks/useDeals";
 import { useAgentTasks } from "@/hooks/useTasks";
 import { useNotifications, AppNotification } from "@/hooks/useNotifications";
-import { formatCompactMoney, sumKnown } from "@/lib/deal-money";
-import { TrendingUp, Layers, CheckSquare, ArrowRight, Clock, AlertCircle, CheckCircle2, DollarSign, Share2, X, Phone } from 'lucide-react';
+import { formatCompactMoney, formatMoney, sumKnown } from "@/lib/deal-money";
+import { TrendingUp, Layers, CheckSquare, ArrowRight, Clock, AlertCircle, CheckCircle2, DollarSign, Share2, X, Phone, Archive } from 'lucide-react';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -125,15 +125,18 @@ function DealCard({ deal }: { deal: Deal }) {
   );
 }
 
-function Section({ icon: Icon, title, color, children, count }: {
+function Section({ icon: Icon, title, color, children, count, id, emptyText }: {
   icon: React.ElementType;
   title: string;
   color: string;
   children: React.ReactNode;
   count: number;
+  /** Anchor target, so other pages can deep-link straight to a section. */
+  id?: string;
+  emptyText?: string;
 }) {
   return (
-    <div className="rounded-xl bg-white shadow-sm overflow-hidden">
+    <section id={id} className="rounded-xl bg-white shadow-sm overflow-hidden">
       <div className={`flex items-center gap-2.5 px-5 py-3.5 border-b ${color}`}>
         <Icon size={16} />
         <h2 className="font-semibold text-sm tracking-wide">{title}</h2>
@@ -141,12 +144,64 @@ function Section({ icon: Icon, title, color, children, count }: {
       </div>
       <div className="p-2">
         {count === 0 ? (
-          <p className="px-3 py-4 text-sm text-gray-400 text-center">Nothing here — nice work!</p>
+          <p className="px-3 py-4 text-sm text-gray-400 text-center">
+            {emptyText ?? 'Nothing here — nice work!'}
+          </p>
         ) : (
           children
         )}
       </div>
-    </div>
+    </section>
+  );
+}
+
+// ─── Completed deals (#417) ─────────────────────────────────────────────────
+
+/**
+ * How a closed deal ended.
+ *
+ * There is deliberately no `completed` lifecycle status: `deals.stage` already
+ * records the successful ending, so "we closed it" is `archived` reached from
+ * `post_close`, and "I filed it away" is `archived` from anywhere earlier. The
+ * distinction is derived rather than stored — see the PR for #417.
+ */
+function closedOutcome(deal: Deal): { label: string; className: string } {
+  if (deal.status === 'fallen_through') {
+    return { label: 'Fell through', className: 'bg-red-50 text-red-600 border-red-200' };
+  }
+  if (deal.stage === 'post_close') {
+    return { label: 'Closed', className: 'bg-green-50 text-green-700 border-green-200' };
+  }
+  return { label: 'Archived', className: 'bg-gray-100 text-gray-500 border-gray-200' };
+}
+
+function CompletedDealRow({ deal }: { deal: Deal }) {
+  const outcome = closedOutcome(deal);
+  return (
+    <Link
+      href={`/agent/deals/${deal.id}`}
+      className="flex items-center gap-4 rounded-xl bg-white px-4 py-3 shadow-sm hover:shadow-md transition-shadow border border-gray-100 group"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+          <span className="font-semibold text-brand-navy text-sm truncate">{deal.clientName}</span>
+          <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${outcome.className}`}>
+            {outcome.label}
+          </span>
+        </div>
+        <div className="text-xs text-gray-400 truncate">
+          {[deal.property.address, deal.property.city].filter(Boolean).join(', ')}
+        </div>
+      </div>
+      <div className="text-right flex-shrink-0">
+        {/* #411 — an unpriced deal shows the em-dash, never a confident "$0". */}
+        <div className="text-xs font-semibold text-brand-navy">{formatMoney(deal.property.price)}</div>
+        <div className="text-[11px] text-gray-400 mt-0.5">
+          {deal.timeline.closingDate ? `Closed ${deal.timeline.closingDate}` : 'No close date'}
+        </div>
+      </div>
+      <ArrowRight size={14} className="flex-shrink-0 text-gray-300 group-hover:text-brand-gold transition-colors" />
+    </Link>
   );
 }
 
@@ -236,6 +291,10 @@ export default function AgentDashboard() {
 
   const { tasks: allTasks } = useAgentTasks();
   const { deals: agentDeals } = useDeals();
+  // #417 — a second, separately cached query for the deals that are over.
+  // Kept out of `agentDeals` on purpose: every stat and section above is the
+  // ACTIVE pipeline, and folding closed deals in would silently change them.
+  const { deals: completedDeals } = useDeals(CLOSED_DEAL_STATUSES);
 
   // ── Stats ────────────────────────────────────────────────────────────────
   // #411 — total the deals whose price the app actually knows. An unpriced
@@ -393,6 +452,24 @@ export default function AgentDashboard() {
           </div>
         </Section>
       </div>
+
+      {/* Completed Deals (#417) — the back door for a deal that has been
+          closed out. Without this, archiving a deal made it disappear with
+          nothing anywhere in the app able to show it again. */}
+      <Section
+        id="completed"
+        icon={Archive}
+        title="Completed Deals"
+        color="bg-gray-50 text-gray-600 border-gray-100"
+        count={completedDeals.length}
+        emptyText="No completed deals yet — finished deals land here when you mark them complete."
+      >
+        <div className="space-y-2">
+          {completedDeals.map((deal) => (
+            <CompletedDealRow key={deal.id} deal={deal} />
+          ))}
+        </div>
+      </Section>
     </div>
   );
 }

@@ -240,6 +240,26 @@ export default function DealDetail() {
           deal={deal}
           onAdvance={advanceStage}
           onRetreat={retreatStage}
+          // #417 — the owning agent closes the deal out from the same bar they
+          // moved it with. Only the owner: PATCH /api/deals/[id] is agent-only,
+          // so a TC or admin would get a control that 403s. Archiving is the
+          // same soft end the header's Archive link performs; it stays
+          // readable and reversible, and it shows up under Completed Deals.
+          onComplete={
+            activeUser?.id === deal.agentId
+              ? async () => {
+                  if (
+                    !window.confirm(
+                      "Mark this deal complete? It leaves your active pipeline and moves to Completed Deals on your dashboard — you can reopen it any time."
+                    )
+                  ) {
+                    return;
+                  }
+                  await api.patch(`/deals/${deal.id}`, { status: 'archived' }).catch(() => {});
+                  refreshDeal();
+                }
+              : undefined
+          }
         />
       )}
 

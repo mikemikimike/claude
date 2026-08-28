@@ -10,6 +10,11 @@
  *
  * The final stage must instead be shown as final — no advance button at all.
  * Every other stage's transition bar is unchanged.
+ *
+ * #417 later gave the final stage a REAL action ("Mark Deal Complete", when
+ * the caller passes `onComplete`); the guard below renders the bar without
+ * that prop, which is the no-action case #416 fixed. The completion action's
+ * own tests live in `deal-completion.test.tsx`.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";

@@ -497,6 +497,15 @@ export default function Pipeline() {
           <p className="mt-0.5 text-sm text-gray-500">
             {loading ? 'Loading…' : `${deals.length} active deal${deals.length !== 1 ? 's' : ''} · ${buyCount} buyer${buyCount !== 1 ? 's' : ''} · ${sellCount} seller${sellCount !== 1 ? 's' : ''}`}
           </p>
+          {/* #417 — this list is active-only, and used to be a one-way door:
+              nothing on the page admitted that closed deals existed, let alone
+              where they went. */}
+          <Link
+            href="/agent#completed"
+            className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-gray-400 hover:text-brand-navy transition-colors"
+          >
+            View completed deals <ArrowRight size={11} />
+          </Link>
         </div>
         <div className="flex items-center gap-3">
           <TypeToggle value={filter} onChange={setFilter} />

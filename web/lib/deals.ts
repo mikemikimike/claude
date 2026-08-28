@@ -153,11 +153,17 @@ export type DealWithStats = DealRow & {
  * By default only `active` deals are returned — archived / fallen_through deals
  * (#254) leave the pipeline, dashboards, and TC view. Pass `statusFilter` to
  * override: a specific status ('archived' | 'fallen_through' | 'active') shows
- * only that status; 'all' shows every status.
+ * only that status; an ARRAY of statuses shows any of them (the dashboard's
+ * Completed Deals section asks for both closed statuses at once — #417);
+ * 'all' shows every status.
+ *
+ * The caller is responsible for validating the strings against DEAL_STATUSES —
+ * they are interpolated as bound parameters, never concatenated, but an
+ * unrecognized value would silently match nothing.
  */
 export async function listDealsForUser(
   userId: string,
-  opts: { isAdmin: boolean; isTC: boolean; statusFilter?: string }
+  opts: { isAdmin: boolean; isTC: boolean; statusFilter?: string | string[] }
 ): Promise<DealWithStats[]> {
   // Read the admin-editable stage thresholds ONCE per list call — never per row
   // (the health CASE runs as a correlated subquery for every deal).
@@ -176,7 +182,20 @@ export async function listDealsForUser(
     );
   }
   if (opts.statusFilter !== "all") {
-    conds.push(Prisma.sql`deals.status = ${opts.statusFilter ?? "active"}`);
+    // One status stays a plain equality (the pipeline hot path); several
+    // become an IN list. An empty array would mean "no status is acceptable",
+    // which is a caller bug, so fall back to the active-only default rather
+    // than emitting `IN ()` — a syntax error.
+    const statuses = Array.isArray(opts.statusFilter)
+      ? opts.statusFilter
+      : [opts.statusFilter ?? "active"];
+    conds.push(
+      statuses.length === 1
+        ? Prisma.sql`deals.status = ${statuses[0]}`
+        : statuses.length > 1
+          ? Prisma.sql`deals.status IN (${Prisma.join(statuses)})`
+          : Prisma.sql`deals.status = ${"active"}`
+    );
   }
   const filter = conds.length
     ? Prisma.sql`WHERE ${Prisma.join(conds, " AND ")}`

@@ -7,18 +7,40 @@ import { listDealsForUser } from "@/lib/deals";
 import { createDealBodySchema, DEAL_STATUSES } from "@/lib/schemas/deal";
 import { parseBody } from "@/lib/schemas/parse";
 
+/**
+ * Read `?status=` into what `listDealsForUser` wants (#254, widened in #417).
+ *
+ * - absent / unrecognized → `undefined`, i.e. the active-only default. An
+ *   unknown status must NOT return an empty list: the pipeline silently going
+ *   blank on a typo is worse than ignoring the param.
+ * - `all` → every status.
+ * - one valid status → just that one.
+ * - a comma list (`archived,fallen_through` — the dashboard's Completed
+ *   section) → any of them. Unknown entries are dropped, and a list with
+ *   nothing valid left in it falls back to the default like any other garbage.
+ *
+ * Only members of DEAL_STATUSES ever reach the query, so an attacker-supplied
+ * value can never widen the caller's visibility scope (which is a separate
+ * AND-ed condition) or reach SQL as anything but a bound parameter.
+ */
+function parseStatusFilter(raw: string | null): string | string[] | undefined {
+  if (!raw) return undefined;
+  if (raw === "all") return "all";
+  const valid = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => (DEAL_STATUSES as readonly string[]).includes(s));
+  // De-duplicate so `?status=archived,archived` stays a single equality.
+  const unique = [...new Set(valid)];
+  if (unique.length === 0) return undefined;
+  return unique.length === 1 ? unique[0] : unique;
+}
+
 export async function GET(req: Request): Promise<Response> {
   return (await withAuth(req, async (claims): Promise<Response> => {
     const userId = await resolveUserId(claims.sub);
     if (!userId) return error("user not found — call /users/sync first", 404);
-    // Default pipeline hides non-active deals (#254). `?status=` overrides:
-    // a valid lifecycle status shows only that; `?status=all` shows every
-    // status. An unrecognized value falls back to the active-only default.
-    const requested = new URL(req.url).searchParams.get("status");
-    const statusFilter =
-      requested === "all" || (DEAL_STATUSES as readonly string[]).includes(requested ?? "")
-        ? (requested as string)
-        : undefined;
+    const statusFilter = parseStatusFilter(new URL(req.url).searchParams.get("status"));
     const deals = await listDealsForUser(userId, {
       isAdmin: hasRole(claims.roles, ["admin"]),
       isTC: hasRole(claims.roles, ["tc"]),

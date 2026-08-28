@@ -11,11 +11,18 @@ export function StageTransitionBar({
   deal,
   onAdvance,
   onRetreat,
+  onComplete,
 }: {
   stage: DealStage;
   deal: Deal;
   onAdvance: () => void;
   onRetreat: () => void;
+  /**
+   * Close the deal out (#417) — the owning agent only. Omitted for anyone who
+   * can move the deal but shouldn't end it, in which case the final stage
+   * keeps #416's static marker rather than growing a control that 403s.
+   */
+  onComplete?: () => void;
 }) {
   const idx = STAGE_ORDER.indexOf(stage);
   const prevStage = idx > 0 ? STAGE_ORDER[idx - 1] : null;
@@ -107,8 +114,11 @@ export function StageTransitionBar({
           <ChevronLeft size={15} />
           {isOfferActive ? 'Offer Rejected' : prevStage ? STAGE_LABELS[prevStage] : 'Back'}
         </button>
-        {/* No next stage (post_close) — the deal is done, so show the stage as
-            final instead of a permanently disabled "Complete" button (#416). */}
+        {/* No next stage (post_close) — the deal is done. #416 killed the
+            permanently disabled "Complete" button here; #417 replaces the
+            marker with the real thing when the owning agent is looking, so
+            closing a deal out no longer means hunting for the Archive link
+            buried in the header. Already closed ⇒ a plain marker. */}
         {nextStage ? (
           <button
             onClick={onAdvance}
@@ -121,6 +131,19 @@ export function StageTransitionBar({
           >
             {isOfferActive ? 'Offer Accepted' : STAGE_LABELS[nextStage]}
             <ChevronRight size={15} />
+          </button>
+        ) : deal.status !== 'active' ? (
+          <div className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-green-200 bg-green-50 px-4 py-2.5 text-sm font-bold text-green-700">
+            <CheckCircle2 size={15} />
+            Deal complete
+          </div>
+        ) : onComplete ? (
+          <button
+            onClick={onComplete}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-green-700 transition-colors"
+          >
+            <CheckCircle2 size={15} />
+            Mark Deal Complete
           </button>
         ) : (
           <div className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-green-200 bg-green-50 px-4 py-2.5 text-sm font-bold text-green-700">

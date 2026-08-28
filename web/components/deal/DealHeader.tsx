@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Deal, DealStatus } from "@/lib/types";
-import { MapPin, Calendar, Clock, CheckCircle2, Circle, Zap, Pencil, Archive, Banknote } from "lucide-react";
+import { MapPin, Calendar, Clock, CheckCircle2, Circle, Zap, Pencil, Archive, RotateCcw, Banknote } from "lucide-react";
 import { STAGE_LABELS, HEALTH_BORDER, HEALTH_BADGE, ClosingDaysBadge } from "@/components/deal/shared";
 
 /** The editable core-identity patch (#254). */
@@ -30,6 +30,19 @@ export function DealHeader({
       return;
     }
     await onSave({ status: "archived" });
+  }
+
+  /**
+   * The way back (#417). The Status dropdown inside the Edit Deal modal could
+   * always do this, but a closed deal now has a one-click reversal on the same
+   * row the Archive link lived on — otherwise "archived" reads as permanent.
+   */
+  async function reactivate() {
+    if (!onSave) return;
+    if (!window.confirm("Reactivate this deal? It returns to your active pipeline.")) {
+      return;
+    }
+    await onSave({ status: "active" });
   }
 
   return (
@@ -126,12 +139,19 @@ export function DealHeader({
           >
             <Pencil size={12} /> Edit details
           </button>
-          {deal.status === 'active' && (
+          {deal.status === 'active' ? (
             <button
               onClick={archive}
               className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-red-600 transition-colors"
             >
               <Archive size={12} /> Archive deal
+            </button>
+          ) : (
+            <button
+              onClick={reactivate}
+              className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-brand-navy transition-colors"
+            >
+              <RotateCcw size={12} /> Reactivate deal
             </button>
           )}
         </div>

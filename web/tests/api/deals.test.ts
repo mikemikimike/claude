@@ -1888,3 +1888,113 @@ describe("deal health honors System Config stage_thresholds (#305)", () => {
   });
 });
 
+// ─── Lifecycle status filter (#417) ──────────────────────────────────────────
+//
+// `deals.status` (#254) has been archivable since migration 000056, but until
+// #417 nothing in the app ever asked for a non-active list — so an archived
+// deal simply vanished with no way back to it. The Completed Deals section on
+// the agent dashboard asks for `?status=archived,fallen_through`, which is the
+// contract these tests pin down. The load-bearing one is the no-param case:
+// archiving must keep meaning "leaves the pipeline".
+
+/** Archive / fall-through a deal the factory created as `active`. */
+async function setDealStatus(dealId: string, status: string): Promise<void> {
+  await prisma.deals.update({ where: { id: dealId }, data: { status } });
+}
+
+describe("GET /api/deals — ?status= lifecycle filter (#417)", () => {
+  it("returns only the agent's archived deals for ?status=archived", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|status-agent-1" });
+    await createDeal({ agent_id: agent.id, title: "Still working it" });
+    const done = await createDeal({ agent_id: agent.id, title: "Closed and filed" });
+    await setDealStatus(done.id, "archived");
+
+    const req = new Request("http://localhost/api/deals?status=archived", {
+      headers: { authorization: await authHeader("auth0|status-agent-1", ["agent"]) },
+    });
+    const res = await listDeals(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { title: string; status: string }[];
+    expect(body.map((d) => d.title)).toEqual(["Closed and filed"]);
+    expect(body[0].status).toBe("archived");
+  });
+
+  it("returns both closed statuses for ?status=archived,fallen_through", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|status-agent-2" });
+    await createDeal({ agent_id: agent.id, title: "Active one" });
+    const archived = await createDeal({ agent_id: agent.id, title: "Archived one" });
+    const fell = await createDeal({ agent_id: agent.id, title: "Fell through one" });
+    await setDealStatus(archived.id, "archived");
+    await setDealStatus(fell.id, "fallen_through");
+
+    const req = new Request("http://localhost/api/deals?status=archived,fallen_through", {
+      headers: { authorization: await authHeader("auth0|status-agent-2", ["agent"]) },
+    });
+    const res = await listDeals(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { title: string }[];
+    expect(body.map((d) => d.title).sort()).toEqual(["Archived one", "Fell through one"]);
+  });
+
+  it("still returns ONLY active deals when no status param is given", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|status-agent-3" });
+    await createDeal({ agent_id: agent.id, title: "Active one" });
+    const archived = await createDeal({ agent_id: agent.id, title: "Archived one" });
+    const fell = await createDeal({ agent_id: agent.id, title: "Fell through one" });
+    await setDealStatus(archived.id, "archived");
+    await setDealStatus(fell.id, "fallen_through");
+
+    const req = new Request("http://localhost/api/deals", {
+      headers: { authorization: await authHeader("auth0|status-agent-3", ["agent"]) },
+    });
+    const res = await listDeals(req);
+    const body = (await res.json()) as { title: string }[];
+    expect(body.map((d) => d.title)).toEqual(["Active one"]);
+  });
+
+  it("scopes the status filter to the caller — another agent's archived deals never appear", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|status-agent-4" });
+    const other = await createUser({ role: "agent" });
+    const mine = await createDeal({ agent_id: agent.id, title: "My archived deal" });
+    const theirs = await createDeal({ agent_id: other.id, title: "Their archived deal" });
+    await setDealStatus(mine.id, "archived");
+    await setDealStatus(theirs.id, "archived");
+
+    const req = new Request("http://localhost/api/deals?status=archived,fallen_through", {
+      headers: { authorization: await authHeader("auth0|status-agent-4", ["agent"]) },
+    });
+    const res = await listDeals(req);
+    const body = (await res.json()) as { title: string }[];
+    expect(body.map((d) => d.title)).toEqual(["My archived deal"]);
+  });
+
+  it("falls back to the active-only default when the status param is garbage", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|status-agent-5" });
+    await createDeal({ agent_id: agent.id, title: "Active one" });
+    const archived = await createDeal({ agent_id: agent.id, title: "Archived one" });
+    await setDealStatus(archived.id, "archived");
+
+    const req = new Request("http://localhost/api/deals?status=banana,%20drop%20table", {
+      headers: { authorization: await authHeader("auth0|status-agent-5", ["agent"]) },
+    });
+    const res = await listDeals(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { title: string }[];
+    expect(body.map((d) => d.title)).toEqual(["Active one"]);
+  });
+
+  it("ignores unknown entries mixed into an otherwise valid comma list", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|status-agent-6" });
+    await createDeal({ agent_id: agent.id, title: "Active one" });
+    const archived = await createDeal({ agent_id: agent.id, title: "Archived one" });
+    await setDealStatus(archived.id, "archived");
+
+    const req = new Request("http://localhost/api/deals?status=archived,banana", {
+      headers: { authorization: await authHeader("auth0|status-agent-6", ["agent"]) },
+    });
+    const res = await listDeals(req);
+    const body = (await res.json()) as { title: string }[];
+    expect(body.map((d) => d.title)).toEqual(["Archived one"]);
+  });
+});
+

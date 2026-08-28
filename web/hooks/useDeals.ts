@@ -271,16 +271,34 @@ export async function patchStage(dealId: string, stage: string, force?: boolean)
   return api.patch<ApiDeal>(`/deals/${dealId}/stage${qs}`, { stage });
 }
 
-export function useDeals(): {
+/**
+ * The two "this deal is over" statuses, as the `?status=` API takes them
+ * (#417). Archived is the successful ending — a deal filed away from
+ * `post_close`; `fallen_through` is the bad one. Both leave the pipeline, and
+ * both belong in the dashboard's Completed Deals section.
+ */
+export const CLOSED_DEAL_STATUSES = 'archived,fallen_through';
+
+/**
+ * The caller's deals.
+ *
+ * `useDeals()` — no argument — is the active-only pipeline list, unchanged:
+ * same `['deals']` query key, same request, so nothing that already reads it
+ * moves. Pass a `?status=` value (a single lifecycle status, a comma list such
+ * as `CLOSED_DEAL_STATUSES`, or `'all'`) to ask for a different slice; that
+ * gets its own cache entry rather than overwriting the pipeline's.
+ */
+export function useDeals(statusFilter?: string): {
   deals: Deal[];
   loading: boolean;
   error: string | null;
   refresh: () => void;
 } {
   const query = useQuery({
-    queryKey: ['deals'],
+    queryKey: statusFilter ? ['deals', statusFilter] : ['deals'],
     queryFn: async () => {
-      const raw = await api.get<ApiDeal[]>('/deals');
+      const qs = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : '';
+      const raw = await api.get<ApiDeal[]>(`/deals${qs}`);
       return checkWire(apiDealListSchema, raw, 'GET /api/deals').map(apiDealToFrontend);
     },
   });
