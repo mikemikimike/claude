@@ -24,6 +24,32 @@ export function isForwardAdvance(from: string, to: string): boolean {
   return a >= 0 && b > a;
 }
 
+/**
+ * How many still-open tasks each stage owns, keyed by the task's
+ * `stageContext` (#420).
+ *
+ * Both client portals' journey rails used to check a stage off purely because
+ * the deal had walked past it, so advancing a deal retroactively declared every
+ * earlier stage finished. They now ask this instead: a walked-past stage is
+ * only "done" when nothing it seeded is still open.
+ *
+ * Pass the ALREADY-FILTERED open tasks — the callers apply their own definition
+ * of open (the server status ∪ the in-flight optimistic tick) and their own
+ * audience filter (a buyer's rail counts the buyer's tasks, not the agent's).
+ * A task with no `stageContext` belongs to no stage and is simply not counted.
+ */
+export function openTaskCountsByStage(
+  openTasks: readonly { stageContext?: string | null }[]
+): Partial<Record<DealStage, number>> {
+  const counts: Partial<Record<DealStage, number>> = {};
+  for (const task of openTasks) {
+    const stage = task.stageContext as DealStage | undefined;
+    if (!stage || stageIndex(stage) < 0) continue;
+    counts[stage] = (counts[stage] ?? 0) + 1;
+  }
+  return counts;
+}
+
 /** Client-facing stage labels (buyer/seller notifications, stage-advance emails). */
 export const STAGE_LABELS: Record<DealStage, string> = {
   intake: "Getting Started",

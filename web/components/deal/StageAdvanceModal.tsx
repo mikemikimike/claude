@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Deal, DealStage } from "@/lib/types";
 import { stageAutoTasks } from "@/lib/stage-auto-tasks";
-import { CheckCircle2, Circle, Zap, Pencil, AlertTriangle } from "lucide-react";
+import { ArrowRight, Circle, Zap, Pencil, AlertTriangle } from "lucide-react";
 import { STAGE_LABELS, STAGE_DRAFT_MESSAGE } from "@/components/deal/shared";
 
 /**
@@ -66,10 +66,15 @@ export function StageAdvanceModal({ deal, nextStage, properties = [], gateError,
   // client thread, and the stage PATCH enqueues the calendar closing-event
   // push. The old "TC alerted to open file" / "Commission paperwork queued"
   // claims had no implementation behind them and were removed.
+  //
+  // #420 — these are a FORECAST, so they are worded and drawn as one. They used
+  // to read in the past tense ("Client message sent to …") next to a green
+  // check, which is the icon this app reserves for work that actually happened
+  // — on a screen where Cancel is one tap away and none of it has run yet.
   const automationItems = [
-    autoTasks.length > 0 ? `${autoTasks.length} task${autoTasks.length !== 1 ? 's' : ''} auto-generated` : null,
-    msg.trim() ? `Client message sent to ${deal.clientName}` : null,
-    nextStage === 'pre_close' || nextStage === 'closing' ? 'Closing date synced to calendar' : null,
+    autoTasks.length > 0 ? `Auto-generate ${autoTasks.length} task${autoTasks.length !== 1 ? 's' : ''}` : null,
+    msg.trim() ? `Post the client message to ${deal.clientName}` : null,
+    nextStage === 'pre_close' || nextStage === 'closing' ? 'Sync the closing date to your calendar' : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -165,13 +170,16 @@ export function StageAdvanceModal({ deal, nextStage, properties = [], gateError,
                 <Zap size={14} className="text-brand-navy" />
                 <p className="text-xs font-bold uppercase tracking-widest text-brand-navy">Will run automatically</p>
               </div>
-              <div className="space-y-2">
+              <div data-testid="automation-list" className="space-y-2">
                 {automationItems.map((item) => (
-                  <div key={item} className="flex items-center gap-2">
-                    <CheckCircle2 size={13} className="text-green-500 flex-shrink-0" />
+                  <div key={item} data-testid="automation-item" data-state="forecast" className="flex items-center gap-2">
+                    <ArrowRight size={13} className="text-brand-navy/40 flex-shrink-0" />
                     <span className="text-sm text-gray-700">{item}</span>
                   </div>
                 ))}
+                <p className="pt-1 text-[10px] text-brand-navy/50">
+                  None of this has happened yet — it runs when you confirm below.
+                </p>
               </div>
             </div>
           )}

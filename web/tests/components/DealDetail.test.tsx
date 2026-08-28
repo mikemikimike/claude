@@ -627,8 +627,9 @@ describe("StageAdvanceModal automation claims match reality (#185)", () => {
     );
     expect(screen.queryByText(/tc alerted/i)).not.toBeInTheDocument();
     // The honest items stay: auto tasks + the (now real) client message send.
-    expect(screen.getByText(/tasks auto-generated/i)).toBeInTheDocument();
-    expect(screen.getByText(/client message sent to jane buyer/i)).toBeInTheDocument();
+    // #420 reworded them from the past tense — nothing has run yet.
+    expect(screen.getByText(/auto-generate \d+ tasks/i)).toBeInTheDocument();
+    expect(screen.getByText(/post the client message to jane buyer/i)).toBeInTheDocument();
   });
 
   it("post_close: no 'Commission paperwork queued' claim", () => {
@@ -654,10 +655,10 @@ describe("StageAdvanceModal automation claims match reality (#185)", () => {
         onCancel={noop}
       />
     );
-    expect(screen.getByText(/closing date synced to calendar/i)).toBeInTheDocument();
+    expect(screen.getByText(/sync the closing date to your calendar/i)).toBeInTheDocument();
   });
 
-  it("clearing the draft removes the 'client message sent' claim", async () => {
+  it("clearing the draft removes the client-message line", async () => {
     const user = userEvent.setup();
     render(
       <StageAdvanceModal
@@ -668,12 +669,12 @@ describe("StageAdvanceModal automation claims match reality (#185)", () => {
         onCancel={noop}
       />
     );
-    expect(screen.getByText(/client message sent to jane buyer/i)).toBeInTheDocument();
+    expect(screen.getByText(/post the client message to jane buyer/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.clear(screen.getByRole("textbox"));
 
-    expect(screen.queryByText(/client message sent/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/post the client message/i)).not.toBeInTheDocument();
   });
 });
 

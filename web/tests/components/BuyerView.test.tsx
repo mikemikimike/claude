@@ -663,3 +663,154 @@ describe("BuyerView — MLS browser connection state (#428)", () => {
     expect(screen.getByRole("button", { name: /search listings/i })).toBeTruthy();
   });
 });
+
+/**
+ * #420 — a green check means the thing actually happened.
+ *
+ * Two of the three places that broke that rule live in this file's component:
+ *
+ *   1. The journey tracker checked off every stage the deal had walked past,
+ *      purely on position. Advance a deal with its Property Search tasks still
+ *      open and the buyer was told Property Search was done.
+ *   2. The Fast Pass tracker derived `Complete` from the deal's stage index, so
+ *      a post_close buyer was told the deep clean they PAID FOR had happened —
+ *      on a guess, with nothing behind it.
+ */
+describe("BuyerView — honest completion indicators (#420)", () => {
+  function buyerTask(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-search",
+      dealId: DEAL_ID,
+      title: "Tour three homes",
+      assignedTo: "buyer",
+      assignedToId: "u-buyer",
+      status: "pending",
+      priority: "medium",
+      source: "ai",
+      stageContext: "active_search",
+      ...overrides,
+    } as Task;
+  }
+
+  function atStage(stage: MyDeal["stage"], extra: Partial<MyDeal> = {}) {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [{ ...DEAL, stage, ...extra }],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+  }
+
+  describe("journey tracker", () => {
+    it("does not mark a walked-past stage done while its tasks are still open", () => {
+      atStage("offer_active");
+      mockTasks = [buyerTask()]; // an open active_search task
+      renderView(<BuyerView />);
+
+      const row = screen.getByTestId("stage-row-active_search");
+      expect(row.getAttribute("data-stage-state")).toBe("open");
+      expect(row.textContent).toMatch(/1 task open/i);
+      // …and no completed-state green on that row.
+      expect(row.querySelectorAll('[class*="text-green"]')).toHaveLength(0);
+    });
+
+    it("pluralises and counts only the tasks that belong to that stage", () => {
+      atStage("under_contract");
+      mockTasks = [
+        buyerTask({ id: "a" }),
+        buyerTask({ id: "b" }),
+        buyerTask({ id: "c", stageContext: "offer_active" }),
+      ];
+      renderView(<BuyerView />);
+
+      expect(screen.getByTestId("stage-row-active_search").textContent).toMatch(/2 tasks open/i);
+      expect(screen.getByTestId("stage-row-offer_active").textContent).toMatch(/1 task open/i);
+    });
+
+    it("still checks off a walked-past stage whose tasks are genuinely done", () => {
+      atStage("offer_active");
+      mockTasks = [buyerTask({ status: "completed" })];
+      renderView(<BuyerView />);
+
+      const row = screen.getByTestId("stage-row-active_search");
+      expect(row.getAttribute("data-stage-state")).toBe("complete");
+      expect(row.querySelectorAll('[class*="text-green"]').length).toBeGreaterThan(0);
+    });
+
+    it("honours the in-flight optimistic tick, so the rail settles the moment the buyer taps", () => {
+      atStage("offer_active");
+      mockTasks = [buyerTask()];
+      mockCompletedIds = new Set(["task-search"]);
+      renderView(<BuyerView />);
+
+      expect(screen.getByTestId("stage-row-active_search").getAttribute("data-stage-state"))
+        .toBe("complete");
+    });
+
+    it("ignores tasks that are not the buyer's own — the rail must be actionable by them", () => {
+      atStage("offer_active");
+      mockTasks = [buyerTask({ id: "agent-task", assignedTo: "agent" })];
+      renderView(<BuyerView />);
+
+      expect(screen.getByTestId("stage-row-active_search").getAttribute("data-stage-state"))
+        .toBe("complete");
+    });
+  });
+
+  describe("Fast Pass tracker", () => {
+    const ACTIVE_FAST_PASS: NonNullable<MyDeal["fastPass"]> = {
+      enrolledAt: "2026-08-01T00:00:00.000Z",
+      status: "active",
+      paymentOption: "now",
+      selectedUpsells: ["deep_clean"],
+      totalPaid: 1974,
+      totalCents: 197400,
+    };
+
+    it("never reports a paid service Complete off the deal's stage alone", () => {
+      atStage("post_close", { fastPass: ACTIVE_FAST_PASS });
+      renderView(<BuyerView />);
+
+      const services = screen.getAllByTestId("fp-service");
+      expect(services.length).toBeGreaterThan(0);
+      for (const svc of services) {
+        expect(svc.getAttribute("data-status")).not.toBe("complete");
+      }
+      // The purchased add-on is still listed — it just isn't claimed as done.
+      // Past its due stage with nothing behind it, it reads "Unconfirmed".
+      const deepClean = services.find((s) => /deep clean/i.test(s.textContent ?? ""));
+      expect(deepClean).toBeTruthy();
+      expect(deepClean!.getAttribute("data-status")).toBe("unconfirmed");
+      expect(deepClean!.textContent).not.toMatch(/complete/i);
+      // …and no green on any row.
+      expect(screen.getByTestId("fp-tracker").querySelectorAll('[class*="text-green-7"]'))
+        .toHaveLength(0);
+    });
+
+    it("does not publish a fabricated 'N of N done' completion count", () => {
+      atStage("post_close", { fastPass: ACTIVE_FAST_PASS });
+      renderView(<BuyerView />);
+
+      expect(screen.getByTestId("fp-tracker").textContent).not.toMatch(/\d+\/\d+\s*done/i);
+    });
+
+    it("says who confirms completion, so the buyer knows the list is a plan", () => {
+      atStage("post_close", { fastPass: ACTIVE_FAST_PASS });
+      renderView(<BuyerView />);
+
+      expect(screen.getByTestId("fp-tracker").textContent)
+        .toMatch(/concierge confirms each service/i);
+    });
+
+    it("still walks a service up from Pending as the deal progresses", () => {
+      atStage("active_search", { fastPass: ACTIVE_FAST_PASS });
+      renderView(<BuyerView />);
+
+      const statuses = screen
+        .getAllByTestId("fp-service")
+        .map((s) => s.getAttribute("data-status"));
+      expect(statuses).toContain("in_progress"); // "Dedicated concierge assigned"
+      expect(statuses).toContain("pending");     // the post-close add-ons
+    });
+  });
+});

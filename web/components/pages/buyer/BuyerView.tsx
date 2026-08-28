@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
 import { Deal, DealStage, Task } from "@/lib/types";
 import { formatMoney } from "@/lib/deal-money";
-import { STAGE_ORDER } from "@/lib/stages";
+import { STAGE_ORDER, openTaskCountsByStage } from "@/lib/stages";
 import { useMyDeals } from "@/hooks/useMyDeals";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskCompletion } from "@/hooks/useTaskCompletion";
@@ -496,8 +496,21 @@ const STAGE_DESCRIPTIONS: Record<DealStage, string> = {
   post_close:     'Keys are yours. Welcome home!',
 };
 
-function JourneyTracker({ deal }: { deal: Deal }) {
+/**
+ * #420 — a walked-past stage is not a finished stage.
+ *
+ * This rail checked every earlier stage off purely on position, so advancing a
+ * deal retroactively told the buyer that work they had never done was done.
+ * A past stage with the buyer's own tasks still open now gets an open circle
+ * and an honest count instead of a green check.
+ *
+ * `openTasks` is the buyer's OWN open tasks (agent/TC work is deliberately not
+ * counted — the buyer can't action it and shouldn't be shown a number they
+ * can't move).
+ */
+function JourneyTracker({ deal, openTasks = [] }: { deal: Deal; openTasks?: Task[] }) {
   const currentIdx = STAGE_ORDER.indexOf(deal.stage);
+  const openByStage = openTaskCountsByStage(openTasks);
 
   return (
     <div className="rounded-2xl overflow-hidden shadow-sm bg-white">
@@ -507,7 +520,7 @@ function JourneyTracker({ deal }: { deal: Deal }) {
 
         if (isCurrent) {
           return (
-            <div key={stage} className="px-5 py-4 bg-brand-navy">
+            <div key={stage} data-testid={`stage-row-${stage}`} data-stage-state="current" className="px-5 py-4 bg-brand-navy">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-brand-gold">
@@ -527,8 +540,32 @@ function JourneyTracker({ deal }: { deal: Deal }) {
         }
 
         if (isPast) {
+          const stillOpen = openByStage[stage] ?? 0;
+
+          if (stillOpen > 0) {
+            return (
+              <div
+                key={stage}
+                data-testid={`stage-row-${stage}`}
+                data-stage-state="open"
+                className="flex items-center gap-3 px-5 py-2.5 border-b border-gray-50"
+              >
+                <Circle size={13} className="text-amber-400 flex-shrink-0" />
+                <span className="text-xs font-medium text-amber-700">{BUYER_STAGE_LABELS[stage]}</span>
+                <span className="ml-auto flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                  {stillOpen} task{stillOpen !== 1 ? 's' : ''} open
+                </span>
+              </div>
+            );
+          }
+
           return (
-            <div key={stage} className="flex items-center gap-3 px-5 py-2.5 border-b border-gray-50">
+            <div
+              key={stage}
+              data-testid={`stage-row-${stage}`}
+              data-stage-state="complete"
+              className="flex items-center gap-3 px-5 py-2.5 border-b border-gray-50"
+            >
               <CheckCircle2 size={13} className="text-green-400 flex-shrink-0" />
               <span className="text-xs font-medium text-green-600">{BUYER_STAGE_LABELS[stage]}</span>
             </div>
@@ -536,7 +573,12 @@ function JourneyTracker({ deal }: { deal: Deal }) {
         }
 
         return (
-          <div key={stage} className="flex items-center gap-3 px-5 py-2 border-b border-gray-50 last:border-0">
+          <div
+            key={stage}
+            data-testid={`stage-row-${stage}`}
+            data-stage-state="upcoming"
+            className="flex items-center gap-3 px-5 py-2 border-b border-gray-50 last:border-0"
+          >
             <Circle size={11} className="text-gray-200 flex-shrink-0" />
             <span className="text-xs text-gray-300">{BUYER_STAGE_LABELS[stage]}</span>
           </div>
@@ -1775,13 +1817,34 @@ function LenderCard({ deal }: { deal: Deal }) {
 
 // ─── Fast Pass service tracker (enrolled buyers) ─────────────────────────────
 
-type FPStatus = 'pending' | 'scheduled' | 'in_progress' | 'complete';
+/**
+ * #420 — INTERIM FIX. There is deliberately no `complete` here.
+ *
+ * These are services the buyer PAID for — utility setup, deep clean, moving
+ * coordination. The tracker used to derive a green "Complete" from nothing but
+ * the deal's stage index, so a buyer at `post_close` was told every one of them
+ * had been delivered whether or not anybody had lifted a finger. Telling a
+ * client that paid work is finished, on a guess, is a trust problem before it
+ * is a UI one.
+ *
+ * Nothing in the schema records per-service fulfilment today, so the top of the
+ * stage-derived ladder is `unconfirmed`: the deal is past the point where the
+ * work was due, and nobody has said it happened. That is exactly what the buyer
+ * needs to know — and the "Call concierge" button below is the right next move
+ * if it stays that way. Restoring a green "Complete" requires a REAL completion
+ * signal — a per-service status the concierge sets (#429 builds exactly that
+ * for `inspection_followup`). Until then, `complete` is not a value this union
+ * can hold, on purpose.
+ */
+type FPStatus = 'pending' | 'scheduled' | 'in_progress' | 'unconfirmed';
 
-const FP_STATUS_CFG: Record<FPStatus, { label: string; dotCls: string; textCls: string; badgeCls: string }> = {
-  pending:     { label: 'Pending',     dotCls: 'bg-gray-300',  textCls: 'text-gray-400',   badgeCls: 'bg-gray-100 text-gray-500' },
-  scheduled:   { label: 'Scheduled',   dotCls: 'bg-amber-400', textCls: 'text-amber-700',  badgeCls: 'bg-amber-100 text-amber-700' },
-  in_progress: { label: 'In Progress', dotCls: 'bg-blue-400',  textCls: 'text-blue-700',   badgeCls: 'bg-blue-100 text-blue-700' },
-  complete:    { label: 'Complete',    dotCls: 'bg-green-400', textCls: 'text-green-700',  badgeCls: 'bg-green-100 text-green-700' },
+// `textCls` was dropped here: nothing has ever read it (the row's own text
+// colour is set inline), so adding a fourth dead entry to it was noise.
+const FP_STATUS_CFG: Record<FPStatus, { label: string; dotCls: string; badgeCls: string }> = {
+  pending:     { label: 'Pending',     dotCls: 'bg-gray-300',  badgeCls: 'bg-gray-100 text-gray-500' },
+  scheduled:   { label: 'Scheduled',   dotCls: 'bg-amber-400', badgeCls: 'bg-amber-100 text-amber-700' },
+  in_progress: { label: 'In Progress', dotCls: 'bg-blue-400',  badgeCls: 'bg-blue-100 text-blue-700' },
+  unconfirmed: { label: 'Unconfirmed', dotCls: 'bg-slate-400', badgeCls: 'bg-slate-100 text-slate-600' },
 };
 
 const FP_STAGE_IDX: Record<DealStage, number> = {
@@ -1789,11 +1852,16 @@ const FP_STAGE_IDX: Record<DealStage, number> = {
   under_contract: 3, pre_close: 4, closing: 5, post_close: 6,
 };
 
+/**
+ * `expected` is the stage by which the service is *expected* to be finished —
+ * not a claim that it was. Reaching it means "due, and nobody has confirmed it"
+ * (see the FPStatus note above), never "done".
+ */
 function fpStatusAt(stage: DealStage, thresholds: {
-  scheduled?: DealStage; in_progress?: DealStage; complete?: DealStage;
+  scheduled?: DealStage; in_progress?: DealStage; expected?: DealStage;
 }): FPStatus {
   const i = FP_STAGE_IDX[stage];
-  if (thresholds.complete   && i >= FP_STAGE_IDX[thresholds.complete])   return 'complete';
+  if (thresholds.expected   && i >= FP_STAGE_IDX[thresholds.expected])    return 'unconfirmed';
   if (thresholds.in_progress && i >= FP_STAGE_IDX[thresholds.in_progress]) return 'in_progress';
   if (thresholds.scheduled  && i >= FP_STAGE_IDX[thresholds.scheduled])  return 'scheduled';
   return 'pending';
@@ -1801,25 +1869,25 @@ function fpStatusAt(stage: DealStage, thresholds: {
 
 // Base services included with every Fast Pass, with stage-threshold rules
 const FP_BASE_SERVICES: { name: string; thresholds: Parameters<typeof fpStatusAt>[1] }[] = [
-  { name: 'Dedicated concierge assigned',           thresholds: { in_progress: 'active_search', complete: 'under_contract' } },
-  { name: 'Title & insurance admin coordination',   thresholds: { in_progress: 'under_contract', complete: 'closing' } },
-  { name: 'Move-in timeline & scheduling',          thresholds: { scheduled: 'pre_close', in_progress: 'closing', complete: 'post_close' } },
-  { name: 'Interior designer move-in consult',      thresholds: { scheduled: 'pre_close', in_progress: 'closing', complete: 'post_close' } },
-  { name: '2% refi credit — active post-close',     thresholds: { scheduled: 'pre_close', complete: 'post_close' } },
+  { name: 'Dedicated concierge assigned',           thresholds: { in_progress: 'active_search', expected: 'under_contract' } },
+  { name: 'Title & insurance admin coordination',   thresholds: { in_progress: 'under_contract', expected: 'closing' } },
+  { name: 'Move-in timeline & scheduling',          thresholds: { scheduled: 'pre_close', in_progress: 'closing', expected: 'post_close' } },
+  { name: 'Interior designer move-in consult',      thresholds: { scheduled: 'pre_close', in_progress: 'closing', expected: 'post_close' } },
+  { name: '2% refi credit — active post-close',     thresholds: { scheduled: 'pre_close', expected: 'post_close' } },
 ];
 
 // Per-upsell stage thresholds
 const FP_UPSELL_THRESHOLDS: Record<FastPassUpsellId, Parameters<typeof fpStatusAt>[1]> = {
-  utility_setup:       { scheduled: 'pre_close', in_progress: 'closing',  complete: 'post_close' },
-  deep_clean:          { scheduled: 'pre_close', in_progress: 'closing',  complete: 'post_close' },
-  moving_coordination: { scheduled: 'pre_close', in_progress: 'closing',  complete: 'post_close' },
-  refi_monitoring:     { scheduled: 'closing',   in_progress: 'post_close', complete: 'post_close' },
-  home_warranty:       { scheduled: 'pre_close', in_progress: 'closing',  complete: 'post_close' },
-  inspection_followup: { in_progress: 'under_contract', complete: 'pre_close' },
-  address_change:      { scheduled: 'closing',   in_progress: 'post_close', complete: 'post_close' },
-  storage_research:    { in_progress: 'pre_close', complete: 'closing' },
-  new_construction:    { scheduled: 'pre_close', in_progress: 'closing',  complete: 'post_close' },
-  staging_consult:     { scheduled: 'pre_close', in_progress: 'closing',  complete: 'post_close' },
+  utility_setup:       { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
+  deep_clean:          { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
+  moving_coordination: { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
+  refi_monitoring:     { scheduled: 'closing',   in_progress: 'post_close', expected: 'post_close' },
+  home_warranty:       { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
+  inspection_followup: { in_progress: 'under_contract', expected: 'pre_close' },
+  address_change:      { scheduled: 'closing',   in_progress: 'post_close', expected: 'post_close' },
+  storage_research:    { in_progress: 'pre_close', expected: 'closing' },
+  new_construction:    { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
+  staging_consult:     { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
 };
 
 function FastPassTracker({ deal }: { deal: Deal }) {
@@ -1844,10 +1912,8 @@ function FastPassTracker({ deal }: { deal: Deal }) {
     })),
   ];
 
-  const doneCount = allServices.filter((s) => s.status === 'complete').length;
-
   return (
-    <div className="rounded-2xl overflow-hidden border border-green-200 bg-white">
+    <div data-testid="fp-tracker" className="rounded-2xl overflow-hidden border border-green-200 bg-white">
       {/* Header */}
       <div className="bg-green-700 px-5 py-4">
         <div className="flex items-center justify-between">
@@ -1863,17 +1929,15 @@ function FastPassTracker({ deal }: { deal: Deal }) {
           Your concierge is coordinating everything below.
           {moveDate && ` Target move-in: ${moveDate}.`}
         </p>
-        <div className="mt-2.5 flex items-center gap-2">
-          <div className="flex-1 h-1.5 rounded-full bg-green-600 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-green-300 transition-all"
-              style={{ width: `${Math.round((doneCount / allServices.length) * 100)}%` }}
-            />
-          </div>
-          <span className="text-[11px] font-bold text-green-200">
-            {doneCount}/{allServices.length} done
-          </span>
-        </div>
+        {/*
+          #420 — the "N/M done" bar counted the stage-derived "Complete"s, so it
+          published a completion percentage nobody had confirmed. Until a real
+          per-service completion signal exists there is no honest number to put
+          here; say what the list is instead of inventing a score.
+        */}
+        <p className="mt-2 text-[11px] font-semibold text-green-200">
+          {`${allServices.length} service${allServices.length !== 1 ? 's' : ''} on your plan · your concierge confirms each service as it's completed`}
+        </p>
       </div>
 
       {/* Service list */}
@@ -1881,9 +1945,9 @@ function FastPassTracker({ deal }: { deal: Deal }) {
         {allServices.map((svc, i) => {
           const cfg = FP_STATUS_CFG[svc.status];
           return (
-            <div key={i} className="flex items-center gap-3 px-4 py-3">
+            <div key={i} data-testid="fp-service" data-status={svc.status} className="flex items-center gap-3 px-4 py-3">
               <div className={`h-2 w-2 flex-shrink-0 rounded-full ${cfg.dotCls}`} />
-              <span className={`flex-1 text-sm ${svc.status === 'complete' ? 'line-through text-gray-300' : 'text-gray-700'}`}>
+              <span className="flex-1 text-sm text-gray-700">
                 {svc.name}
                 {svc.isUpsell && (
                   <span className="ml-1.5 text-[10px] font-bold text-green-600 uppercase tracking-wide">Add-on</span>
@@ -2318,7 +2382,7 @@ export default function BuyerView() {
 
       {/* Journey tracker */}
       <div className={buyerTasks.some((t) => t.status === 'overdue') ? 'pt-6' : ''}>
-        <JourneyTracker deal={deal} />
+        <JourneyTracker deal={deal} openTasks={openTasks} />
       </div>
 
       {/* Stage-specific card */}

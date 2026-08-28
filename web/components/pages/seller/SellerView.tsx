@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
 import { Deal, DealStage, Task } from "@/lib/types";
 import { formatMoney } from "@/lib/deal-money";
-import { STAGE_ORDER } from "@/lib/stages";
+import { STAGE_ORDER, openTaskCountsByStage } from "@/lib/stages";
 import ClientNotifications from "@/components/ClientNotifications";
 import { BUYER_STATUS_STEPS } from "@/lib/buyer-status";
 import { useMyDeals } from "@/hooks/useMyDeals";
@@ -241,11 +241,23 @@ function AgentCard({ agentName, agentEmail, agentPhone }: {
 
 // ─── Journey tracker ──────────────────────────────────────────────────────────
 
-function JourneyTracker({ deal }: { deal: Deal }) {
+/**
+ * #420 — a walked-past stage is not a finished stage.
+ *
+ * Same fix as the buyer portal's rail: every earlier stage used to be checked
+ * off purely on position, so moving a deal on retroactively told the seller
+ * that Listing Prep was done while their own prep tasks sat open. A past stage
+ * with the seller's tasks still open gets an open ring and an honest count.
+ *
+ * `openTasks` is the seller's OWN open tasks — the rail must only show a number
+ * they can actually act on.
+ */
+function JourneyTracker({ deal, openTasks = [] }: { deal: Deal; openTasks?: Task[] }) {
   const isFallenThrough = deal.status === 'fallen_through';
   const currentIdx = STAGE_ORDER.indexOf(
     isFallenThrough ? (deal.fellFromStage ?? deal.stage) : deal.stage
   );
+  const openByStage = openTaskCountsByStage(openTasks);
 
   return (
     <div className="rounded-2xl bg-white shadow-sm p-5">
@@ -255,26 +267,41 @@ function JourneyTracker({ deal }: { deal: Deal }) {
           const isPast    = i < currentIdx;
           const isCurrent = i === currentIdx;
           const isFellHere = isFallenThrough && isCurrent;
+          const stillOpen = isPast ? (openByStage[stage] ?? 0) : 0;
+          const isDone = isPast && stillOpen === 0;
+          const state =
+            isFellHere ? 'fell-out' :
+            isDone     ? 'complete' :
+            isPast     ? 'open' :
+            isCurrent  ? 'current' : 'upcoming';
           return (
-            <div key={stage} className="flex items-center gap-3">
+            <div key={stage} data-testid={`stage-row-${stage}`} data-stage-state={state} className="flex items-center gap-3">
               <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${
                 isFellHere ? 'bg-red-400' :
-                isPast     ? 'bg-purple-400' :
+                isDone     ? 'bg-purple-400' :
+                isPast     ? 'border-2 border-amber-300 bg-white' :
                 isCurrent  ? 'bg-brand-gold ring-2 ring-brand-gold/30 ring-offset-1' :
                              'bg-gray-100'
               }`}>
                 {isFellHere  && <XCircle size={14} className="text-white" />}
-                {isPast      && <CheckCircle2 size={14} className="text-white" />}
+                {isDone      && <CheckCircle2 size={14} className="text-white" />}
+                {isPast && !isDone && <div className="h-2 w-2 rounded-full bg-amber-400" />}
                 {isCurrent && !isFallenThrough && <div className="h-2 w-2 rounded-full bg-brand-navy" />}
               </div>
               <span className={`text-sm ${
                 isFellHere ? 'text-red-500 font-semibold' :
-                isPast     ? 'text-purple-600 font-medium' :
+                isDone     ? 'text-purple-600 font-medium' :
+                isPast     ? 'text-amber-700 font-medium' :
                 isCurrent  ? 'font-bold text-brand-navy' :
                              'text-gray-300'
               }`}>
                 {SELLER_STAGE_LABELS[stage]}
               </span>
+              {isPast && !isDone && (
+                <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                  {stillOpen} task{stillOpen !== 1 ? 's' : ''} open
+                </span>
+              )}
               {isCurrent && !isFallenThrough && (
                 <span className="ml-auto rounded-full bg-brand-gold/20 px-2 py-0.5 text-[10px] font-bold text-brand-navy uppercase tracking-wide">Now</span>
               )}
@@ -1240,7 +1267,7 @@ export default function SellerView() {
 
       {/* Secondary column */}
       <div data-testid="portal-secondary" className="space-y-4 lg:col-start-2 lg:row-start-2">
-      <JourneyTracker deal={deal} />
+      <JourneyTracker deal={deal} openTasks={openTasks} />
       <VendorDirectory dealId={deal.id} />
       <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
       </div>

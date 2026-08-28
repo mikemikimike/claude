@@ -245,3 +245,36 @@ describe("StageAdvanceModal offer details (#410)", () => {
     expect((onConfirm.mock.calls[0][0] as string).length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * #420 — the "Will run automatically" list is a FORECAST.
+ *
+ * Every line rendered with a green `CheckCircle2` before the agent had
+ * confirmed anything, so work that had not happened — and might never happen,
+ * since Cancel is right there — was drawn exactly like completed work. One
+ * convention across the app: a green check means the thing actually happened.
+ */
+describe("StageAdvanceModal — 'will run automatically' is a forecast (#420)", () => {
+  it("renders the automation items without any completed-state icon", () => {
+    renderModal(null);
+
+    const list = screen.getByTestId("automation-list");
+    const items = screen.getAllByTestId("automation-item");
+    expect(items.length).toBeGreaterThan(0);
+
+    // No green anywhere in the block — green is reserved for confirmed work.
+    expect(list.querySelectorAll('[class*="text-green"]')).toHaveLength(0);
+    for (const item of items) {
+      expect(item.getAttribute("data-state")).toBe("forecast");
+    }
+  });
+
+  it("words the items as things that will happen, not things that have", () => {
+    renderModal(null);
+
+    const list = screen.getByTestId("automation-list");
+    // Past tense ("sent to", "auto-generated") reads as done. It isn't yet.
+    expect(list.textContent).not.toMatch(/\bsent to\b/i);
+    expect(list.textContent).toMatch(/when you confirm/i);
+  });
+});

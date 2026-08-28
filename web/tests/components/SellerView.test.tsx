@@ -584,3 +584,58 @@ describe("SellerView — completed tasks stay visible and re-openable (#408)", (
     await waitFor(() => expect(mockRefreshTasks).toHaveBeenCalled());
   });
 });
+
+/**
+ * #420 — the selling-journey rail checked off every stage the deal had walked
+ * past, purely on position. A seller whose Listing Prep tasks were still open
+ * was shown a green check against Listing Prep the moment the agent moved the
+ * deal on. Green means it happened; an open stage gets an open circle.
+ */
+describe("SellerView — the journey rail only checks off finished stages (#420)", () => {
+  function sellerTask(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-prep",
+      dealId: DEAL_ID,
+      title: "Declutter the front room",
+      assignedTo: "seller",
+      assignedToId: "seller-1",
+      status: "pending",
+      priority: "medium",
+      source: "ai",
+      stageContext: "active_search",
+      ...overrides,
+    } as Task;
+  }
+
+  it("does not mark a walked-past stage done while its tasks are still open", () => {
+    dealOverrides = { stage: "under_contract" };
+    mockTasks = [sellerTask()];
+    renderSeller(<SellerView />);
+
+    const row = screen.getByTestId("stage-row-active_search");
+    expect(row.getAttribute("data-stage-state")).toBe("open");
+    expect(row.textContent).toMatch(/1 task open/i);
+  });
+
+  it("still checks off a walked-past stage whose tasks are genuinely done", () => {
+    dealOverrides = { stage: "under_contract" };
+    mockTasks = [sellerTask({ status: "completed" })];
+    renderSeller(<SellerView />);
+
+    expect(screen.getByTestId("stage-row-active_search").getAttribute("data-stage-state"))
+      .toBe("complete");
+  });
+
+  it("leaves a fallen-through deal's 'fell out' marker alone", () => {
+    dealOverrides = {
+      stage: "under_contract",
+      status: "fallen_through",
+      fellFromStage: "under_contract",
+    } as Partial<MyDeal>;
+    mockTasks = [sellerTask({ stageContext: "under_contract" })];
+    renderSeller(<SellerView />);
+
+    expect(screen.getByTestId("stage-row-under_contract").getAttribute("data-stage-state"))
+      .toBe("fell-out");
+  });
+});

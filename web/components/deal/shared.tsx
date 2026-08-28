@@ -48,6 +48,25 @@ export const HEALTH_BADGE: Record<string, string> = {
   red: 'bg-red-100 text-red-700',
 };
 
+/**
+ * The completion-icon convention, for the whole app (#420).
+ *
+ * A **green check means the thing actually happened.** Nothing else earns one:
+ *
+ *   - not done yet          → an open `Circle`
+ *   - underway              → its own visual (the spinner below, a status pill)
+ *   - merely *forecast*     → an arrow / bullet, never a check
+ *     (the stage-advance modal's "will run automatically" list)
+ *   - merely *positionally past* → not a completion signal at all
+ *     (the portals' journey rails: a stage the deal has walked past with tasks
+ *     still open renders an open circle plus an "N tasks open" note)
+ *   - merely *implied by the deal's stage* → not a completion signal either
+ *     (the Fast Pass tracker: a paid service is never reported Complete
+ *     without a real completion signal — see `fpStatusAt` in BuyerView)
+ *
+ * This map is the canonical statement of it: `pending` is grey and open,
+ * `completed` — and only `completed` — is a green check.
+ */
 export const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
   completed: <CheckCircle2 size={16} className="text-green-500" />,
   in_progress: <Loader2 size={16} className="text-blue-500 animate-spin" />,
