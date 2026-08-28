@@ -19,6 +19,7 @@ import FastPassSurvey, {
 } from "@/components/pages/onboarding/FastPassSurvey";
 import { api } from "@/lib/api-client";
 import { FAST_PASS_BASE_PRICE_CENTS } from "@/lib/fast-pass-catalog";
+import { calcFastPassTotal, type FastPassUpsellId } from "@/lib/fast-pass-display";
 
 // Mutable so individual tests can simulate a ?dealId= entry point. The `mock`
 // prefix is what lets Vitest's hoisted vi.mock factory close over it.
@@ -57,8 +58,8 @@ function seedHandoff() {
   );
 }
 
-/** Click through all five survey screens and hit Submit Request. */
-function driveToSubmit() {
+/** Click through the four question screens, stopping on the confirm screen. */
+function driveToConfirm() {
   // Screen 0 — move situation (needs situation + move date + flexibility)
   fireEvent.click(screen.getByText("Currently renting"));
   fireEvent.click(screen.getByText("Day of closing"));
@@ -73,6 +74,11 @@ function driveToSubmit() {
   fireEvent.click(screen.getByText("Continue"));
   // Screen 3 — notes
   fireEvent.click(screen.getByText("Review & Submit"));
+}
+
+/** Click through all five survey screens and hit Submit Request. */
+function driveToSubmit() {
+  driveToConfirm();
   // Screen 4 — confirm + payment option
   fireEvent.click(screen.getByText("Pay now"));
   fireEvent.click(screen.getByText("Submit Request"));
@@ -141,5 +147,60 @@ describe("FastPassSurvey handoff", () => {
     expect(screen.queryByText("You're in!")).toBeNull();
     // Handoff is kept so the user can retry without losing the deal id.
     expect(sessionStorage.getItem(HANDOFF_KEY)).not.toBeNull();
+  });
+});
+
+/**
+ * #430 — the repriced add-ons must reach the buyer's eyes, not just the
+ * Stripe charge. The confirm screen's line items are the last figures a buyer
+ * sees before checking out, so they are pinned to the dollar here.
+ */
+describe("FastPassSurvey add-on pricing (#430)", () => {
+  const REPRICED_UPSELLS: FastPassUpsellId[] = [
+    "moving_coordination",
+    "deep_clean",
+    "staging_consult",
+  ];
+  // Derived from the catalog, exactly as FastPassDetail stashes it — so the
+  // "$2,787" asserted below is the catalog's answer, not a number typed twice.
+  const REPRICED_TOTAL = calcFastPassTotal(REPRICED_UPSELLS);
+
+  function seedRepricedHandoff() {
+    sessionStorage.setItem(
+      HANDOFF_KEY,
+      JSON.stringify({
+        dealId: DEAL_ID,
+        selectedUpsells: REPRICED_UPSELLS,
+        total: REPRICED_TOTAL,
+      })
+    );
+  }
+
+  it("renders $475 moving / $425 deep clean / $100 staging on the checkout breakdown", () => {
+    seedRepricedHandoff();
+    render(<FastPassSurvey />);
+    driveToConfirm();
+
+    const row = (name: string) =>
+      screen.getByText(name).parentElement as HTMLElement;
+
+    expect(row("Moving Day Coordination")).toHaveTextContent("+$475");
+    expect(row("Post-Close Deep Clean")).toHaveTextContent("+$425");
+    expect(row("Staging & Design Consultation")).toHaveTextContent("+$100");
+    // …and the basket the buyer agrees to: $1,787 + 475 + 425 + 100 = $2,787.
+    expect(screen.getByText("Total").parentElement).toHaveTextContent("$2,787");
+  });
+
+  it("charges Stripe exactly the displayed basket on pay-now", async () => {
+    seedRepricedHandoff();
+    mockPost.mockResolvedValue({ ok: true });
+    render(<FastPassSurvey />);
+    driveToSubmit();
+
+    await screen.findByText("You're in!");
+    const [, body] = mockPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.selected_upsells).toEqual(REPRICED_UPSELLS);
+    // 278700 cents — the same number the confirm screen just rendered.
+    expect(body.total_cents).toBe(278700);
   });
 });

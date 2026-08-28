@@ -6,7 +6,10 @@ import { setStripeForTesting } from "@/lib/stripe";
 import {
   FAST_PASS_BASE_PRICE_CENTS,
   FAST_PASS_UPSELL_PRICE_CENTS,
+  computeFastPassSubtotalCents,
+  computeFastPassTotalCents,
 } from "@/lib/fast-pass-catalog";
+import { FAST_PASS_UPSELLS } from "@/lib/fast-pass-display";
 import { prisma } from "@/lib/db";
 import { authHeader, getTestSigner } from "../helpers/jwt";
 import { truncateAll } from "../helpers/db";
@@ -33,10 +36,11 @@ function ctx(id: string) {
   return { params: Promise.resolve({ id }) };
 }
 
-// Base + utility_setup 9700 + staging_consult 24700. Derived from the catalog
+// Base + utility_setup 9700 + staging_consult 10000. Derived from the catalog
 // so a base-price change doesn't need an edit here — the upsells stay literal
-// so a wrong upsell amount is still caught.
-const EXPECTED_TOTAL = FAST_PASS_BASE_PRICE_CENTS + 9700 + 24700;
+// so a wrong upsell amount is still caught. (staging_consult was repriced from
+// $247 to $100 in #430 — the base package already bundles a designer session.)
+const EXPECTED_TOTAL = FAST_PASS_BASE_PRICE_CENTS + 9700 + 10000;
 // "Pay at closing" defers the charge and adds a 15% premium to the FULL basket
 // (base + upsells) exactly once. "now" / "seller_concession" carry no premium.
 // Literal 1.15 here (not the catalog constant) so a wrong multiplier is caught.
@@ -614,5 +618,76 @@ describe("POST /api/deals/[id]/fastpass — malformed body validation (#88)", ()
     expect(res.status).toBe(400);
     const row = await prisma.deals.findUnique({ where: { id: deal.id } });
     expect(row?.fast_pass).toBeNull();
+  });
+});
+
+/**
+ * #430 — Fast Pass add-on repricing. Paul confirmed three corrections on
+ * 2026-08-28: Moving Day Coordination $197 → $475, Post-Close Deep Clean
+ * $197 → $425, and Staging & Design Consultation $247 → $100 (down on
+ * purpose — the base package already bundles a designer session).
+ *
+ * Pure catalog assertions with no DB or HTTP in the way: the catalog is the
+ * single source of truth for BOTH the survey's displayed dollars
+ * (lib/fast-pass-display.ts) and the Stripe charge, so pinning it here is
+ * what stops marketing copy and the charge from drifting apart.
+ *
+ * Existing enrolments are unaffected — each stores its computed total_cents
+ * on the deal at enrol time.
+ */
+describe("Fast Pass add-on prices (#430)", () => {
+  it("Moving Day Coordination is $475 — subtotal = base + 47500", () => {
+    expect(FAST_PASS_UPSELL_PRICE_CENTS.moving_coordination).toBe(47500);
+    expect(computeFastPassSubtotalCents(["moving_coordination"])).toBe(226200);
+  });
+
+  it("Post-Close Deep Clean is $425 — subtotal = base + 42500", () => {
+    expect(FAST_PASS_UPSELL_PRICE_CENTS.deep_clean).toBe(42500);
+    expect(computeFastPassSubtotalCents(["deep_clean"])).toBe(221200);
+  });
+
+  it("Staging & Design Consultation drops to $100 — subtotal = base + 10000", () => {
+    expect(FAST_PASS_UPSELL_PRICE_CENTS.staging_consult).toBe(10000);
+    expect(computeFastPassSubtotalCents(["staging_consult"])).toBe(188700);
+  });
+
+  it("the +15% at_closing premium multiplies the whole basket once, not the add-on alone", () => {
+    // round(226200 * 1.15) — NOT base + round(47500 * 1.15), and not applied
+    // twice. Literal 1.15 so a wrong multiplier is still caught.
+    expect(computeFastPassTotalCents(["moving_coordination"], "at_closing")).toBe(260130);
+    expect(computeFastPassTotalCents(["moving_coordination"], "at_closing")).toBe(
+      Math.round(226200 * 1.15)
+    );
+    // "now" and "seller_concession" carry no premium.
+    expect(computeFastPassTotalCents(["moving_coordination"], "now")).toBe(226200);
+  });
+
+  it("a promo discount comes off the SUBTOTAL before the premium is applied", () => {
+    // Documented order (#281 composed with #280): subtotal → discount → premium.
+    // round((226200 − 20000) × 1.15) = 237130.
+    // Discounting AFTER the premium would give 260130 − 20000 = 240130.
+    expect(
+      computeFastPassTotalCents(["moving_coordination"], "at_closing", {
+        discountCents: 20000,
+      })
+    ).toBe(237130);
+    expect(
+      computeFastPassTotalCents(["moving_coordination"], "at_closing", {
+        discountCents: 20000,
+      })
+    ).not.toBe(240130);
+  });
+
+  it("every displayed add-on has a catalog price — nothing can be shown without one", () => {
+    for (const upsell of FAST_PASS_UPSELLS) {
+      expect(FAST_PASS_UPSELL_PRICE_CENTS).toHaveProperty(upsell.id);
+      // The displayed dollars are derived, never hand-typed.
+      expect(upsell.price).toBe(FAST_PASS_UPSELL_PRICE_CENTS[upsell.id] / 100);
+    }
+    // …and no priced add-on is orphaned out of the UI list either.
+    const displayedIds = new Set<string>(FAST_PASS_UPSELLS.map((u) => u.id));
+    for (const key of Object.keys(FAST_PASS_UPSELL_PRICE_CENTS)) {
+      expect(displayedIds.has(key)).toBe(true);
+    }
   });
 });

@@ -36,17 +36,29 @@ export const FAST_PASS_BASE_PRICE_CENTS = 178700;
  */
 export const AT_CLOSING_PREMIUM = 1.15;
 
+/**
+ * Add-on prices, in cents. Repriced 2026-08-28 (#430) after Paul walked the
+ * catalogue line by line:
+ *   - moving_coordination  $197 → $475  (was below the cost of delivering it)
+ *   - deep_clean           $197 → $425  (same — a real deep clean costs more)
+ *   - staging_consult      $247 → $100  (DOWN on purpose: the base package
+ *     already bundles a designer session and the consult is near-zero cost)
+ * Every other line is unchanged — address_change stays at $97.
+ *
+ * Enrollment stores its computed total on the deal, so a change here only
+ * affects NEW enrollments; anyone already enrolled keeps their agreed amount.
+ */
 export const FAST_PASS_UPSELL_PRICE_CENTS = {
   utility_setup: 9700,
   refi_monitoring: 14700,
   home_warranty: 9700,
-  deep_clean: 19700,
+  deep_clean: 42500,
   inspection_followup: 14700,
   address_change: 9700,
   storage_research: 9700,
   new_construction: 14700,
-  staging_consult: 24700,
-  moving_coordination: 19700,
+  staging_consult: 10000,
+  moving_coordination: 47500,
 } as const;
 
 export type FastPassUpsellId = keyof typeof FAST_PASS_UPSELL_PRICE_CENTS;
