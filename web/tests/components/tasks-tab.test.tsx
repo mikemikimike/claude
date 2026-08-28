@@ -126,6 +126,87 @@ describe("TasksTab — create task (#187)", () => {
   });
 });
 
+/**
+ * #408 — completing every task on a deal used to REPLACE the whole list with an
+ * "All tasks complete" panel (`allDone ? <panel> : <sections>`). `completedIds`
+ * is seeded from the server on mount, so the empty state survived a reload and
+ * the rows never came back: completion was a one-way door with no UI undo.
+ *
+ * The panel is now a header ABOVE the sections, which stay mounted.
+ */
+describe("TasksTab — all-complete state stays un-doable (#408)", () => {
+  const DONE_A = makeTask({ id: "task-1", title: "Order title report", status: "completed" });
+  const DONE_B = makeTask({
+    id: "task-2",
+    title: "Send wire instructions",
+    assignedTo: "tc",
+    status: "completed",
+  });
+
+  // Case 1 — fails against the old code: the sections were unmounted entirely.
+  it("keeps every task row rendered when all tasks are complete", () => {
+    render(
+      <TasksTab deal={DEAL} tasks={[DONE_A, DONE_B]} onTasksChange={vi.fn()} />
+    );
+
+    expect(screen.getByText("Order title report")).toBeInTheDocument();
+    expect(screen.getByText("Send wire instructions")).toBeInTheDocument();
+  });
+
+  // Case 2 — fails against the old code: there was no toggle left to click.
+  it("un-completes a task from the all-complete state, PATCHing it back to pending", async () => {
+    const user = userEvent.setup();
+    render(
+      <TasksTab deal={DEAL} tasks={[DONE_A, DONE_B]} onTasksChange={vi.fn()} />
+    );
+
+    await user.click(screen.getAllByRole("button", { name: /mark incomplete/i })[0]);
+
+    await waitFor(() =>
+      expect(patchTaskStatus).toHaveBeenCalledWith("task-1", "pending")
+    );
+  });
+
+  // Case 3 — no regression: a partially-done deal shows no congratulations.
+  it("does not show the all-complete panel while a task is still open", () => {
+    render(
+      <TasksTab
+        deal={DEAL}
+        tasks={[DONE_A, makeTask({ id: "task-3", title: "Call the lender" })]}
+        onTasksChange={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText(/all tasks complete/i)).toBeNull();
+    expect(screen.getByText("Order title report")).toBeInTheDocument();
+    expect(screen.getByText("Call the lender")).toBeInTheDocument();
+  });
+
+  // Case 4 — the celebration still happens, it just no longer hides anything.
+  it("shows the all-complete panel alongside the list when everything is done", () => {
+    render(
+      <TasksTab deal={DEAL} tasks={[DONE_A, DONE_B]} onTasksChange={vi.fn()} />
+    );
+
+    expect(screen.getByText(/all tasks complete/i)).toBeInTheDocument();
+    expect(screen.getByText("Order title report")).toBeInTheDocument();
+  });
+
+  it("drops the all-complete panel as soon as one task is re-opened", async () => {
+    const user = userEvent.setup();
+    render(
+      <TasksTab deal={DEAL} tasks={[DONE_A, DONE_B]} onTasksChange={vi.fn()} />
+    );
+    expect(screen.getByText(/all tasks complete/i)).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: /mark incomplete/i })[0]);
+
+    await waitFor(() => expect(screen.queryByText(/all tasks complete/i)).toBeNull());
+    // …and the row the agent just re-opened is still on screen.
+    expect(screen.getByText("Order title report")).toBeInTheDocument();
+  });
+});
+
 describe("TasksTab — edit due date (#187)", () => {
   it("edits an existing task's due date", async () => {
     const user = userEvent.setup();

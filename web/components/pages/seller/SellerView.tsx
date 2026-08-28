@@ -49,12 +49,15 @@ const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
 
 // ─── Shared: Task card ────────────────────────────────────────────────────────
 
-function TaskCard({ task, onComplete }: { task: Task; onComplete?: (id: string) => void }) {
+// `done` (#408) mirrors BuyerView: the caller overrides the server status while
+// an optimistic completion is still in flight. A completed card is clickable —
+// tapping it re-opens the task, so a mis-tap is no longer permanent.
+function TaskCard({ task, done = false, onComplete, onUncomplete }: { task: Task; done?: boolean; onComplete?: (id: string) => void; onUncomplete?: (id: string) => void }) {
   const isOverdue = task.status === 'overdue';
-  const isDone    = task.status === 'completed';
+  const isDone    = done || task.status === 'completed';
   return (
     <button
-      onClick={() => !isDone && onComplete?.(task.id)}
+      onClick={() => (isDone ? onUncomplete?.(task.id) : onComplete?.(task.id))}
       className={`w-full text-left flex items-start gap-3 rounded-xl p-4 transition-all ${
         isOverdue ? 'bg-red-50 border border-red-100' :
         isDone    ? 'bg-gray-50 opacity-60' :
@@ -76,7 +79,11 @@ function TaskCard({ task, onComplete }: { task: Task; onComplete?: (id: string) 
             {isOverdue ? 'Overdue — ' : 'Due '}{task.dueDate}
           </p>
         )}
-        {isDone && <p className="mt-0.5 text-[11px] text-green-600">Marked complete</p>}
+        {isDone && (
+          <p className="mt-0.5 text-[11px] text-green-600">
+            Marked complete{onUncomplete ? ' — tap to undo' : ''}
+          </p>
+        )}
       </div>
     </button>
   );
@@ -1030,13 +1037,15 @@ export default function SellerView() {
   const { deals, loading: dealsLoading, error: dealsError, refresh: refreshDeals } = useMyDeals();
   const deal = deals.find((d) => d.type === 'sell');
   const { tasks, refresh: refreshTasks } = useTasks(deal?.id ?? '');
-  const { completedIds, error: completeError, complete: handleComplete } = useTaskCompletion(refreshTasks);
+  const { completedIds, error: completeError, complete: handleComplete, uncomplete: handleUncomplete } = useTaskCompletion(refreshTasks);
   const sellerTasks = tasks.filter((t) => t.assignedTo === 'seller');
-  const openTasks = sellerTasks.filter((t) => t.status !== 'completed' && !completedIds.has(t.id));
-  // Union real + optimistic ids so a refetched 'completed' task isn't counted twice.
-  const completedCount = new Set(
-    sellerTasks.filter((t) => t.status === 'completed').map((t) => t.id).concat([...completedIds]),
-  ).size;
+  // Real status ∪ the in-flight optimistic check. Partitioning the same array
+  // two ways also de-dupes the count a refetched 'completed' task used to inflate.
+  const isTaskDone = (t: Task) => t.status === 'completed' || completedIds.has(t.id);
+  const openTasks = sellerTasks.filter((t) => !isTaskDone(t));
+  // #408: completed tasks are RENDERED, not just counted.
+  const doneTasks = sellerTasks.filter(isTaskDone);
+  const completedCount = doneTasks.length;
   const { slots: availability } = useShowingAvailability(deal?.id);
   const [showingModalDismissed, setShowingModalDismissed] = useState(
     () => !!sessionStorage.getItem(`showing_avail_prompted_${deal?.id ?? ''}`)
@@ -1218,6 +1227,7 @@ export default function SellerView() {
                   {completedCount} task{completedCount !== 1 ? 's' : ''} completed
                 </p>
               )}
+              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} />)}
             </div>
           )}
           {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}

@@ -61,14 +61,17 @@ const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
 
 // ─── Shared: Task card ────────────────────────────────────────────────────────
 
-function TaskCard({ task, onComplete, onUploaded }: { task: Task; onComplete?: (id: string) => void; onUploaded?: () => void }) {
+// `done` (#408) lets the caller override the server status: a task the buyer
+// only just optimistically ticked is still `status: 'pending'` on the wire
+// until the refetch lands, and one they just re-opened is still 'completed'.
+function TaskCard({ task, done = false, onComplete, onUncomplete, onUploaded }: { task: Task; done?: boolean; onComplete?: (id: string) => void; onUncomplete?: (id: string) => void; onUploaded?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const isOverdue = task.status === 'overdue';
-  const isDone = task.status === 'completed';
+  const isDone = done || task.status === 'completed';
   const actionType = task.actionType ?? 'confirm';
 
   function handleConfirm() {
@@ -121,9 +124,11 @@ function TaskCard({ task, onComplete, onUploaded }: { task: Task; onComplete?: (
       'bg-white border border-gray-100'
     }`}>
       {/* Header row */}
+      {/* #408: a completed row is NOT disabled — tapping it re-opens the task.
+          `disabled={isDone}` made a mis-tapped "Yes, I'm done" permanent for
+          the client, with no undo anywhere in the portal. */}
       <button
-        onClick={() => !isDone && setExpanded((p) => !p)}
-        disabled={isDone}
+        onClick={() => (isDone ? onUncomplete?.(task.id) : setExpanded((p) => !p))}
         className="w-full text-left flex items-start gap-3 p-4 hover:bg-black/[0.02] transition-colors active:scale-[0.99]"
       >
         {isDone
@@ -142,7 +147,11 @@ function TaskCard({ task, onComplete, onUploaded }: { task: Task; onComplete?: (
               {task.dueDate}
             </p>
           )}
-          {isDone && <p className="mt-0.5 text-[11px] text-green-600">Marked complete</p>}
+          {isDone && (
+            <p className="mt-0.5 text-[11px] text-green-600">
+              Marked complete{onUncomplete ? ' — tap to undo' : ''}
+            </p>
+          )}
         </div>
         {!isDone && (
           <ChevronRight size={14} className={`flex-shrink-0 text-gray-300 mt-0.5 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />
@@ -2003,17 +2012,21 @@ export default function BuyerView() {
   const { deals, loading: dealsLoading, error: dealsError, refresh: refreshDeals } = useMyDeals();
   const deal = deals.find((d) => d.type === 'buy');
   const { tasks, refresh: refreshTasks } = useTasks(deal?.id ?? '');
-  const { completedIds, error: completeError, complete: handleComplete } = useTaskCompletion(refreshTasks);
+  const { completedIds, error: completeError, complete: handleComplete, uncomplete: handleUncomplete } = useTaskCompletion(refreshTasks);
   // After a TaskCard upload confirms, refresh the deal's Documents tab in-session.
   const invalidateDocuments = useCallback(() => {
     if (deal) void queryClient.invalidateQueries({ queryKey: ['documents', deal.id] });
   }, [queryClient, deal]);
   const buyerTasks = tasks.filter((t) => t.assignedTo === 'buyer');
-  const openTasks = buyerTasks.filter((t) => t.status !== 'completed' && !completedIds.has(t.id));
-  // Union real + optimistic ids so a refetched 'completed' task isn't counted twice.
-  const completedCount = new Set(
-    buyerTasks.filter((t) => t.status === 'completed').map((t) => t.id).concat([...completedIds]),
-  ).size;
+  // Real status ∪ the in-flight optimistic check. Partitioning the same array
+  // two ways also de-dupes the count a refetched 'completed' task used to
+  // inflate (it is in both `completedIds` and the server list).
+  const isTaskDone = (t: Task) => t.status === 'completed' || completedIds.has(t.id);
+  const openTasks = buyerTasks.filter((t) => !isTaskDone(t));
+  // #408: completed tasks are RENDERED, not just counted — they were the
+  // one-way door (the row disappeared and nothing could bring it back).
+  const doneTasks = buyerTasks.filter(isTaskDone);
+  const completedCount = doneTasks.length;
 
   if (dealsLoading) {
     return (
@@ -2192,6 +2205,7 @@ export default function BuyerView() {
                   {completedCount} task{completedCount !== 1 ? 's' : ''} completed
                 </p>
               )}
+              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} onUploaded={invalidateDocuments} />)}
             </div>
           )}
           {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}

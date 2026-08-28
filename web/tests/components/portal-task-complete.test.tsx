@@ -183,9 +183,12 @@ describe("Buyer portal task completion", () => {
 
     confirmTask();
 
-    // The optimistic update removes the open task from the list right away.
-    expect(screen.queryByText("Send your bank statements")).toBeNull();
+    // The optimistic update moves the task out of the OPEN list right away…
     expect(screen.getByText(/All caught up/)).toBeTruthy();
+    // …and into the completed list, where it stays visible and re-openable
+    // (#408 — it used to disappear entirely, with no way back).
+    expect(screen.getByText(/1 task completed/)).toBeTruthy();
+    expect(screen.getByText(/Marked complete/)).toBeTruthy();
   });
 
   it("rolls the optimistic check back AND shows an error when patchTaskStatus rejects", async () => {
@@ -198,6 +201,77 @@ describe("Buyer portal task completion", () => {
     await screen.findByText(/couldn[’']t|could not|try again|failed/i);
     // …and the task is back in the open list (rollback), not silently "done".
     expect(screen.getByText("Send your bank statements")).toBeTruthy();
+  });
+});
+
+/**
+ * #408 — the client half of the one-way-door bug. `openTasks` filters completed
+ * tasks out of the list entirely and `TaskCard` set `disabled={isDone}`, so a
+ * buyer who mis-tapped "Yes, I'm done" had no way back: the row vanished and
+ * the only trace was a "1 task completed" counter.
+ *
+ * Completed tasks now render (below the open ones) and clicking one PATCHes it
+ * back to 'pending', which is what recovers the deal's open-task count, health,
+ * and — deliberately — the stage gate. See tests/api/task-uncomplete.test.ts.
+ */
+describe("Buyer portal task un-completion (#408)", () => {
+  beforeEach(() => {
+    mockTasks = [makeTask({ status: "completed" })];
+  });
+
+  // Case 1 — fails against the old code: completed tasks were never rendered.
+  it("still renders a completed task instead of hiding it", () => {
+    renderBuyer(<BuyerView />);
+
+    expect(screen.getByText("Send your bank statements")).toBeTruthy();
+    expect(screen.getByText(/1 task completed/)).toBeTruthy();
+  });
+
+  // Case 2 — fails against the old code: the row was `disabled`.
+  it("PATCHes a completed task back to 'pending' when the buyer taps it", async () => {
+    mockPatch.mockResolvedValue(undefined);
+    renderBuyer(<BuyerView />);
+
+    fireEvent.click(screen.getByText("Send your bank statements"));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(1));
+    expect(mockPatch).toHaveBeenCalledWith(TASK_ID, "pending");
+  });
+
+  it("refetches after a successful un-complete so the server is the source of truth", async () => {
+    mockPatch.mockResolvedValue(undefined);
+    renderBuyer(<BuyerView />);
+
+    fireEvent.click(screen.getByText("Send your bank statements"));
+
+    await waitFor(() => expect(mockRefreshTasks).toHaveBeenCalled());
+  });
+
+  it("surfaces an error and leaves the task complete when the un-complete fails", async () => {
+    mockPatch.mockRejectedValue(new Error("500 — boom"));
+    renderBuyer(<BuyerView />);
+
+    fireEvent.click(screen.getByText("Send your bank statements"));
+
+    await screen.findByText(/couldn[’']t|could not|try again|failed/i);
+    // Still shown as done — an un-complete that never landed must not look done.
+    expect(screen.getByText(/1 task completed/)).toBeTruthy();
+  });
+
+  it("un-completes a task the buyer only just optimistically completed", async () => {
+    mockTasks = [makeTask()]; // still 'pending' server-side
+    mockPatch.mockResolvedValue(undefined);
+    renderBuyer(<BuyerView />);
+
+    confirmTask();
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(TASK_ID, "completed"));
+
+    // The optimistic check moved it into the completed list — tap it to undo.
+    fireEvent.click(screen.getByText("Send your bank statements"));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(TASK_ID, "pending"));
+    // Back in the open list right away (it was never completed server-side).
+    expect(screen.queryByText(/task completed/)).toBeNull();
   });
 });
 

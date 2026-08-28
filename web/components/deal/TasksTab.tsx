@@ -71,6 +71,9 @@ function TaskItem({ task, ctx }: { task: Task; ctx: TaskItemCtx }) {
           isDone ? 'text-green-500 hover:text-gray-300' : 'text-gray-300 hover:text-green-400'
         }`}
         title={isDone ? 'Mark incomplete' : 'Mark complete'}
+        // The icon carries no text, so name the control explicitly — this is
+        // the only undo path for a completed task (#408).
+        aria-label={isDone ? `Mark incomplete: ${task.title}` : `Mark complete: ${task.title}`}
       >
         {isDone
           ? <CheckCircle2 size={16} className="text-green-500" />
@@ -428,37 +431,43 @@ export function TasksTab({ deal, tasks, onTasksChange }: { deal: Deal; tasks: Ta
         </div>
       )}
 
-      {allDone ? (
-        <div className="rounded-xl bg-white shadow-sm flex flex-col items-center py-10 gap-2">
+      {/* #408: the all-done state is a BANNER, never a replacement for the
+          list. It used to render instead of the sections — and because
+          `completedIds` is seeded from the server on mount, that empty state
+          survived a reload, so the last task an agent ticked could never be
+          un-ticked. The sections below always stay mounted; each already shows
+          its own doneCount/total and a green check when it is fully done, so
+          nothing about "everything is finished" is lost by keeping them. */}
+      {allDone && (
+        <div className="rounded-xl bg-white shadow-sm flex flex-col items-center py-8 gap-2">
           <CheckCircle2 size={36} className="text-green-400" />
           <p className="text-sm font-semibold text-green-700">All tasks complete</p>
           <p className="text-xs text-gray-400">Great work on this deal.</p>
         </div>
-      ) : (
-        <>
-          <OwnerSection
-            label="Your Tasks"
-            sublabel="Action required from you"
-            icon={CheckSquare}
-            tasks={agentTasks}
-            ctx={ctx}
-          />
-          <OwnerSection
-            label="Client's Tasks"
-            sublabel={`${deal.clientName} needs to complete these`}
-            icon={Users}
-            tasks={clientTasks}
-            ctx={ctx}
-          />
-          <OwnerSection
-            label="TC / Third Party"
-            sublabel="Handled by your team or vendors"
-            icon={Building2}
-            tasks={supportTasks}
-            ctx={ctx}
-          />
-        </>
       )}
+
+      <OwnerSection
+        label="Your Tasks"
+        sublabel="Action required from you"
+        icon={CheckSquare}
+        tasks={agentTasks}
+        ctx={ctx}
+      />
+      <OwnerSection
+        label="Client's Tasks"
+        sublabel={`${deal.clientName} needs to complete these`}
+        icon={Users}
+        tasks={clientTasks}
+        ctx={ctx}
+      />
+      <OwnerSection
+        label="TC / Third Party"
+        sublabel="Handled by your team or vendors"
+        icon={Building2}
+        tasks={supportTasks}
+        ctx={ctx}
+      />
+
     </div>
   );
 }

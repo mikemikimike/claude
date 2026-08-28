@@ -17,6 +17,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MyDeal } from "@/hooks/useMyDeals";
 import type { Offer } from "@/hooks/useOffers";
 import type { AppNotification } from "@/hooks/useNotifications";
+import type { Task } from "@/lib/types";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 vi.mock("next/navigation", () => ({
@@ -33,8 +34,12 @@ vi.mock("@/lib/store/authStore", () => ({
 vi.mock("@/hooks/useMyDeals", () => ({
   useMyDeals: () => ({ deals: [makeDeal()], loading: false, error: null, refresh: vi.fn() }),
 }));
+// Per-test task list — reset in beforeEach. Empty for every case except the
+// #408 un-complete block below, which needs a completed seller task on screen.
+let mockTasks: Task[] = [];
+const mockRefreshTasks = vi.fn();
 vi.mock("@/hooks/useTasks", () => ({
-  useTasks: () => ({ tasks: [], loading: false, refresh: vi.fn() }),
+  useTasks: () => ({ tasks: mockTasks, loading: false, refresh: mockRefreshTasks }),
   patchTaskStatus: vi.fn(),
 }));
 vi.mock("@/hooks/useMessages", () => ({
@@ -104,6 +109,7 @@ vi.mock("@/lib/api-client", () => ({
 
 import { postMessage } from "@/hooks/useMessages";
 import SellerView from "@/components/pages/seller/SellerView";
+import { patchTaskStatus } from "@/hooks/useTasks";
 
 type ApiChecklistItem = {
   id: string;
@@ -201,6 +207,10 @@ function renderSeller(ui: ReactElement) {
 beforeEach(() => {
   sessionStorage.clear();
   mockOffers = [];
+  mockTasks = [];
+  mockRefreshTasks.mockReset();
+  vi.mocked(patchTaskStatus).mockReset();
+  vi.mocked(patchTaskStatus).mockResolvedValue(undefined as never);
   mockNotifications = [];
   mockMarkRead.mockClear();
   dealOverrides = {};
@@ -530,5 +540,47 @@ describe("SellerView at pre_close — pre-close checklist is real, not static de
         { checked: true }
       )
     );
+  });
+});
+
+/**
+ * #408 — the seller portal had the same one-way door as the buyer's: completed
+ * tasks were filtered out of the list and `TaskCard` ignored clicks once done,
+ * so a mis-tapped "done" could never be undone.
+ */
+describe("SellerView — completed tasks stay visible and re-openable (#408)", () => {
+  const TASK_ID = "a1b2c3d4-0000-4f6e-8a2d-3c4b5a697e33";
+
+  function completedSellerTask(): Task {
+    return {
+      id: TASK_ID,
+      dealId: DEAL_ID,
+      title: "Clear the driveway for photos",
+      assignedTo: "seller",
+      assignedToId: "seller-1",
+      status: "completed",
+      priority: "medium",
+      source: "manual",
+      stageContext: "offer_active",
+      actionType: "confirm",
+    } as Task;
+  }
+
+  it("renders a completed seller task instead of hiding it", () => {
+    mockTasks = [completedSellerTask()];
+    renderSeller(<SellerView />);
+
+    expect(screen.getByText("Clear the driveway for photos")).toBeTruthy();
+    expect(screen.getByText(/1 task completed/)).toBeTruthy();
+  });
+
+  it("PATCHes a completed task back to 'pending' when the seller taps it", async () => {
+    mockTasks = [completedSellerTask()];
+    renderSeller(<SellerView />);
+
+    fireEvent.click(screen.getByText("Clear the driveway for photos"));
+
+    await waitFor(() => expect(patchTaskStatus).toHaveBeenCalledWith(TASK_ID, "pending"));
+    await waitFor(() => expect(mockRefreshTasks).toHaveBeenCalled());
   });
 });
