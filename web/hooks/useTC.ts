@@ -8,6 +8,12 @@ export type TCInfo = {
   email: string;
   phone: string;
   userId: string | null;
+  /**
+   * Only meaningful on the result of saveTC: true when that save actually
+   * emailed the TC an invite (no account yet + the send succeeded). GET never
+   * sets it, so it is undefined for the cached record.
+   */
+  invited?: boolean;
 };
 
 type ApiTCInfo = {
@@ -15,10 +21,17 @@ type ApiTCInfo = {
   email: string;
   phone: string;
   user_id: string | null;
+  invited?: boolean;
 };
 
 function fromApi(t: ApiTCInfo): TCInfo {
-  return { name: t.name, email: t.email, phone: t.phone, userId: t.user_id };
+  return {
+    name: t.name,
+    email: t.email,
+    phone: t.phone,
+    userId: t.user_id,
+    invited: t.invited,
+  };
 }
 
 export function useTC() {

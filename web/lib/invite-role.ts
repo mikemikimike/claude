@@ -34,6 +34,51 @@ export async function pendingInviteRole(email: string): Promise<Role | null> {
 }
 
 /**
+ * "tc" when some agent has this email sitting in their Transaction Coordinator
+ * assignment (`users.tc_contact`) and has not been linked to an account yet.
+ *
+ * There is no `tc_invites` table and #415 deliberately did not add one: the
+ * agent's own `tc_contact` row IS the pending invite. It is created by the
+ * agent (PUT /api/me/tc), it names exactly one email, and it stops being
+ * pending the moment the backfill sets `tc_user_id` — which is what
+ * `tc_user_id IS NULL` checks.
+ *
+ * Raw SQL for the same reason as pendingInviteRole: `lower(...) = lower($1)` is
+ * the only case-insensitive form a functional index can serve, and Prisma's
+ * `mode: "insensitive"` emits ILIKE. NOTE: unlike deal_invites/users there is
+ * no functional index on `lower(tc_contact->>'email')` yet — that needs a
+ * migration and is a follow-up. It is a sequential scan over `users`, run only
+ * on a brand-new user's first sync (resolveSyncRole skips it for returning
+ * users) and on the Post-Login Action's role lookup.
+ */
+export async function pendingTcContactRole(email: string): Promise<Role | null> {
+  if (!email) return null;
+  const rows = await prisma.$queryRaw<{ exists: number }[]>`
+    SELECT 1 AS exists
+      FROM users
+     WHERE tc_contact IS NOT NULL
+       AND tc_user_id IS NULL
+       AND lower(tc_contact->>'email') = lower(${email})
+     LIMIT 1
+  `;
+  return rows.length > 0 ? "tc" : null;
+}
+
+/**
+ * The role any PENDING invitation implies for an email — a deal invite first
+ * (buyer/seller), then a pending TC assignment. Deal invites win: they are
+ * token-bound and deal-scoped, so a person who is both somebody's client and
+ * somebody's TC lands in the portal they were explicitly invited to.
+ *
+ * This is the single lookup both resolveSyncRole and roleForEmail consult, so
+ * /users/sync and the Auth0 Post-Login Action can never disagree.
+ */
+export async function pendingRoleForEmail(email: string): Promise<Role | null> {
+  if (!email) return null;
+  return (await pendingInviteRole(email)) ?? (await pendingTcContactRole(email));
+}
+
+/**
  * The role that applies to an email: the users row first, then any open invite,
  * else "". Backs GET /api/invites/role, which the Auth0 Post-Login Action calls
  * (behind the INVITE_ROLE_SECRET gate — see that route).
@@ -58,5 +103,5 @@ export async function roleForEmail(email: string): Promise<Role | ""> {
   `;
   const user = rows[0];
   if (user) return isValidRole(user.role) ? user.role : "";
-  return (await pendingInviteRole(email)) ?? "";
+  return (await pendingRoleForEmail(email)) ?? "";
 }

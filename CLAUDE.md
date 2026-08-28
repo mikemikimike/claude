@@ -299,17 +299,40 @@ through **`decideRole()` in `web/lib/roles.ts`** — the single place this rule 
 a second guard in `upsertUser` or the route):
 
 1. An explicit **non-default** claim (`admin`, `tc`, `seller`, `buyer`, `lending_partner`) wins.
-2. A persisted **`buyer`/`seller`** is never overwritten by a default `agent` claim.
-3. For a user with **no row yet**, an open (unclaimed, unexpired) `deal_invites` row for their
-   email beats the default claim — the safety net when the claim POST never ran.
+2. A persisted **`buyer`/`seller`/`tc`** is never overwritten by a default `agent` claim.
+3. For a user with **no row yet**, a pending invite for their email beats the default claim —
+   the safety net when the claim POST never ran. Two sources, checked in this order by
+   `pendingRoleForEmail()` (`web/lib/invite-role.ts`):
+   - an open (unclaimed, unexpired) `deal_invites` row → `buyer`/`seller`
+   - an agent's unlinked TC assignment (`users.tc_contact` with `tc_user_id IS NULL`) → `tc`
 4. Otherwise the claim, else the persisted role. No role anywhere = 403.
 
 **To make someone an admin or TC:** unchanged — assign the role in the Auth0 prod tenant
 (User Management → Users → *Roles* tab), then have them log out and back in. Rule 1 honours it.
 
-**To move a client to agent:** the `agent` claim alone will not do it (rule 2). Update the row
-(`UPDATE users SET role='agent' WHERE …`) **and then** have them re-login — once `users.role`
-is no longer a client role, rule 4 honours the claim again.
+**To move a client or TC to agent:** the `agent` claim alone will not do it (rule 2). Update
+the row (`UPDATE users SET role='agent' WHERE …`) **and then** have them re-login — once
+`users.role` is no longer an invited role, rule 4 honours the claim again. (Same caveat for
+*demoting* a TC: revoking the Auth0 `tc` role is no longer sufficient on its own.)
+
+### TC onboarding — the invite is the agent's own `tc_contact` row (#415)
+
+There is deliberately **no `tc_invites` table**. When an agent saves a TC in Settings
+(`PUT /api/me/tc`), the `users.tc_contact` JSON on their own row *is* the pending invite:
+
+- `PUT /api/me/tc` links any account whose email matches (by **email alone** — requiring
+  `role='tc'` is what made this unfixable, since the tenant hands every signup `agent`), and
+  emails a real invite via `sendTcInviteEmail` when there is no account. Best-effort; the
+  response's `invited` says whether it went out.
+- The invite link carries **no token** — it points at the app root and is bound to the email.
+- On signup, rule 3 above gives them `tc`; `linkTcContacts()` (`web/lib/users.ts`), called
+  from `POST /api/users/sync`, sets the agent's `tc_user_id`. That also repairs TCs typed in
+  before the fix, on their next login.
+- `POST /api/deals/:id/participants` with `role: 'tc'` and an unknown email sends the **same**
+  invite (202) rather than 404ing, and 409s instead of replacing an already-assigned TC.
+- ⚠️ `lower(tc_contact->>'email')` has **no functional index** (that needs a migration). It is
+  a seq scan over `users`, on first-sync role resolution and on every sync's backfill. Free at
+  today's size; index it (mirroring 000061/000062) before `users` grows.
 
 ---
 

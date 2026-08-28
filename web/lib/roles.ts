@@ -83,6 +83,23 @@ export function isClientRole(role: string | null | undefined): role is Role {
 }
 
 /**
+ * Every role an INVITE can establish — the two client-portal roles plus `tc`.
+ *
+ * `tc` joined this set with #415: an agent adds their Transaction Coordinator
+ * in Settings, we email them, and the pending assignment on the agent's row
+ * (`users.tc_contact`) is the only thing that says the person signing up is a
+ * TC rather than yet another self-serve agent. Auth0 RBAC can still grant `tc`
+ * directly (that path goes through rule 1, not here).
+ *
+ * Deliberately a SUPERSET of isClientRole rather than a widening of it —
+ * isClientRole answers "is this a portal client?", which drives portal-only
+ * behaviour elsewhere and must keep excluding TCs.
+ */
+export function isInvitedRole(role: string | null | undefined): role is Role {
+  return isClientRole(role) || role === "tc";
+}
+
+/**
  * THE role-precedence rule for POST /api/users/sync. Pure — all IO lives in
  * resolveSyncRole (lib/users.ts). This is the ONLY place the rule lives: do not
  * add a second guard in upsertUser or in the route handler.
@@ -105,18 +122,21 @@ export function decideRole(input: {
   //    promotion path: assign the role in Auth0 RBAC → log out → log back in.
   if (claimedRole && claimedRole !== DEFAULT_TENANT_ROLE) return claimedRole;
 
-  // 2. An established buyer/seller is NEVER overwritten by the tenant's default
-  //    `agent` claim. Escape hatch for a genuine client→agent move: update
-  //    users.role directly, then re-login — dbRole is no longer a client role,
-  //    so rule 4 takes over and the claim is honoured again.
-  if (isClientRole(dbRole)) return dbRole;
+  // 2. An established buyer/seller/tc is NEVER overwritten by the tenant's
+  //    default `agent` claim. Without this an invited TC (#415) is demoted back
+  //    to agent on their SECOND login, since the tenant keeps handing them the
+  //    default claim. Escape hatch for a genuine client/TC→agent move: update
+  //    users.role directly, then re-login — dbRole is no longer an invited
+  //    role, so rule 4 takes over and the claim is honoured again.
+  if (isInvitedRole(dbRole)) return dbRole;
 
   // 3. No row yet — the invite claim POST is slow, failed, or they logged in on
   //    a device that never saw the invite link. An OPEN invite addressed to
   //    them is better evidence than the tenant default. Gated on !dbRole so an
   //    agent who happens to hold a client invite for their own email is never
-  //    demoted (cf. #174).
-  if (!dbRole && isClientRole(inviteRole)) return inviteRole;
+  //    demoted (cf. #174) — which is also what stops an established agent whom
+  //    someone typed into their TC settings from being turned into a TC (#415).
+  if (!dbRole && isInvitedRole(inviteRole)) return inviteRole;
 
   // 4. Normal path — including self-serve agent signup with no invite at all.
   return claimedRole ?? dbRole;

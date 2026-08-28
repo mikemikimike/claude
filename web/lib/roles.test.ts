@@ -4,6 +4,7 @@ import {
   DEFAULT_TENANT_ROLE,
   decideRole,
   isClientRole,
+  isInvitedRole,
   requireRole,
   hasRole,
   type Role,
@@ -57,6 +58,19 @@ describe("isClientRole", () => {
     expect(isClientRole("lending_partner")).toBe(false);
     expect(isClientRole(null)).toBe(false);
     expect(isClientRole(undefined)).toBe(false);
+  });
+});
+
+describe("isInvitedRole", () => {
+  it("covers every role an invite can grant — the portal roles plus tc", () => {
+    expect(isInvitedRole("buyer")).toBe(true);
+    expect(isInvitedRole("seller")).toBe(true);
+    expect(isInvitedRole("tc")).toBe(true);
+    expect(isInvitedRole("agent")).toBe(false);
+    expect(isInvitedRole("admin")).toBe(false);
+    expect(isInvitedRole("lending_partner")).toBe(false);
+    expect(isInvitedRole(null)).toBe(false);
+    expect(isInvitedRole(undefined)).toBe(false);
   });
 });
 
@@ -127,6 +141,23 @@ describe("decideRole", () => {
     {
       name: "no claim and no row still honours an open invite",
       claimedRole: null, dbRole: null, inviteRole: "buyer", expected: "buyer",
+    },
+    // Rule 3 — a TC invited from an agent's Settings (#415). The tenant hands
+    // them the default `agent` claim; the pending TC assignment is the only
+    // thing that says otherwise.
+    {
+      name: "a pending TC invite beats a default agent claim for a brand-new user",
+      claimedRole: "agent", dbRole: null, inviteRole: "tc", expected: "tc",
+    },
+    {
+      name: "a pending TC invite does NOT demote an established agent",
+      claimedRole: "agent", dbRole: "agent", inviteRole: "tc", expected: "agent",
+    },
+    // Rule 2 — once they ARE a TC, the tenant's default agent claim must not
+    // take it back on their second login (#415).
+    {
+      name: "a default agent claim does NOT overwrite a persisted tc",
+      claimedRole: "agent", dbRole: "tc", inviteRole: null, expected: "tc",
     },
     // Removing an admin's RBAC role must still demote them on next login.
     {

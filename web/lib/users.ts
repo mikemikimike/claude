@@ -2,7 +2,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./auth";
 import { decideRole, resolveRole, type Role } from "./roles";
-import { pendingInviteRole } from "./invite-role";
+import { pendingRoleForEmail } from "./invite-role";
 
 export type SyncedUser = {
   id: string;
@@ -200,6 +200,42 @@ export async function resolveUserId(auth0Id: string): Promise<string | null> {
 }
 
 /**
+ * Links this user into every agent's Transaction Coordinator slot that names
+ * their email, and returns how many rows were linked (#415).
+ *
+ * Before this, `tc_user_id` was resolved exactly once — at the moment the agent
+ * typed the TC into Settings. A TC without an account resolved to NULL and
+ * stayed NULL forever, so they were excluded from GET /api/me/agents,
+ * hasDealAccess's linked-TC branch, and the internal message thread. Running
+ * this on every /users/sync makes the link form on the TC's first login and
+ * also repairs the TCs typed in before the fix.
+ *
+ * Matching is by email alone, case-insensitively, deliberately: the invitee's
+ * role is `tc` for a fresh signup but stays `agent` for someone who already had
+ * an account, and requiring `role = 'tc'` here would reintroduce exactly the
+ * bug this fixes. The consent is the agent having typed that address into their
+ * own TC field.
+ *
+ * `id <> $1` stops a user from becoming their own TC if their own address ever
+ * ends up in their own tc_contact.
+ */
+export async function linkTcContacts(
+  userId: string,
+  email: string
+): Promise<number> {
+  if (!email) return 0;
+  return prisma.$executeRaw`
+    UPDATE users
+       SET tc_user_id = ${userId}::uuid,
+           updated_at = NOW()
+     WHERE tc_contact IS NOT NULL
+       AND lower(tc_contact->>'email') = lower(${email})
+       AND id <> ${userId}::uuid
+       AND (tc_user_id IS NULL OR tc_user_id <> ${userId}::uuid)
+  `;
+}
+
+/**
  * Resolves the role POST /api/users/sync writes for a caller. Owns the IO only
  * — the precedence rule itself is decideRole() in lib/roles.ts, and that is the
  * single place it lives.
@@ -224,7 +260,7 @@ export async function resolveSyncRole(input: {
   // The invite lookup can only change the answer when there is no row yet
   // (decideRole rule 3), so skip the query entirely for returning users — this
   // costs one extra read on first login and nothing after that.
-  const inviteRole = row ? null : await pendingInviteRole(input.email);
+  const inviteRole = row ? null : await pendingRoleForEmail(input.email);
 
   return decideRole({
     claimedRole: resolveRole(input.claimRoles),

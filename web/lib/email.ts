@@ -3,6 +3,8 @@
  *
  * - sendInviteEmail({...}) → delivers a deal-invite link to the invitee.
  * - sendAgentInviteEmail({...}) → delivers an agent-signup link to a new agent.
+ * - sendTcInviteEmail({...}) → delivers a TC-signup link to an agent's newly
+ *   assigned Transaction Coordinator.
  * - sendNotificationEmail({...}) → delivers a generic deal-activity notice
  *   (new message / document shared / task assigned) linking back to the deal.
  *
@@ -159,6 +161,63 @@ export async function sendAgentInviteEmail(
 </table>
 </body>
 </html>`;
+
+  const { error } = await client().emails.send({
+    from: env().RESEND_FROM,
+    to,
+    subject,
+    html,
+  });
+  if (error) throw new Error(`Resend send failed: ${error.message}`);
+}
+
+export type SendTcInviteInput = {
+  to: string;
+  /** The TC's name as the agent typed it. May be empty. */
+  name: string;
+  /** The inviting agent's name, so the recipient knows who this is from. */
+  agentName: string;
+  /** Where to sign up — the app root; RootRedirect drops a TC into /tc. */
+  inviteUrl: string;
+};
+
+/**
+ * Delivers the Transaction Coordinator invitation an agent's Settings save
+ * promises (#415). There is no token in this link: the pending assignment on
+ * the agent's row is keyed by EMAIL, so whoever signs up with the invited
+ * address is resolved to `tc` by decideRole and linked by linkTcContacts.
+ *
+ * Called best-effort — a delivery failure must not block saving the TC.
+ */
+export async function sendTcInviteEmail(input: SendTcInviteInput): Promise<void> {
+  const { to, name, agentName, inviteUrl } = input;
+  const subject = `${agentName || "An agent"} added you as their Transaction Coordinator`;
+  const greeting = name ? `Hi ${escapeHtml(name)},` : "Hi there,";
+  const safeAgent = escapeHtml(agentName || "An agent on RealTourFlow");
+  const safeUrl = escapeHtml(inviteUrl);
+  const html = `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
+      <h2>You've been added as a Transaction Coordinator</h2>
+      <p>${greeting}</p>
+      <p>${safeAgent} added you as their Transaction Coordinator on RealTourFlow.
+         Create your account with <strong>this email address</strong> and you'll land in
+         your TC dashboard, with their deals, checklists, tasks, and internal
+         messages already waiting for you.</p>
+      <p style="margin: 24px 0;">
+        <a href="${safeUrl}"
+           style="background: #2563eb; color: #fff; padding: 12px 20px; border-radius: 6px; text-decoration: none;">
+          Set up my TC account
+        </a>
+      </p>
+      <p style="color: #6b7280; font-size: 13px;">
+        Sign up with a different address and you won't be connected to ${safeAgent}.
+      </p>
+      <p style="color: #6b7280; font-size: 13px;">
+        If the button doesn't work, paste this link into your browser:<br />
+        <a href="${safeUrl}">${safeUrl}</a>
+      </p>
+    </div>
+  `;
 
   const { error } = await client().emails.send({
     from: env().RESEND_FROM,

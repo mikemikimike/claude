@@ -1235,6 +1235,11 @@ function TransactionCoordinatorSection({ agentId: _agentId }: { agentId: string 
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  // What the last save actually did, so the card can stop making promises the
+  // API doesn't keep (#415): 'invited' = we emailed them, 'linked' = they
+  // already had an account, 'send-failed' = saved but the email bounced out.
+  const [outcome, setOutcome] = useState<'invited' | 'linked' | 'send-failed' | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // React 19 pattern: hydrate local form state from fetched record by
   // comparing to previous value during render.
@@ -1249,17 +1254,26 @@ function TransactionCoordinatorSection({ agentId: _agentId }: { agentId: string 
   async function handleSave() {
     if (!canSave || saving) return;
     setSaving(true);
+    setError(null);
     try {
-      await saveTC(form.name, form.email, form.phone);
+      const result = await saveTC(form.name, form.email, form.phone);
+      setOutcome(
+        result.userId ? 'linked' : result.invited ? 'invited' : 'send-failed'
+      );
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {}
+    } catch (err) {
+      setOutcome(null);
+      setError(err instanceof Error ? err.message : 'Could not save your TC.');
+    }
     setSaving(false);
   }
 
   async function handleClear() {
     await removeTC().catch(() => {});
     setForm({ name: '', email: '', phone: '' });
+    setOutcome(null);
+    setError(null);
     setConfirmClear(false);
   }
 
@@ -1291,9 +1305,13 @@ function TransactionCoordinatorSection({ agentId: _agentId }: { agentId: string 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-brand-navy">{existing.name}</span>
-                {existing.userId && (
+                {existing.userId ? (
                   <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
                     In RealTourFlow
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    Invite pending
                   </span>
                 )}
               </div>
@@ -1340,8 +1358,25 @@ function TransactionCoordinatorSection({ agentId: _agentId }: { agentId: string 
       </div>
 
       <p className="text-xs text-gray-300">
-        If your TC doesn&apos;t have a RealTourFlow account yet, you can still enter their info. They&apos;ll be invited to join when you save.
+        If your TC doesn&apos;t have a RealTourFlow account yet, we&apos;ll email them an invite when you save. They connect to you by signing up with this exact email address.
       </p>
+
+      {outcome === 'invited' && (
+        <p className="text-xs font-semibold text-green-600">
+          Invite sent to {form.email.trim().toLowerCase()}. They&apos;ll show as connected once they sign up with that address.
+        </p>
+      )}
+      {outcome === 'linked' && (
+        <p className="text-xs font-semibold text-green-600">
+          Connected — they already have a RealTourFlow account.
+        </p>
+      )}
+      {outcome === 'send-failed' && (
+        <p className="text-xs font-semibold text-amber-600">
+          Saved, but we couldn&apos;t send the invite email. Save again to retry, or ask them to sign up with {form.email.trim().toLowerCase()}.
+        </p>
+      )}
+      {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
 
       <div className="flex items-center gap-3">
         <button

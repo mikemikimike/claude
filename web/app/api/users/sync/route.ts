@@ -1,5 +1,5 @@
 import { error, json, upsertUserOrConflict, withAuth } from "@/lib/http";
-import { resolveSyncRole } from "@/lib/users";
+import { linkTcContacts, resolveSyncRole } from "@/lib/users";
 import { ROLES, resolveRole, type Role } from "@/lib/roles";
 
 type SyncBody = {
@@ -61,6 +61,16 @@ export async function POST(req: Request): Promise<Response> {
       role,
     });
     if (user instanceof Response) return user;
+
+    // #415 — close the loop on any agent who added this person as their
+    // Transaction Coordinator before they had an account. Best-effort: a
+    // failure here must never break login, and the next sync retries it.
+    try {
+      await linkTcContacts(user.id, user.email);
+    } catch (err) {
+      console.error("failed to backfill tc_user_id links", err);
+    }
+
     return json(user);
   })) as Response;
 }
