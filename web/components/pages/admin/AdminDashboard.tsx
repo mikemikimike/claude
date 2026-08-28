@@ -767,24 +767,34 @@ function ActiveFastPass({ deals, refresh }: { deals: Deal[]; refresh: () => void
 
         {fp?.surveyAnswers && (
           <div className="border-t border-gray-50 px-5 py-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Move date</div>
-              <div className="text-xs text-gray-600">
-                {new Date(fp.surveyAnswers.targetMoveDate).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
+            {/* #426: this block never rendered before — useDeals dropped
+                survey_answers on the floor, so `fp.surveyAnswers` was always
+                undefined. Now that it is populated, each field has to be
+                guarded: the survey lets a buyer skip most screens, and an
+                absent date used to reach `new Date(undefined)` → "Invalid
+                Date". */}
+            {fp.surveyAnswers.targetMoveDate && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Move date</div>
+                <div className="text-xs text-gray-600">
+                  {new Date(fp.surveyAnswers.targetMoveDate).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </div>
               </div>
-            </div>
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Situation</div>
-              <div className="text-xs text-gray-600 capitalize">{fp.surveyAnswers.currentSituation}</div>
-            </div>
-            {fp.surveyAnswers.utilities.length > 0 && (
+            )}
+            {fp.surveyAnswers.currentSituation && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Situation</div>
+                <div className="text-xs text-gray-600 capitalize">{fp.surveyAnswers.currentSituation}</div>
+              </div>
+            )}
+            {(fp.surveyAnswers.utilities?.length ?? 0) > 0 && (
               <div className="col-span-2">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Utilities</div>
-                <div className="text-xs text-gray-600">{fp.surveyAnswers.utilities.join(', ')}</div>
+                <div className="text-xs text-gray-600">{fp.surveyAnswers.utilities!.join(', ')}</div>
               </div>
             )}
             {fp.surveyAnswers.notes && (

@@ -18,7 +18,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import DealDetail, { UploadDocModal, StageAdvanceModal, SellerBuyerStatusCard } from "@/components/pages/agent/DealDetail";
+import { FastPassCard, SmoothExitCard } from "@/components/deal/OverviewTab";
 import { api } from "@/lib/api-client";
+import { FAST_PASS_UPSELLS } from "@/lib/fast-pass-display";
+import { SMOOTH_EXIT_UPSELLS } from "@/lib/smooth-exit-display";
 import type { Deal } from "@/lib/types";
 
 const requestUploadUrl = vi.fn();
@@ -671,5 +674,197 @@ describe("StageAdvanceModal automation claims match reality (#185)", () => {
     await user.clear(screen.getByRole("textbox"));
 
     expect(screen.queryByText(/client message sent/i)).not.toBeInTheDocument();
+  });
+});
+
+// ─── Fast Pass / Smooth Exit enrollment cards (#426, US-08 of epic #441) ─────
+//
+// The agent could see that a client enrolled and what it cost, and nothing
+// else: no add-ons, no payment option, no survey answers, and the card was not
+// clickable. These render the two cards directly (rendering all of DealDetail's
+// Overview tab drags in every other card for no benefit).
+//
+// Every asserted price is DERIVED from the shared catalogs, never typed here —
+// a repricing like #430 must not need a test edit, and a hand-typed number is
+// exactly how displayed copy drifts from what Stripe charges.
+
+describe("FastPassCard — what the client bought (#426)", () => {
+  const deepClean = FAST_PASS_UPSELLS.find((u) => u.id === "deep_clean")!;
+  const utilitySetup = FAST_PASS_UPSELLS.find((u) => u.id === "utility_setup")!;
+
+  const SURVEY = {
+    currentSituation: "renting",
+    targetMoveDate: "2026-09-15",
+    dateFlexibility: "firm",
+    moveSize: "3_bedroom",
+    moverPreference: "full_service",
+    packingPreference: "pack_for_me",
+    utilities: ["Electric", "Internet"],
+    notes: "Cat is scared of movers — call before arriving.",
+  };
+
+  function enrolledDeal(fp: Partial<NonNullable<Deal["fastPass"]>> = {}): Deal {
+    return makeDeal({
+      type: "buy",
+      fastPass: {
+        enrolledAt: "2026-08-27T15:00:00Z",
+        status: "active",
+        paymentOption: "at_closing",
+        selectedUpsells: ["deep_clean", "utility_setup"],
+        totalPaid: 2740,
+        totalCents: 274000,
+        paid: true,
+        surveyAnswers: SURVEY,
+        ...fp,
+      },
+    });
+  }
+
+  it("lists every selected add-on by display name and catalog price", () => {
+    render(<FastPassCard deal={enrolledDeal()} />);
+
+    expect(screen.getByText(deepClean.name)).toBeInTheDocument();
+    expect(screen.getByText(utilitySetup.name)).toBeInTheDocument();
+    expect(
+      screen.getByText(`$${deepClean.price.toLocaleString()}`)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(`$${utilitySetup.price.toLocaleString()}`)
+    ).toBeInTheDocument();
+
+    // Add-ons the client did NOT buy stay off the card.
+    expect(screen.queryByText("Rate Refi Monitoring")).not.toBeInTheDocument();
+  });
+
+  it("shows the payment option and the paid state", () => {
+    render(<FastPassCard deal={enrolledDeal()} />);
+
+    expect(screen.getByText(/at closing/i)).toBeInTheDocument();
+    expect(screen.getByText(/^paid$/i)).toBeInTheDocument();
+  });
+
+  it("shows a promo code and its discount when one was applied", () => {
+    render(
+      <FastPassCard
+        deal={enrolledDeal({ promoCode: "LAUNCH100", discountCents: 10000 })}
+      />
+    );
+
+    expect(screen.getByText(/LAUNCH100/)).toBeInTheDocument();
+    expect(screen.getByText(/−\$100/)).toBeInTheDocument();
+  });
+
+  it("opens a detail panel with the client's survey answers on click", async () => {
+    const user = userEvent.setup();
+    render(<FastPassCard deal={enrolledDeal()} />);
+
+    // Collapsed by default — the notes are not on screen yet.
+    expect(screen.queryByText(SURVEY.notes)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /fast pass details/i }));
+
+    expect(await screen.findByText(SURVEY.notes)).toBeInTheDocument();
+    expect(screen.getByText(/electric, internet/i)).toBeInTheDocument();
+    expect(screen.getByText(/full service/i)).toBeInTheDocument();
+  });
+
+  it("a pending_payment enrollment reads as awaiting payment, not paid", () => {
+    render(
+      <FastPassCard
+        deal={enrolledDeal({
+          status: "pending_payment",
+          paymentOption: null,
+          paid: false,
+        })}
+      />
+    );
+
+    expect(screen.getByText(/awaiting payment/i)).toBeInTheDocument();
+    // The add-ons they picked are still listed — they committed to them.
+    expect(screen.getByText(deepClean.name)).toBeInTheDocument();
+    // …but nothing may claim it is paid or that an option was chosen.
+    expect(screen.queryByText(/^paid$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/not chosen yet/i)).toBeInTheDocument();
+  });
+
+  it("a deal with no enrollment still shows the Enroll CTA", () => {
+    render(<FastPassCard deal={makeDeal({ type: "buy" })} />);
+
+    expect(
+      screen.getByRole("button", { name: /enroll in fast pass/i })
+    ).toBeInTheDocument();
+  });
+
+  it("is read-only — nothing on the card mutates the enrollment", async () => {
+    const user = userEvent.setup();
+    render(<FastPassCard deal={enrolledDeal()} />);
+
+    for (const btn of screen.getAllByRole("button")) await user.click(btn);
+    for (const btn of screen.getAllByRole("button")) await user.click(btn);
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("SmoothExitCard — what the seller bought (#426)", () => {
+  const stagingConsult = SMOOTH_EXIT_UPSELLS.find((u) => u.id === "staging_consult")!;
+
+  const SE_SURVEY = {
+    nextStep: "downsizing" as const,
+    estimatedSalePrice: 450000,
+    moveOutDate: "2026-10-01",
+    moverPreference: "full_service",
+    wantsDeepClean: true,
+    utilities: ["Electric"],
+    notes: "Wants to stay through the holidays if possible.",
+  };
+
+  function enrolledSellDeal(): Deal {
+    return makeDeal({
+      type: "sell",
+      smoothExit: {
+        enrolledAt: "2026-08-27T15:00:00Z",
+        status: "active",
+        paymentOption: "from_proceeds",
+        estimatedSalePrice: 450000,
+        fee: 4500,
+        buyingNext: false,
+        selectedUpsells: ["staging_consult"],
+        upsellTotalCents: 24700,
+        upsellsPaid: true,
+        surveyAnswers: SE_SURVEY,
+      },
+    });
+  }
+
+  it("lists the seller's add-ons by name and catalog price", () => {
+    render(<SmoothExitCard deal={enrolledSellDeal()} />);
+
+    expect(screen.getByText(stagingConsult.name)).toBeInTheDocument();
+    expect(
+      screen.getByText(`$${stagingConsult.price.toLocaleString()}`)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/from sale proceeds/i)).toBeInTheDocument();
+  });
+
+  it("opens a detail panel with the seller's survey answers on click", async () => {
+    const user = userEvent.setup();
+    render(<SmoothExitCard deal={enrolledSellDeal()} />);
+
+    expect(screen.queryByText(SE_SURVEY.notes)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /smooth exit details/i }));
+
+    expect(await screen.findByText(SE_SURVEY.notes)).toBeInTheDocument();
+    expect(screen.getByText(/downsizing/i)).toBeInTheDocument();
+  });
+
+  it("a sell deal with no enrollment still shows the Enroll CTA", () => {
+    render(<SmoothExitCard deal={makeDeal({ type: "sell" })} />);
+
+    expect(
+      screen.getByRole("button", { name: /enroll in smooth exit/i })
+    ).toBeInTheDocument();
   });
 });

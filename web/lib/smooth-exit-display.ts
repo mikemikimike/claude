@@ -27,6 +27,29 @@ export function nextStepQualifiesForBridge(step: SmoothExitNextStep): boolean {
   return ['buying_local', 'buying_out_of_state', 'downsizing'].includes(step);
 }
 
+/** Narrow a stored survey value to a known next-step (#426). NEXT_STEP_LABELS
+ *  is exhaustive, so an unrecognised value must be dropped, not indexed — it
+ *  would render the literal string "undefined". */
+export function isSmoothExitNextStep(value: unknown): value is SmoothExitNextStep {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(NEXT_STEP_LABELS, value);
+}
+
+/** How the seller settles the 1% fee, in words (#426). */
+export const SMOOTH_EXIT_PAYMENT_OPTION_LABELS: Record<string, string> = {
+  from_proceeds: 'From sale proceeds',
+  buyer_concession: 'Buyer concession',
+};
+
+export function smoothExitPaymentOptionLabel(option: string | null | undefined): string {
+  if (!option) return 'Not chosen yet';
+  return SMOOTH_EXIT_PAYMENT_OPTION_LABELS[option] ?? option;
+}
+
+/** The add-ons on an enrollment, resolved to catalog entries in catalog order. */
+export function smoothExitUpsellsFor(ids: readonly string[]): SmoothExitUpsell[] {
+  return SMOOTH_EXIT_UPSELLS.filter((u) => ids.includes(u.id));
+}
+
 export const SMOOTH_EXIT_FEATURES: string[] = [
   'Buy Before You Sell — bridge financing coordination (any lender, Mountain Mortgage preferred)',
   'Move-out coordination: movers, deep clean, and utility cancellations',

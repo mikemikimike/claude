@@ -12,11 +12,28 @@ import {
   type SmoothExitApiData,
 } from "@/lib/schemas/deal";
 import { checkWire } from "@/lib/schemas/wire";
+import { isSmoothExitNextStep } from "@/lib/smooth-exit-display";
 
 // The wire type is inferred from the zod schema (#88) — one contract for
 // the server boundary and this adapter, instead of a hand-maintained copy
 // that can lie about string-vs-number (#85).
 export type { ApiDeal };
+
+/**
+ * Drop `null`-valued keys from a survey-answer blob (#426).
+ *
+ * The wire schemas accept `null` on every field (a survey can post one), but
+ * the view-model types say `field?: T` — `undefined`, not `null`. Passing the
+ * blob straight through would type-lie and force every renderer to handle a
+ * third case. Deleting the nulls collapses it back to "absent".
+ */
+type NullsRemoved<T> = { [K in keyof T]?: Exclude<T[K], null> };
+
+function stripNulls<T extends object>(obj: T): NullsRemoved<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v != null)
+  ) as NullsRemoved<T>;
+}
 
 function fastPassFromApi(d: FastPassApiData): FastPassEnrollment {
   return {
@@ -28,6 +45,13 @@ function fastPassFromApi(d: FastPassApiData): FastPassEnrollment {
     paymentOption: (d.payment_option as FastPassEnrollment['paymentOption']) ?? null,
     selectedUpsells: (d.selected_upsells ?? []) as FastPassEnrollment['selectedUpsells'],
     totalPaid: Math.round((d.total_cents ?? 0) / 100),
+    // #426 — carried through so the agent's card (and the admin dashboard's
+    // survey block, which was rendering against a field nothing ever set) can
+    // show what the client actually bought and where the money stands.
+    paid: d.paid ?? false,
+    ...(d.promo_code ? { promoCode: d.promo_code } : {}),
+    ...(d.discount_cents ? { discountCents: d.discount_cents } : {}),
+    ...(d.survey_answers ? { surveyAnswers: stripNulls(d.survey_answers) } : {}),
     // Unrounded (#440) — the buyer's payment card has to show the exact figure
     // Stripe will charge, and a promo discount can leave sub-dollar cents.
     totalCents: d.total_cents ?? 0,
@@ -36,6 +60,17 @@ function fastPassFromApi(d: FastPassApiData): FastPassEnrollment {
 
 function smoothExitFromApi(d: SmoothExitApiData): SmoothExitEnrollment {
   const salePrice = d.estimated_sale_price ?? 0;
+  // #426 — the survey answers were being dropped on this side too. `nextStep`
+  // lives inside them, which is why the admin dashboard's "What's next" always
+  // read "—": nothing ever populated the top-level field it reads.
+  const rawSurvey = d.survey_answers ? stripNulls(d.survey_answers) : undefined;
+  // An unrecognised nextStep is dropped rather than cast — NEXT_STEP_LABELS is
+  // an exhaustive Record, so a stale value would index to `undefined` and
+  // render the literal string "undefined" on the admin card.
+  const nextStep = isSmoothExitNextStep(rawSurvey?.nextStep) ? rawSurvey.nextStep : undefined;
+  const survey: SmoothExitEnrollment['surveyAnswers'] | undefined = rawSurvey
+    ? { ...rawSurvey, nextStep }
+    : undefined;
   return {
     enrolledAt: d.enrolled_at ?? new Date().toISOString(),
     status: (d.status as SmoothExitEnrollment['status']) ?? 'active',
@@ -46,6 +81,8 @@ function smoothExitFromApi(d: SmoothExitApiData): SmoothExitEnrollment {
     selectedUpsells: d.selected_upsells ?? [],
     upsellTotalCents: d.upsell_total_cents ?? 0,
     upsellsPaid: d.upsells_paid ?? false,
+    ...(survey ? { surveyAnswers: survey } : {}),
+    ...(nextStep ? { nextStep } : {}),
   };
 }
 

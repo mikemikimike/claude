@@ -125,3 +125,141 @@ describe("daysInStage anchors to stage entry, not updated_at (#257)", () => {
     ).toBe(0);
   });
 });
+
+// ─── Enrollment mapping (#426, US-08 of epic #441) ──────────────────────────
+//
+// The agent's Fast Pass card can only show what the adapter carries. Four
+// fields the enrollment route writes — survey_answers, paid, promo_code,
+// discount_cents — were being dropped here (a zod object strips unknown keys),
+// which is also why the admin dashboard's survey block, written against
+// `fp.surveyAnswers`, had never once rendered.
+
+describe("apiDealToFrontend Fast Pass enrollment mapping (#426)", () => {
+  const FULL_FAST_PASS = {
+    status: "active",
+    payment_option: "at_closing",
+    selected_upsells: ["deep_clean", "utility_setup"],
+    total_cents: 274000,
+    enrolled_at: "2026-08-27T15:00:00.000Z",
+    paid: true,
+    promo_code: "LAUNCH100",
+    discount_cents: 10000,
+    survey_answers: {
+      currentSituation: "renting",
+      targetMoveDate: "2026-09-15",
+      utilities: ["Electric", "Internet"],
+      notes: "Cat is scared of movers.",
+    },
+  };
+
+  it("carries selected add-ons and the client's survey answers through", () => {
+    const deal = apiDealToFrontend(wireDeal({ fast_pass: FULL_FAST_PASS }));
+
+    expect(deal.fastPass?.selectedUpsells).toEqual(["deep_clean", "utility_setup"]);
+    expect(deal.fastPass?.surveyAnswers?.notes).toBe("Cat is scared of movers.");
+    expect(deal.fastPass?.surveyAnswers?.utilities).toEqual(["Electric", "Internet"]);
+  });
+
+  it("carries the paid flag and the redeemed promo", () => {
+    const deal = apiDealToFrontend(wireDeal({ fast_pass: FULL_FAST_PASS }));
+
+    expect(deal.fastPass?.paid).toBe(true);
+    expect(deal.fastPass?.promoCode).toBe("LAUNCH100");
+    expect(deal.fastPass?.discountCents).toBe(10000);
+  });
+
+  it("a pending_payment enrollment keeps its add-ons but is neither paid nor optioned", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({
+        fast_pass: {
+          status: "pending_payment",
+          payment_option: null,
+          selected_upsells: ["deep_clean"],
+          total_cents: 221200,
+          enrolled_at: "2026-08-27T15:00:00.000Z",
+          paid: false,
+        },
+      })
+    );
+
+    expect(deal.fastPass?.status).toBe("pending_payment");
+    expect(deal.fastPass?.paymentOption).toBeNull();
+    expect(deal.fastPass?.paid).toBe(false);
+    expect(deal.fastPass?.selectedUpsells).toEqual(["deep_clean"]);
+  });
+
+  it("never surfaces the Stripe checkout session id — that is plumbing (#440)", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({
+        fast_pass: {
+          ...FULL_FAST_PASS,
+          checkout_session_id: "cs_test_should_not_leak",
+        } as unknown as ApiDeal["fast_pass"],
+      })
+    );
+
+    expect(JSON.stringify(deal.fastPass)).not.toContain("cs_test_should_not_leak");
+  });
+
+  it("tolerates a survey blob with holes — null answers become absent, not null", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({
+        fast_pass: {
+          status: "active",
+          payment_option: "now",
+          total_cents: 178700,
+          enrolled_at: "2026-08-27T15:00:00.000Z",
+          survey_answers: { targetMoveDate: null, notes: "Just the notes." },
+        },
+      })
+    );
+
+    expect(deal.fastPass?.surveyAnswers).toEqual({ notes: "Just the notes." });
+  });
+});
+
+describe("apiDealToFrontend Smooth Exit enrollment mapping (#426)", () => {
+  it("carries the seller's survey answers and lifts nextStep out of them", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({
+        type: "sell",
+        smooth_exit: {
+          status: "active",
+          payment_option: "from_proceeds",
+          estimated_sale_price: 450000,
+          fee_cents: 450000,
+          enrolled_at: "2026-08-27T15:00:00.000Z",
+          selected_upsells: ["staging_consult"],
+          upsell_total_cents: 24700,
+          upsells_paid: true,
+          survey_answers: {
+            nextStep: "downsizing",
+            moveOutDate: "2026-10-01",
+            notes: "Wants to stay through the holidays.",
+          },
+        },
+      })
+    );
+
+    expect(deal.smoothExit?.surveyAnswers?.notes).toBe("Wants to stay through the holidays.");
+    expect(deal.smoothExit?.nextStep).toBe("downsizing");
+    expect(deal.smoothExit?.selectedUpsells).toEqual(["staging_consult"]);
+  });
+
+  it("drops an unrecognised nextStep rather than casting it (it indexes an exhaustive label map)", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({
+        type: "sell",
+        smooth_exit: {
+          status: "active",
+          payment_option: "from_proceeds",
+          enrolled_at: "2026-08-27T15:00:00.000Z",
+          survey_answers: { nextStep: "moving_to_mars" },
+        },
+      })
+    );
+
+    expect(deal.smoothExit?.nextStep).toBeUndefined();
+    expect(deal.smoothExit?.surveyAnswers?.nextStep).toBeUndefined();
+  });
+});

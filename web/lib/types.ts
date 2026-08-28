@@ -20,15 +20,25 @@ export type FastPassEnrollmentStatus = 'pending_payment' | 'active' | 'complete'
 
 export type FastPassPaymentOption = 'now' | 'at_closing' | 'seller_concession';
 
+/**
+ * The client's Fast Pass survey answers, as stored on `deals.fast_pass
+ * .survey_answers` (#426).
+ *
+ * EVERY field is optional on purpose. The blob is whatever the survey posted at
+ * the time — an older enrollment predates fields the survey has since added,
+ * and the survey itself lets a buyer skip most screens. Rendering it must
+ * therefore tolerate holes rather than assume the shape (`new Date(undefined)`
+ * is how "Invalid Date" reached a concierge's screen).
+ */
 export type FastPassSurveyAnswers = {
-  currentSituation: string;
-  targetMoveDate: string;
-  dateFlexibility: string;
-  moveSize: string;
-  moverPreference: string;
-  packingPreference: string;
-  utilities: string[];
-  notes: string;
+  currentSituation?: string;
+  targetMoveDate?: string;
+  dateFlexibility?: string;
+  moveSize?: string;
+  moverPreference?: string;
+  packingPreference?: string;
+  utilities?: string[];
+  notes?: string;
 };
 
 export type FastPassEnrollment = {
@@ -43,6 +53,17 @@ export type FastPassEnrollment = {
   selectedUpsells: FastPassUpsellId[];
   totalPaid: number;
   surveyAnswers?: FastPassSurveyAnswers;
+  /**
+   * Whether the money has actually arrived (#426). Distinct from `status`: a
+   * `seller_concession` / `at_closing` enrollment is `active` and unpaid for
+   * weeks, and a `pending_payment` one is unpaid AND has no option chosen. The
+   * agent's card has to tell those three apart, so it reads both.
+   */
+  paid?: boolean;
+  /** Promo code redeemed at enrollment, when one was (#281). */
+  promoCode?: string;
+  /** What that promo took off, in CENTS (#281) — server-computed, audit only. */
+  discountCents?: number;
   /**
    * The enrollment's server-computed total in CENTS, straight off
    * `deals.fast_pass.total_cents` (#440). `totalPaid` is the same figure rounded
@@ -66,15 +87,21 @@ export type SmoothExitNextStep =
 
 export type SmoothExitPaymentOption = 'from_proceeds' | 'buyer_concession';
 
+/**
+ * The seller's Smooth Exit survey answers (`deals.smooth_exit.survey_answers`).
+ * All-optional for the same reason as `FastPassSurveyAnswers` above; and
+ * `estimatedSalePrice` is `string | number` because SmoothExitSurvey posts the
+ * raw text input, so what is stored is genuinely either.
+ */
 export type SmoothExitSurveyAnswers = {
-  nextStep: SmoothExitNextStep;
-  estimatedSalePrice: number;
-  moveOutDate: string;
-  needsBridgeFinancing: boolean;
-  moverPreference: string;
-  wantsDeepClean: boolean;
-  utilities: string[];
-  notes: string;
+  nextStep?: SmoothExitNextStep;
+  estimatedSalePrice?: number | string;
+  moveOutDate?: string;
+  needsBridgeFinancing?: boolean;
+  moverPreference?: string;
+  wantsDeepClean?: boolean;
+  utilities?: string[];
+  notes?: string;
 };
 
 export type SmoothExitEnrollmentStatus = 'pending' | 'active' | 'complete';

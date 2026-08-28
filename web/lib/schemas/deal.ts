@@ -88,6 +88,26 @@ export const ariveTrackerSchema = z.object({
 
 export const ariveKeyDatesSchema = z.record(z.string(), z.string().nullable());
 
+/**
+ * The client's survey answers as persisted by POST /deals/:id/fastpass.
+ *
+ * Every field is optional and unknown keys are dropped: this blob is whatever
+ * the survey posted on the day, so an old enrollment can be missing fields a
+ * newer survey added, and a newer one can carry fields nothing renders yet.
+ * Declaring it strictly here would 400 the whole deal payload over a survey
+ * change, which is much worse than a missing line on a card (#426).
+ */
+export const fastPassSurveyAnswersSchema = z.object({
+  currentSituation: z.string().nullish(),
+  targetMoveDate: z.string().nullish(),
+  dateFlexibility: z.string().nullish(),
+  moveSize: z.string().nullish(),
+  moverPreference: z.string().nullish(),
+  packingPreference: z.string().nullish(),
+  utilities: z.array(z.string()).nullish(),
+  notes: z.string().nullish(),
+});
+
 export const fastPassApiDataSchema = z.object({
   status: z.string(),
   /**
@@ -98,8 +118,35 @@ export const fastPassApiDataSchema = z.object({
   selected_upsells: z.array(z.string()).optional(),
   total_cents: z.number().optional(),
   enrolled_at: z.string().optional(),
+  /**
+   * #426 — these four are all written by the enrollment route and were being
+   * silently DROPPED here (a zod object strips unknown keys), which is why the
+   * agent's card and the admin dashboard's survey block had nothing to render.
+   *
+   * `checkout_session_id` is deliberately NOT declared: it is Stripe plumbing
+   * (#440), not something any UI should be able to reach.
+   */
+  paid: z.boolean().nullish(),
+  promo_code: z.string().nullish(),
+  discount_cents: z.number().nullish(),
+  survey_answers: fastPassSurveyAnswersSchema.nullish(),
 });
 export type FastPassApiData = z.output<typeof fastPassApiDataSchema>;
+
+/** Seller-side twin of `fastPassSurveyAnswersSchema` — same all-optional rule.
+ *  `estimatedSalePrice` is a union because SmoothExitSurvey posts the raw text
+ *  input, so the stored JSONB holds a string on some rows and a number on
+ *  others. */
+export const smoothExitSurveyAnswersSchema = z.object({
+  nextStep: z.string().nullish(),
+  estimatedSalePrice: z.union([z.number(), z.string()]).nullish(),
+  moveOutDate: z.string().nullish(),
+  needsBridgeFinancing: z.boolean().nullish(),
+  moverPreference: z.string().nullish(),
+  wantsDeepClean: z.boolean().nullish(),
+  utilities: z.array(z.string()).nullish(),
+  notes: z.string().nullish(),
+});
 
 export const smoothExitApiDataSchema = z.object({
   status: z.string(),
@@ -110,6 +157,8 @@ export const smoothExitApiDataSchema = z.object({
   selected_upsells: z.array(z.string()).optional(),
   upsell_total_cents: z.number().optional(),
   upsells_paid: z.boolean().optional(),
+  /** #426 — dropped here until now, same as the Fast Pass side. */
+  survey_answers: smoothExitSurveyAnswersSchema.nullish(),
 });
 export type SmoothExitApiData = z.output<typeof smoothExitApiDataSchema>;
 

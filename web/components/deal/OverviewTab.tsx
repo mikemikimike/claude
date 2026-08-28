@@ -21,6 +21,16 @@ import PropertyInsights from "@/components/deal/PropertyInsights";
 import DealInviteModal from "@/components/DealInviteModal";
 import { Calendar, CheckCircle2, Circle, AlertCircle, Loader2, MessageSquare, Zap, ChevronDown, Mail, RefreshCw, Pencil, Plus, X, Star, Users, ExternalLink, Home, Link as LinkIcon, Lock, DollarSign, LogOut, Shield, ShieldCheck, ShieldOff } from "lucide-react";
 import { STAGE_LABELS, FLAG_LABELS } from "@/components/deal/shared";
+// #426 — the agent's enrollment cards resolve add-on ids to names/prices through
+// these display modules, which derive their dollars from the shared catalogs.
+// Never hand-type a price here: that is exactly how displayed copy drifts from
+// what Stripe charges (#78/#430).
+import { fastPassUpsellsFor, fastPassPaymentOptionLabel } from "@/lib/fast-pass-display";
+import {
+  smoothExitUpsellsFor,
+  smoothExitPaymentOptionLabel,
+  NEXT_STEP_LABELS,
+} from "@/lib/smooth-exit-display";
 
 function SellerShowingAvailabilityCard({ dealId }: { dealId: string }) {
   const { slots: availability, saveSlots } = useShowingAvailability(dealId);
@@ -1469,38 +1479,204 @@ function InternalNotesCard({ deal }: { deal: Deal }) {
   );
 }
 
-function FastPassCard({ deal }: { deal: Deal }) {
+// ─── Concierge enrollment cards (#426 — US-08 of epic #441) ──────────────────
+//
+// These are the agent's ONLY window into what their client bought. They are
+// deliberately READ-ONLY: an agent editing a client's paid enrollment is a
+// separate product decision, so nothing here posts, patches or deletes.
+
+/** A label/value row in an enrollment's detail panel. Renders nothing at all
+ *  for a blank answer — a survey field the client skipped should be absent, not
+ *  an empty box or a dash the concierge has to interpret. */
+function DetailRow({
+  label,
+  value,
+  wide = false,
+}: {
+  label: string;
+  value: string | null | undefined;
+  wide?: boolean;
+}) {
+  if (!value) return null;
+  return (
+    <div className={wide ? 'col-span-2' : undefined}>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">{label}</div>
+      <div className="text-xs text-gray-600">{value}</div>
+    </div>
+  );
+}
+
+/** Survey answers are stored as raw option keys ("full_service", "3_bedroom").
+ *  There is no shipped key→label map for most of them, so humanize rather than
+ *  show a snake_case token to an agent. */
+function humanizeAnswer(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const spaced = value.replace(/[_-]+/g, ' ').trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : null;
+}
+
+function formatEnrollmentDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  // A survey can persist "" or a half-typed date; `new Date` happily yields
+  // Invalid Date, which renders as the literal text "Invalid Date".
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export function FastPassCard({ deal }: { deal: Deal }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const fp = deal.fastPass;
 
   const STATUS_STYLES: Record<string, string> = {
     active: 'bg-green-100 text-green-700',
     pending_payment: 'bg-amber-100 text-amber-700',
     complete: 'bg-gray-100 text-gray-500',
+    collected: 'bg-gray-100 text-gray-500',
+  };
+  const STATUS_LABELS: Record<string, string> = {
+    active: 'Active',
+    pending_payment: 'Awaiting payment',
+    complete: 'Complete',
+    collected: 'Collected',
   };
 
   if (fp) {
+    const upsells = fastPassUpsellsFor(fp.selectedUpsells);
+    const survey = fp.surveyAnswers;
+    const enrolledOn = formatEnrollmentDate(fp.enrolledAt);
+    const moveDate = formatEnrollmentDate(survey?.targetMoveDate);
+    // `paid` and `status` are independent (see the type): an `at_closing`
+    // enrollment is Active and unpaid for weeks, so the money line is its own
+    // statement rather than something inferred from the status pill.
+    const paidLabel = fp.paid
+      ? 'Paid'
+      : fp.status === 'pending_payment'
+        ? 'Not paid yet'
+        : 'Due at closing';
+
     return (
-      <div className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-100">
-              <Zap size={16} className="text-green-600" />
+      <div className="rounded-xl bg-white shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label="Fast Pass details"
+          className="w-full px-5 py-4 text-left hover:bg-gray-50/70 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-100">
+                <Zap size={16} className="text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-brand-navy">Fast Pass</h3>
+                {enrolledOn && (
+                  <p className="text-[11px] text-gray-400">Enrolled {enrolledOn}</p>
+                )}
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-brand-navy">Fast Pass</h3>
-              <p className="text-[11px] text-gray-400">
-                Enrolled {new Date(fp.enrolledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              </p>
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col items-end gap-1">
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${STATUS_STYLES[fp.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                  {STATUS_LABELS[fp.status] ?? fp.status}
+                </span>
+                <span className="text-xs text-gray-400">
+                  ${fp.totalPaid.toLocaleString()} total
+                </span>
+              </div>
+              <ChevronDown
+                size={16}
+                className={`text-gray-300 transition-transform ${open ? 'rotate-180' : ''}`}
+              />
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold capitalize ${STATUS_STYLES[fp.status] ?? 'bg-gray-100 text-gray-500'}`}>
-              {fp.status === 'pending_payment' ? 'Pending payment' : fp.status}
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            <span className="text-gray-400">Payment</span>
+            <span className="font-semibold text-brand-navy">
+              {fastPassPaymentOptionLabel(fp.paymentOption)}
             </span>
-            <span className="text-xs text-gray-400">${fp.totalPaid.toLocaleString()}</span>
+            <span className="text-gray-200">·</span>
+            <span className={fp.paid ? 'font-semibold text-green-600' : 'font-semibold text-amber-600'}>
+              {paidLabel}
+            </span>
+            {fp.promoCode && (
+              <>
+                <span className="text-gray-200">·</span>
+                <span className="rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-700">
+                  {fp.promoCode}
+                  {fp.discountCents ? ` −$${Math.round(fp.discountCents / 100).toLocaleString()}` : ''}
+                </span>
+              </>
+            )}
           </div>
+        </button>
+
+        {/* Add-ons: always visible. This is the question the agent actually
+            walked in with, so it must not be hidden behind the expander. */}
+        <div className="border-t border-gray-100 px-5 py-3">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            Add-ons {upsells.length > 0 && `(${upsells.length})`}
+          </div>
+          {upsells.length === 0 ? (
+            <p className="text-xs text-gray-300">No add-ons — base package only</p>
+          ) : (
+            <ul className="space-y-1">
+              {upsells.map((u) => (
+                <li key={u.id} className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />
+                    {u.name}
+                  </span>
+                  <span className="text-xs font-semibold text-gray-400 flex-shrink-0">
+                    ${u.price.toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* List prices, not the agreed ones: the enrollment stores its own
+              total (that is what Stripe charges), and a later repricing — #430
+              moved three of these — must not silently restate what the client
+              agreed to pay. */}
+          <p className="mt-2 text-[10px] text-gray-300">
+            Current list prices. The client&apos;s agreed total is ${fp.totalPaid.toLocaleString()}.
+          </p>
         </div>
+
+        {open && (
+          <div className="border-t border-gray-100 bg-gray-50/60 px-5 py-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Client&apos;s Fast Pass survey
+            </div>
+            {survey ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <DetailRow label="Situation" value={humanizeAnswer(survey.currentSituation)} />
+                <DetailRow label="Target move date" value={moveDate} />
+                <DetailRow label="Date flexibility" value={humanizeAnswer(survey.dateFlexibility)} />
+                <DetailRow label="Move size" value={humanizeAnswer(survey.moveSize)} />
+                <DetailRow label="Movers" value={humanizeAnswer(survey.moverPreference)} />
+                <DetailRow label="Packing" value={humanizeAnswer(survey.packingPreference)} />
+                <DetailRow
+                  label="Utilities to transfer"
+                  value={survey.utilities?.length ? survey.utilities.join(', ') : null}
+                  wide
+                />
+                <DetailRow label="Notes" value={survey.notes} wide />
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">
+                No survey answers on file — this enrollment was created without the
+                onboarding survey.
+              </p>
+            )}
+            <p className="mt-3 text-[10px] text-gray-300">
+              Read-only. Ask the client to update their enrollment from their portal.
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -1528,8 +1704,9 @@ function FastPassCard({ deal }: { deal: Deal }) {
   );
 }
 
-function SmoothExitCard({ deal }: { deal: Deal }) {
+export function SmoothExitCard({ deal }: { deal: Deal }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const se = deal.smoothExit;
 
   const STATUS_STYLES: Record<string, string> = {
@@ -1539,27 +1716,127 @@ function SmoothExitCard({ deal }: { deal: Deal }) {
   };
 
   if (se) {
+    const upsells = smoothExitUpsellsFor(se.selectedUpsells ?? []);
+    const survey = se.surveyAnswers;
+    const enrolledOn = formatEnrollmentDate(se.enrolledAt);
+    const moveOut = formatEnrollmentDate(survey?.moveOutDate);
+    const nextStep = se.nextStep ?? survey?.nextStep;
+
     return (
-      <div className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
-              <LogOut size={16} className="text-purple-600" />
+      <div className="rounded-xl bg-white shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label="Smooth Exit details"
+          className="w-full px-5 py-4 text-left hover:bg-gray-50/70 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
+                <LogOut size={16} className="text-purple-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-brand-navy">Smooth Exit</h3>
+                {enrolledOn && (
+                  <p className="text-[11px] text-gray-400">Enrolled {enrolledOn}</p>
+                )}
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-brand-navy">Smooth Exit</h3>
-              <p className="text-[11px] text-gray-400">
-                Enrolled {new Date(se.enrolledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              </p>
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col items-end gap-1">
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold capitalize ${STATUS_STYLES[se.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                  {se.status}
+                </span>
+                <span className="text-xs text-gray-400">${se.fee.toLocaleString()} · 1%</span>
+              </div>
+              <ChevronDown
+                size={16}
+                className={`text-gray-300 transition-transform ${open ? 'rotate-180' : ''}`}
+              />
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold capitalize ${STATUS_STYLES[se.status] ?? 'bg-gray-100 text-gray-500'}`}>
-              {se.status}
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            <span className="text-gray-400">Fee</span>
+            <span className="font-semibold text-brand-navy">
+              {smoothExitPaymentOptionLabel(se.paymentOption)}
             </span>
-            <span className="text-xs text-gray-400">${se.fee.toLocaleString()} · 1%</span>
+            {upsells.length > 0 && (
+              <>
+                <span className="text-gray-200">·</span>
+                <span className={se.upsellsPaid ? 'font-semibold text-green-600' : 'font-semibold text-amber-600'}>
+                  {se.upsellsPaid ? 'Add-ons paid' : 'Add-ons not paid'}
+                </span>
+              </>
+            )}
           </div>
+        </button>
+
+        <div className="border-t border-gray-100 px-5 py-3">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            Add-ons {upsells.length > 0 && `(${upsells.length})`}
+          </div>
+          {upsells.length === 0 ? (
+            <p className="text-xs text-gray-300">No add-ons — 1% concierge fee only</p>
+          ) : (
+            <ul className="space-y-1">
+              {upsells.map((u) => (
+                <li key={u.id} className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <CheckCircle2 size={12} className="text-purple-500 flex-shrink-0" />
+                    {u.name}
+                  </span>
+                  <span className="text-xs font-semibold text-gray-400 flex-shrink-0">
+                    ${u.price.toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {upsells.length > 0 && (
+            <p className="mt-2 text-[10px] text-gray-300">
+              Current list prices. The seller&apos;s agreed add-on total is $
+              {Math.round((se.upsellTotalCents ?? 0) / 100).toLocaleString()}.
+            </p>
+          )}
         </div>
+
+        {open && (
+          <div className="border-t border-gray-100 bg-gray-50/60 px-5 py-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Seller&apos;s Smooth Exit survey
+            </div>
+            {survey || nextStep ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <DetailRow
+                  label="What's next"
+                  value={nextStep ? NEXT_STEP_LABELS[nextStep] : null}
+                />
+                <DetailRow label="Move-out" value={moveOut} />
+                <DetailRow label="Movers" value={humanizeAnswer(survey?.moverPreference)} />
+                <DetailRow
+                  label="Wants deep clean"
+                  value={survey?.wantsDeepClean == null ? null : survey.wantsDeepClean ? 'Yes' : 'No'}
+                />
+                <DetailRow
+                  label="Utilities to transfer"
+                  value={survey?.utilities?.length ? survey.utilities.join(', ') : null}
+                  wide
+                />
+                <DetailRow label="Notes" value={survey?.notes} wide />
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">
+                No survey answers on file — this enrollment was created without the
+                onboarding survey.
+              </p>
+            )}
+            <p className="mt-3 text-[10px] text-gray-300">
+              Read-only. Ask the client to update their enrollment from their portal.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

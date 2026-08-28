@@ -147,6 +147,31 @@ export const FAST_PASS_UPSELLS: FastPassUpsell[] = [
   },
 ];
 
+/**
+ * How a Fast Pass enrollment is settled, in words (#426).
+ *
+ * `null` is a real, distinct state since #439: the onboarding survey enrolls
+ * without asking for money, so an enrollment sits `pending_payment` with no
+ * option at all. Collapsing that to a default (the bug #439's own note calls
+ * out) makes an unpaid enrollment read as paid upfront.
+ */
+export const FAST_PASS_PAYMENT_OPTION_LABELS: Record<string, string> = {
+  now: 'Paid upfront',
+  at_closing: 'Pay at closing (+15%)',
+  seller_concession: 'Seller concession',
+};
+
+export function fastPassPaymentOptionLabel(option: string | null | undefined): string {
+  if (!option) return 'Not chosen yet';
+  return FAST_PASS_PAYMENT_OPTION_LABELS[option] ?? option;
+}
+
+/** The upsells on an enrollment, resolved to catalog entries in catalog order.
+ *  Ids the catalog no longer knows are skipped rather than rendered raw. */
+export function fastPassUpsellsFor(ids: readonly string[]): FastPassUpsell[] {
+  return FAST_PASS_UPSELLS.filter((u) => ids.includes(u.id));
+}
+
 export function calcFastPassTotal(upsells: FastPassUpsellId[]): number {
   const upsellTotal = FAST_PASS_UPSELLS
     .filter((u) => upsells.includes(u.id))
