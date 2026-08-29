@@ -40,7 +40,13 @@ import { useDocuments, getSigningUrl, requestUploadUrl, confirmUpload } from "@/
 import { uploadFileToStorage } from "@/lib/direct-upload";
 import ClientNotifications from "@/components/ClientNotifications";
 import { useNotifications } from "@/hooks/useNotifications";
-import { FAST_PASS_BASE_PRICE, FAST_PASS_UPSELLS, FastPassUpsellId } from "@/lib/fast-pass-display";
+import {
+  FAST_PASS_BASE_PRICE,
+  FAST_PASS_UPSELLS,
+  FastPassUpsellId,
+  fastPassBaseCentsFor,
+  fastPassEnrolledUpsellsFor,
+} from "@/lib/fast-pass-display";
 // #440 — the payment card prices every option through the SAME helper the
 // /fastpass/pay route charges from, so the buyer is never shown a figure that
 // differs from what Stripe takes. The +15% premium math stays in the catalog.
@@ -2218,7 +2224,13 @@ function FastPassPaymentCard({ deal, onSettled }: { deal: Deal; onSettled: () =>
   if (!fp) return null;
 
   const selectedUpsells = fp.selectedUpsells ?? [];
-  const enrolledUpsells = FAST_PASS_UPSELLS.filter((u) => selectedUpsells.includes(u.id));
+  // #464 — itemise at the prices this enrollment was SOLD at, not today's
+  // catalog. #430 repriced three add-ons, so a buyer who enrolled before that
+  // would otherwise see a breakdown that contradicts the total they are about
+  // to be charged. Lines an older enrollment never recorded are labelled.
+  const enrolledUpsells = fastPassEnrolledUpsellsFor(selectedUpsells, fp.upsellPrices);
+  const anyUnpricedLine =
+    fp.basePriceCents == null || enrolledUpsells.some((u) => u.agreedPriceCents === null);
   // The authoritative, already-discounted total the server persisted at enroll.
   const enrolledCents = fp.totalCents;
   const totalFor = (option: FastPassPaymentOptionId) =>
@@ -2271,12 +2283,24 @@ function FastPassPaymentCard({ deal, onSettled }: { deal: Deal; onSettled: () =>
       <div className="divide-y divide-gray-50">
         <div className="flex items-center justify-between px-5 py-2.5">
           <span className="text-sm text-gray-700">Fast Pass concierge</span>
-          <span className="text-sm text-gray-500">${FAST_PASS_BASE_PRICE.toLocaleString()}</span>
+          <span className="text-sm text-gray-500">
+            ${fpMoney(fastPassBaseCentsFor(fp.basePriceCents))}
+          </span>
         </div>
         {enrolledUpsells.map((u) => (
           <div key={u.id} className="flex items-center justify-between px-5 py-2.5">
             <span className="text-sm text-gray-700">{u.name}</span>
-            <span className="text-sm text-gray-500">${u.price.toLocaleString()}</span>
+            <span className="flex items-center gap-1.5">
+              {u.agreedPriceCents === null && (
+                <span
+                  data-testid="fp-unpriced-line"
+                  className="text-[10px] uppercase tracking-wide text-gray-300"
+                >
+                  today&apos;s list
+                </span>
+              )}
+              <span className="text-sm text-gray-500">${fpMoney(u.displayPriceCents)}</span>
+            </span>
           </div>
         ))}
         <div className="flex items-center justify-between px-5 py-3 bg-gray-50">
@@ -2286,6 +2310,17 @@ function FastPassPaymentCard({ deal, onSettled }: { deal: Deal; onSettled: () =>
           </span>
         </div>
       </div>
+      {/* #464 — an enrollment from before per-line prices were stored can show
+          a breakdown that does not add up to the (authoritative) total above.
+          Say that, rather than let the buyer reconcile two numbers we know
+          disagree. */}
+      {anyUnpricedLine && (
+        <p className="px-5 pb-3 text-[11px] leading-relaxed text-gray-400">
+          Lines marked &ldquo;today&apos;s list&rdquo; show the current price, not the one
+          recorded on your enrollment. The total above is what you agreed to and what
+          you&apos;ll be charged.
+        </p>
+      )}
 
       {/* How to pay */}
       <div className="px-5 py-4 space-y-2">

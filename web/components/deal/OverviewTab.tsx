@@ -33,7 +33,7 @@ import {
 // these display modules, which derive their dollars from the shared catalogs.
 // Never hand-type a price here: that is exactly how displayed copy drifts from
 // what Stripe charges (#78/#430).
-import { fastPassUpsellsFor, fastPassPaymentOptionLabel } from "@/lib/fast-pass-display";
+import { fastPassEnrolledUpsellsFor, fastPassPaymentOptionLabel } from "@/lib/fast-pass-display";
 import {
   smoothExitUpsellsFor,
   smoothExitPaymentOptionLabel,
@@ -1602,7 +1602,13 @@ export function FastPassCard({ deal }: { deal: Deal }) {
   };
 
   if (fp) {
-    const upsells = fastPassUpsellsFor(fp.selectedUpsells);
+    // #464 — each line is priced from what the enrollment STORED, so a later
+    // repricing (#430 moved three add-ons) can never restate what this client
+    // agreed to pay. Anything enrolled before #464 has no stored figure; those
+    // lines fall back to the catalog and say so, rather than quietly presenting
+    // today's price as the agreed one.
+    const upsells = fastPassEnrolledUpsellsFor(fp.selectedUpsells, fp.upsellPrices);
+    const anyUnpriced = upsells.some((u) => u.agreedPriceCents === null);
     const survey = fp.surveyAnswers;
     const enrolledOn = formatEnrollmentDate(fp.enrolledAt);
     const moveDate = formatEnrollmentDate(survey?.targetMoveDate);
@@ -1689,19 +1695,34 @@ export function FastPassCard({ deal }: { deal: Deal }) {
                     <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />
                     {u.name}
                   </span>
-                  <span className="text-xs font-semibold text-gray-400 flex-shrink-0">
-                    ${u.price.toLocaleString()}
+                  {/* Marker and figure are SIBLINGS so the price element's own
+                      text stays exactly the price — a caveat glued into the
+                      same node would read as part of the number. */}
+                  <span className="flex flex-shrink-0 items-center gap-1.5">
+                    {u.agreedPriceCents === null && (
+                      <span
+                        data-testid="fp-unpriced-line"
+                        className="text-[10px] font-medium uppercase tracking-wide text-gray-300"
+                      >
+                        today&apos;s list
+                      </span>
+                    )}
+                    <span className="text-xs font-semibold text-gray-400">
+                      ${(u.displayPriceCents / 100).toLocaleString()}
+                    </span>
                   </span>
                 </li>
               ))}
             </ul>
           )}
-          {/* List prices, not the agreed ones: the enrollment stores its own
-              total (that is what Stripe charges), and a later repricing — #430
-              moved three of these — must not silently restate what the client
-              agreed to pay. */}
+          {/* The stored total is the only figure that is authoritative for an
+              enrollment; per-line figures agree with it only when the
+              enrollment recorded them (#464). Pre-#464 enrollments are marked
+              line by line above, and this line says why. */}
           <p className="mt-2 text-[10px] text-gray-300">
-            Current list prices. The client&apos;s agreed total is ${fp.totalPaid.toLocaleString()}.
+            {anyUnpriced
+              ? `Lines marked “today's list” were never priced on this enrollment — that is the current catalog price, not what was agreed. The client's agreed total is $${fp.totalPaid.toLocaleString()}.`
+              : `Prices as agreed at enrollment. The client's agreed total is $${fp.totalPaid.toLocaleString()}.`}
           </p>
         </div>
 

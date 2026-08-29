@@ -116,6 +116,14 @@ export const fastPassApiDataSchema = z.object({
    */
   payment_option: z.string().nullish(),
   selected_upsells: z.array(z.string()).optional(),
+  /**
+   * #464 — the figures this enrollment was actually priced from, snapshotted at
+   * enroll time. Both are ABSENT on anything enrolled before #464, which is a
+   * meaningful state, not a hole to default: the card must not fall back to
+   * today's catalog price as though it were the agreed one (#430 moved three).
+   */
+  base_price_cents: z.number().nullish(),
+  upsell_prices: z.record(z.string(), z.number()).nullish(),
   total_cents: z.number().optional(),
   enrolled_at: z.string().optional(),
   /**
