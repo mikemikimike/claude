@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { resolveUserId } from "@/lib/users";
 import { hasRole } from "@/lib/roles";
 import { normalizeFinancingType, type FinancingType } from "@/lib/intake";
+import { closePreApprovalTask } from "@/lib/stage-task-seed";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -68,6 +69,16 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
 
     const result = await prisma.deals.updateMany({ where, data });
     if (result.count === 0) return error("deal not found", 404);
+
+    // #437 — confirming pre-approval also closes the buyer's pre-approval task
+    // (#434/#460). Without this the deal would be pre-approved and still
+    // carrying an open high-priority task that gates every forward advance out
+    // of Property Search, which the agent would then have to close by hand.
+    // Only on the way UP: un-setting the flag is a correction, not a reason to
+    // reopen work the buyer may genuinely have finished.
+    if (data.pre_approved === true) {
+      await closePreApprovalTask(dealId);
+    }
 
     return json({ ok: true });
   })) as Response;

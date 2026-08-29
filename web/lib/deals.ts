@@ -110,6 +110,15 @@ export type DealRow = {
   fast_pass: unknown;
   smooth_exit: unknown;
   pre_approved: boolean;
+  /**
+   * When the buyer said they applied for their pre-approval (#437), or null.
+   *
+   * The WEAK state of the two-state model: buyer, agent, or admin may set it
+   * (`POST /api/deals/[id]/pre-approval`) and it gates NOTHING. `pre_approved`
+   * above is the offer gate and remains agent/admin-only — do not derive one
+   * from the other in either direction.
+   */
+  pre_approval_applied_at: Date | null;
   baa_signed: boolean;
   disclosures_complete: boolean;
   /** Agent-set "Buyer's Progress" step shown on the seller portal (#184). */
@@ -217,7 +226,8 @@ export async function listDealsForUser(
            deals.arive_milestones, deals.arive_key_dates, deals.arive_loan_status,
            deals.fee_status, deals.fee_amount_cents, deals.fee_paid_at,
            deals.fast_pass, deals.smooth_exit,
-           deals.pre_approved, deals.baa_signed, deals.disclosures_complete, deals.buyer_status,
+           deals.pre_approved, deals.pre_approval_applied_at,
+           deals.baa_signed, deals.disclosures_complete, deals.buyer_status,
            deals.financing_type, -- #451: a real column; never SELECT deals.intake here
            deals.closing_date::text AS closing_date,
            deals.commission_pct::text AS commission_pct,
@@ -251,7 +261,8 @@ export async function getDealForAgent(
            title, address, price::text AS price, arive_linked,
            arive_loan_id, arive_milestones, arive_key_dates, arive_loan_status, arive_synced_at,
            notes, fee_status, fee_amount_cents, fee_paid_at,
-           fast_pass, smooth_exit, pre_approved, baa_signed, disclosures_complete,
+           fast_pass, smooth_exit, pre_approved, pre_approval_applied_at,
+           baa_signed, disclosures_complete,
            buyer_status, financing_type, closing_date::text AS closing_date,
            commission_pct::text AS commission_pct,
            created_at, updated_at,
@@ -275,7 +286,8 @@ export async function getDealById(dealId: string): Promise<DealRow | null> {
            title, address, price::text AS price, arive_linked,
            arive_loan_id, arive_milestones, arive_key_dates, arive_loan_status, arive_synced_at,
            notes, fee_status, fee_amount_cents, fee_paid_at,
-           fast_pass, smooth_exit, pre_approved, baa_signed, disclosures_complete,
+           fast_pass, smooth_exit, pre_approved, pre_approval_applied_at,
+           baa_signed, disclosures_complete,
            buyer_status, financing_type, closing_date::text AS closing_date,
            commission_pct::text AS commission_pct,
            created_at, updated_at,

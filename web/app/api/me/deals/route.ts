@@ -39,6 +39,12 @@ export async function GET(req: Request): Promise<Response> {
         fast_pass: unknown;
         smooth_exit: unknown;
         pre_approved: boolean;
+        /**
+         * #437 — when the buyer said they applied. Safe to serve to the client
+         * precisely because it gates nothing; `pre_approved` beside it is the
+         * gate and stays server-written by the agent/admin only.
+         */
+        pre_approval_applied_at: Date | null;
         baa_signed: boolean;
         disclosures_complete: boolean;
         buyer_status: string | null;
@@ -60,7 +66,8 @@ export async function GET(req: Request): Promise<Response> {
              deals.arive_linked,
              deals.arive_milestones, deals.arive_key_dates, deals.arive_loan_status,
              deals.fast_pass, deals.smooth_exit,
-             deals.pre_approved, deals.baa_signed, deals.disclosures_complete,
+             deals.pre_approved, deals.pre_approval_applied_at,
+             deals.baa_signed, deals.disclosures_complete,
              deals.buyer_status,
              -- #407: the portal must stop prompting for onboarding once the
              -- client submitted it. Boolean only — the answers themselves are

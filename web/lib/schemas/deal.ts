@@ -202,6 +202,17 @@ export const apiDealSchema = z.object({
   fast_pass: fastPassApiDataSchema.nullish(),
   smooth_exit: smoothExitApiDataSchema.nullish(),
   pre_approved: z.boolean().optional(),
+  /**
+   * ISO timestamp of the buyer's "I applied" (#437), or null if they never
+   * did. Served by both the agent payloads and /api/me/deals; absent on the
+   * create RETURNING.
+   *
+   * It is READ-ONLY to the client in the sense that matters: the only writer
+   * is `POST /api/deals/[id]/pre-approval`, and nothing derives `pre_approved`
+   * — the offer gate — from it. A payload carrying an applied date and
+   * `pre_approved: false` is the normal, expected state.
+   */
+  pre_approval_applied_at: z.string().nullish(),
   baa_signed: z.boolean().optional(),
   disclosures_complete: z.boolean().optional(),
   /** Agent-set "Buyer's Progress" step shown on the seller portal (#184). */

@@ -169,6 +169,7 @@ model deals {
   checklist_seeded_at                       DateTime?               @db.Timestamptz(6)
   status                                    String                  @default("active")
   financing_type                            String?
+  pre_approval_applied_at                   DateTime?               @db.Timestamptz(6)
   audit_log                                 audit_log[]
   checklist_items                           checklist_items[]
   deal_contingencies                        deal_contingencies[]

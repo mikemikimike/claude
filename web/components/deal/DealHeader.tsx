@@ -30,6 +30,20 @@ export function DealHeader({
   onSave?: (patch: DealEdit) => Promise<void>;
 }) {
   const preApproved = deal.preApproved ?? false;
+  /**
+   * "Applied {date}" (#437) — the buyer said they sent their application in.
+   *
+   * Guarded against an unparseable value rather than trusted: `new Date(bad)`
+   * renders the literal string "Invalid Date" into the pill, and this comes
+   * off the wire. An unreadable date falls back to the plain "Pre-approved?"
+   * label, which is exactly the pre-#437 behaviour.
+   */
+  const appliedMs = deal.preApprovalAppliedAt
+    ? new Date(deal.preApprovalAppliedAt).getTime()
+    : NaN;
+  const appliedLabel = Number.isFinite(appliedMs)
+    ? new Date(appliedMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : null;
   const [editing, setEditing] = useState(false);
 
   async function archive() {
@@ -113,6 +127,16 @@ export function DealHeader({
             {deal.type === 'buy' && (
               <button
                 onClick={() => onFlagChange?.({ preApproved: !preApproved })}
+                // #437 — the buyer's own "I applied" is a DIFFERENT state and
+                // is shown as such: it never colours this pill green, because
+                // green here means the offer gate is open and only the agent
+                // or an admin opens it. All it does is tell the agent the ball
+                // is in the lender's court, and when it got there.
+                title={
+                  !preApproved && appliedLabel
+                    ? `The buyer marked their application as submitted on ${appliedLabel}. Confirm pre-approval once you have the letter.`
+                    : undefined
+                }
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all border ${
                   preApproved
                     ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200'
@@ -120,7 +144,11 @@ export function DealHeader({
                 }`}
               >
                 {preApproved ? <CheckCircle2 size={12} /> : <Circle size={12} />}
-                {preApproved ? 'Pre-Approved ✓' : 'Pre-approved?'}
+                {preApproved
+                  ? 'Pre-Approved ✓'
+                  : appliedLabel
+                    ? `Applied ${appliedLabel}`
+                    : 'Pre-approved?'}
               </button>
             )}
           </div>

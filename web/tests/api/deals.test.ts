@@ -6,9 +6,14 @@ import { PATCH as notesRoute } from "@/app/api/deals/[id]/notes/route";
 import { PATCH as commissionRoute } from "@/app/api/deals/[id]/commission/route";
 import { PATCH as flagsRoute } from "@/app/api/deals/[id]/flags/route";
 import { PATCH as buyerStatusRoute } from "@/app/api/deals/[id]/buyer-status/route";
+import { POST as preApprovalRoute } from "@/app/api/deals/[id]/pre-approval/route";
 import { GET as myDealsRoute } from "@/app/api/me/deals/route";
 import { PUT as putConfig } from "@/app/api/admin/config/route";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
+import {
+  PRE_APPROVAL_TASK_SOURCE,
+  seedPreApprovalTask,
+} from "@/lib/stage-task-seed";
 import { prisma } from "@/lib/db";
 import type { DealStage } from "@/lib/stages";
 import { authHeader, getTestSigner } from "../helpers/jwt";
@@ -2153,3 +2158,332 @@ describe("GET /api/deals — ?status= lifecycle filter (#417)", () => {
   });
 });
 
+
+/**
+ * Issue #437 (FF14) — two-state pre-approval.
+ *
+ * `deals.pre_approved` is the offer gate. If the buyer could flip it, it would
+ * stop being a gate — so the buyer gets a SECOND, weaker state instead:
+ * `deals.pre_approval_applied_at`, "I sent in my application". It closes their
+ * pre-approval task (#434/#460) and moves nothing else.
+ *
+ * The security-relevant half is that those two states never collapse into one.
+ * Every case below that starts with "a buyer" is that boundary, asserted
+ * server-side — the portal's own check is UX only.
+ */
+describe("pre-approval: applied vs pre-approved (#437)", () => {
+  /** POST the buyer-facing "I applied" action. */
+  async function markApplied(dealId: string, token: string, body?: unknown) {
+    const req = new Request(`http://localhost/api/deals/${dealId}/pre-approval`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: token },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return preApprovalRoute(req, ctx(dealId));
+  }
+
+  async function patchFlags(dealId: string, token: string, body: unknown) {
+    const req = new Request(`http://localhost/api/deals/${dealId}/flags`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", authorization: token },
+      body: JSON.stringify(body),
+    });
+    return flagsRoute(req, ctx(dealId));
+  }
+
+  async function dealState(dealId: string) {
+    const row = await prisma.deals.findUnique({
+      where: { id: dealId },
+      select: { pre_approved: true, pre_approval_applied_at: true },
+    });
+    return {
+      preApproved: row?.pre_approved ?? false,
+      appliedAt: row?.pre_approval_applied_at ?? null,
+    };
+  }
+
+  async function preApprovalTaskStatus(dealId: string) {
+    const row = await prisma.tasks.findFirst({
+      where: { deal_id: dealId, source: PRE_APPROVAL_TASK_SOURCE },
+      select: { status: true },
+    });
+    return row?.status ?? null;
+  }
+
+  async function seedDealForAdmin() {
+    const agent = await createUser({ role: "agent" });
+    const deal = await createDeal({ agent_id: agent.id, stage: "active_search" });
+    await seedPreApprovalTask(deal.id);
+    return deal;
+  }
+
+  /**
+   * A financed buyer sitting in Property Search with the real pre-approval task
+   * on the deal — seeded by the production helper, not a hand-rolled row, so
+   * these tests can't drift from what onboarding actually writes.
+   */
+  async function seedDeal() {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|ff14-agent" });
+    const deal = await createDeal({ agent_id: agent.id, stage: "active_search" });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: { financing_type: "loan" },
+    });
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|ff14-buyer" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+    await seedPreApprovalTask(deal.id);
+    expect(await preApprovalTaskStatus(deal.id)).toBe("pending");
+    return { agent, deal, buyer };
+  }
+
+  const buyerToken = () => authHeader("auth0|ff14-buyer", ["buyer"]);
+  const agentToken = () => authHeader("auth0|ff14-agent", ["agent"]);
+
+  // ── Case 1 ────────────────────────────────────────────────────────────────
+  it("a buyer participant marks applied → timestamp set and the task closes", async () => {
+    const { deal } = await seedDeal();
+
+    const res = await markApplied(deal.id, await buyerToken());
+    expect(res.status).toBe(200);
+
+    const state = await dealState(deal.id);
+    expect(state.appliedAt).toBeInstanceOf(Date);
+    expect(await preApprovalTaskStatus(deal.id)).toBe("completed");
+  });
+
+  // ── Case 2 ────────────────────────────────────────────────────────────────
+  it("marking applied does NOT set pre_approved", async () => {
+    const { deal } = await seedDeal();
+    await markApplied(deal.id, await buyerToken());
+    expect((await dealState(deal.id)).preApproved).toBe(false);
+  });
+
+  it("a buyer cannot smuggle pre_approved through the applied route's body", async () => {
+    const { deal } = await seedDeal();
+    // Whatever they post, the route writes one column and it isn't this one.
+    for (const body of [
+      { pre_approved: true },
+      { applied: true, pre_approved: true },
+      { pre_approval_applied_at: "2020-01-01T00:00:00Z", pre_approved: true },
+    ]) {
+      const res = await markApplied(deal.id, await buyerToken(), body);
+      expect(res.status).toBe(200);
+      expect((await dealState(deal.id)).preApproved).toBe(false);
+    }
+  });
+
+  // ── Case 3 ────────────────────────────────────────────────────────────────
+  it("marking applied does NOT unlock offers in the portal payload", async () => {
+    const { deal } = await seedDeal();
+    await markApplied(deal.id, await buyerToken());
+
+    const portal = await myDealsRoute(
+      new Request("http://localhost/api/me/deals", {
+        headers: { authorization: await buyerToken() },
+      })
+    );
+    const rows = (await portal.json()) as {
+      id: string;
+      pre_approved: boolean;
+      financing_type: string | null;
+      pre_approval_applied_at: string | null;
+    }[];
+    const row = rows.find((r) => r.id === deal.id);
+    expect(row).toBeDefined();
+    // The buyer's own act IS visible…
+    expect(row?.pre_approval_applied_at).toBeTruthy();
+    // …and `canOffer` — BuyerView's `preApproved || financingType === 'cash'`
+    // — is still false. Recomputed here rather than trusted, because this is
+    // the whole point of the ticket.
+    expect(row?.pre_approved).toBe(false);
+    expect(row?.financing_type).toBe("loan");
+    const canOffer = (row?.pre_approved ?? false) || row?.financing_type === "cash";
+    expect(canOffer).toBe(false);
+  });
+
+  // ── Case 4 ────────────────────────────────────────────────────────────────
+  it("a buyer cannot set pre_approved through the flags route", async () => {
+    const { deal } = await seedDeal();
+    const res = await patchFlags(deal.id, await buyerToken(), { pre_approved: true });
+    // 404, matching the route's existing convention: the scoped UPDATE matches
+    // no row, so the deal simply does not exist for them.
+    expect(res.status).toBe(404);
+    expect((await dealState(deal.id)).preApproved).toBe(false);
+  });
+
+  // ── Case 5 ────────────────────────────────────────────────────────────────
+  it("a non-participant gets 404 from BOTH actions", async () => {
+    const { deal } = await seedDeal();
+    await createUser({ role: "buyer", auth0_id: "auth0|ff14-stranger" });
+    const stranger = await authHeader("auth0|ff14-stranger", ["buyer"]);
+
+    expect((await markApplied(deal.id, stranger)).status).toBe(404);
+    expect((await patchFlags(deal.id, stranger, { pre_approved: true })).status).toBe(404);
+
+    const state = await dealState(deal.id);
+    expect(state.appliedAt).toBeNull();
+    expect(state.preApproved).toBe(false);
+    expect(await preApprovalTaskStatus(deal.id)).toBe("pending");
+  });
+
+  it("the applied route 401s without auth", async () => {
+    const { deal } = await seedDeal();
+    const res = await preApprovalRoute(
+      new Request(`http://localhost/api/deals/${deal.id}/pre-approval`, { method: "POST" }),
+      ctx(deal.id)
+    );
+    expect(res.status).toBe(401);
+  });
+
+  // ── Case 6 (regression guard) ─────────────────────────────────────────────
+  it("the owning agent can still set pre_approved", async () => {
+    const { deal } = await seedDeal();
+    const res = await patchFlags(deal.id, await agentToken(), { pre_approved: true });
+    expect(res.status).toBe(200);
+    expect((await dealState(deal.id)).preApproved).toBe(true);
+  });
+
+  // ── Case 7 ────────────────────────────────────────────────────────────────
+  it("an admin can set pre_approved on a deal they do not own", async () => {
+    const { deal } = await seedDeal();
+    await createUser({ role: "admin", auth0_id: "auth0|ff14-admin" });
+    const res = await patchFlags(
+      deal.id,
+      await authHeader("auth0|ff14-admin", ["admin"]),
+      { pre_approved: true }
+    );
+    expect(res.status).toBe(200);
+    expect((await dealState(deal.id)).preApproved).toBe(true);
+  });
+
+  // ── Case 8 ────────────────────────────────────────────────────────────────
+  it("setting pre_approved = true closes the open pre-approval task", async () => {
+    const { deal } = await seedDeal();
+    const res = await patchFlags(deal.id, await agentToken(), { pre_approved: true });
+    expect(res.status).toBe(200);
+    expect(await preApprovalTaskStatus(deal.id)).toBe("completed");
+  });
+
+  it("setting pre_approved = FALSE leaves the task alone", async () => {
+    const { deal } = await seedDeal();
+    const res = await patchFlags(deal.id, await agentToken(), { pre_approved: false });
+    expect(res.status).toBe(200);
+    expect(await preApprovalTaskStatus(deal.id)).toBe("pending");
+  });
+
+  it("closing the task never resurrects one the buyer already skipped", async () => {
+    const { deal } = await seedDeal();
+    await prisma.tasks.updateMany({
+      where: { deal_id: deal.id, source: PRE_APPROVAL_TASK_SOURCE },
+      data: { status: "skipped" },
+    });
+    await patchFlags(deal.id, await agentToken(), { pre_approved: true });
+    expect(await preApprovalTaskStatus(deal.id)).toBe("skipped");
+  });
+
+  // ── Case 9 ────────────────────────────────────────────────────────────────
+  it("a foreign agent who is neither owner nor admin cannot set pre_approved", async () => {
+    const { deal } = await seedDeal();
+    await createUser({ role: "agent", auth0_id: "auth0|ff14-other-agent" });
+    const res = await patchFlags(
+      deal.id,
+      await authHeader("auth0|ff14-other-agent", ["agent"]),
+      { pre_approved: true }
+    );
+    expect(res.status).toBe(404);
+    expect((await dealState(deal.id)).preApproved).toBe(false);
+  });
+
+  it("a foreign agent cannot mark applied either", async () => {
+    const { deal } = await seedDeal();
+    await createUser({ role: "agent", auth0_id: "auth0|ff14-other-agent-2" });
+    const res = await markApplied(
+      deal.id,
+      await authHeader("auth0|ff14-other-agent-2", ["agent"])
+    );
+    expect(res.status).toBe(404);
+    expect((await dealState(deal.id)).appliedAt).toBeNull();
+  });
+
+  // ── Behaviour the two states share ────────────────────────────────────────
+  it("the owning agent and an admin can also mark applied (on the buyer's behalf)", async () => {
+    const { deal } = await seedDeal();
+    expect((await markApplied(deal.id, await agentToken())).status).toBe(200);
+    expect((await dealState(deal.id)).appliedAt).toBeInstanceOf(Date);
+
+    const second = await seedDealForAdmin();
+    await createUser({ role: "admin", auth0_id: "auth0|ff14-admin-2" });
+    const res = await markApplied(
+      second.id,
+      await authHeader("auth0|ff14-admin-2", ["admin"])
+    );
+    expect(res.status).toBe(200);
+    expect((await dealState(second.id)).appliedAt).toBeInstanceOf(Date);
+  });
+
+  it("is idempotent — a second click keeps the FIRST timestamp", async () => {
+    const { deal } = await seedDeal();
+    await markApplied(deal.id, await buyerToken());
+    const first = (await dealState(deal.id)).appliedAt;
+    expect(first).toBeInstanceOf(Date);
+
+    await markApplied(deal.id, await buyerToken());
+    expect((await dealState(deal.id)).appliedAt?.getTime()).toBe(first?.getTime());
+  });
+
+  it("404s on a deal that does not exist, for an admin too", async () => {
+    await createUser({ role: "admin", auth0_id: "auth0|ff14-admin-3" });
+    const missing = "00000000-0000-0000-0000-000000000000";
+    const res = await markApplied(missing, await authHeader("auth0|ff14-admin-3", ["admin"]));
+    expect(res.status).toBe(404);
+  });
+
+  it("marking applied closes ONLY the pre-approval task", async () => {
+    const { deal } = await seedDeal();
+    const other = await createTask({ deal_id: deal.id, title: "Unrelated" });
+    await markApplied(deal.id, await buyerToken());
+    const row = await prisma.tasks.findUnique({
+      where: { id: other.id },
+      select: { status: true },
+    });
+    expect(row?.status).toBe("pending");
+  });
+
+  // ── The agent-facing surface (#438 consumes these field names) ────────────
+  it("carries pre_approval_applied_at into the agent's deal payloads", async () => {
+    const { deal } = await seedDeal();
+    await markApplied(deal.id, await buyerToken());
+    const token = await agentToken();
+
+    const list = (await (
+      await listDeals(
+        new Request("http://localhost/api/deals", { headers: { authorization: token } })
+      )
+    ).json()) as { id: string; pre_approval_applied_at: string | null }[];
+    expect(list.find((d) => d.id === deal.id)?.pre_approval_applied_at).toBeTruthy();
+
+    const single = (await (
+      await getDealRoute(
+        new Request(`http://localhost/api/deals/${deal.id}`, {
+          headers: { authorization: token },
+        }),
+        ctx(deal.id)
+      )
+    ).json()) as { pre_approval_applied_at: string | null };
+    expect(single.pre_approval_applied_at).toBeTruthy();
+  });
+
+  it("reports null on a deal nobody has applied for", async () => {
+    const { deal } = await seedDeal();
+    const list = (await (
+      await listDeals(
+        new Request("http://localhost/api/deals", {
+          headers: { authorization: await agentToken() },
+        })
+      )
+    ).json()) as { id: string; pre_approval_applied_at: string | null }[];
+    expect(list.find((d) => d.id === deal.id)?.pre_approval_applied_at).toBeNull();
+  });
+});

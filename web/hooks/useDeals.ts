@@ -238,6 +238,11 @@ export function apiDealToFrontend(d: ApiDeal): Deal {
     fastPass: d.fast_pass ? fastPassFromApi(d.fast_pass) : undefined,
     smoothExit: d.smooth_exit ? smoothExitFromApi(d.smooth_exit) : undefined,
     preApproved: d.pre_approved ?? false,
+    // #437 — the buyer's own "I applied", normalised to null when absent. It
+    // deliberately does NOT feed `preApproved` above: the two states are
+    // separate all the way to the render, which is what keeps the offer gate a
+    // gate.
+    preApprovalAppliedAt: d.pre_approval_applied_at ?? null,
     baaSigned: d.baa_signed ?? false,
     disclosuresComplete: d.disclosures_complete ?? false,
     buyerStatus: d.buyer_status ?? undefined,

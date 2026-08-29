@@ -247,6 +247,17 @@ export type Deal = {
   feePaidAt?: string | null;
   /** Deal flags — populated from real API */
   preApproved?: boolean;
+  /**
+   * ISO timestamp of the buyer's "I applied for my pre-approval" (#437), or
+   * null when they never said so.
+   *
+   * The WEAK of the two pre-approval states, and the reason `preApproved`
+   * above can stay honest: the buyer can set THIS one themselves, and it
+   * unlocks nothing. Never fold it into the offer gate — `canOffer` is
+   * `preApproved || financingType === 'cash'` and this field is not part of
+   * that expression by design.
+   */
+  preApprovalAppliedAt?: string | null;
   baaSigned?: boolean;
   disclosuresComplete?: boolean;
   /**

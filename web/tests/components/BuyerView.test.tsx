@@ -1344,3 +1344,114 @@ describe("BuyerView — task ownership, stage grouping and a symmetric undo (#42
     });
   });
 });
+
+/**
+ * #437 (FF14) — the buyer's "I've already applied" action on the FF12 card.
+ *
+ * The one thing these tests exist to pin: this button reaches the
+ * participant-scoped pre-approval endpoint and NOT the flags route. Server-side
+ * scoping is the real boundary (tests/api/deals.test.ts), but a client that
+ * PATCHed `{ pre_approved: true }` would 404 for every buyer and look like a
+ * broken button — and if the flags route were ever loosened, it would become a
+ * self-serve offer unlock.
+ */
+describe("BuyerView — buyer marks the pre-approval applied (#437)", () => {
+  function preApprovalTask(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-preapproval",
+      dealId: DEAL_ID,
+      title: "Get pre-approved with Mountain Mortgage",
+      description: "Getting your pre-approval letter is the next step.",
+      assignedTo: "buyer",
+      assignedToId: "u-buyer",
+      status: "pending",
+      priority: "high",
+      source: "preapproval",
+      stageContext: "active_search",
+      ...overrides,
+    };
+  }
+
+  /** A financed buyer who is NOT pre-approved — the real target state. */
+  function gatedBuyer(overrides: Partial<MyDeal> = {}) {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [
+        {
+          ...DEAL,
+          preApproved: false,
+          financingType: "loan",
+          flags: ["mountain_mortgage"],
+          ...overrides,
+        },
+      ],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+  }
+
+  it("offers the action on the card", () => {
+    gatedBuyer();
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+    expect(screen.getByTestId("preapproval-mark-applied")).toBeTruthy();
+  });
+
+  it("POSTs the deal's pre-approval endpoint — never the flags route", async () => {
+    gatedBuyer();
+    mockTasks = [preApprovalTask()];
+    vi.mocked(api.post).mockResolvedValue({ ok: true });
+    renderView(<BuyerView />);
+
+    fireEvent.click(screen.getByTestId("preapproval-mark-applied"));
+    await screen.findByTestId("preapproval-applied");
+
+    expect(api.post).toHaveBeenCalledWith(`/deals/${DEAL_ID}/pre-approval`, {});
+    // The gate's own write path is never touched from the buyer portal.
+    expect(api.patch).not.toHaveBeenCalled();
+    const posted = vi.mocked(api.post).mock.calls.map((c) => String(c[0]));
+    expect(posted.some((p) => p.includes("/flags"))).toBe(false);
+  });
+
+  it("confirms without claiming the buyer is pre-approved", async () => {
+    gatedBuyer();
+    mockTasks = [preApprovalTask()];
+    vi.mocked(api.post).mockResolvedValue({ ok: true });
+    renderView(<BuyerView />);
+
+    fireEvent.click(screen.getByTestId("preapproval-mark-applied"));
+    const confirmation = await screen.findByTestId("preapproval-applied");
+    expect(confirmation.textContent).not.toMatch(/pre-approved/i);
+    // The offer gate copy is still on screen — nothing was unlocked.
+    expect(screen.getByText(/get pre-approved to make an offer/i)).toBeTruthy();
+  });
+
+  it("surfaces a failure instead of faking success", async () => {
+    gatedBuyer();
+    mockTasks = [preApprovalTask()];
+    vi.mocked(api.post).mockRejectedValue(new Error("boom"));
+    renderView(<BuyerView />);
+
+    fireEvent.click(screen.getByTestId("preapproval-mark-applied"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/try again/i);
+    expect(screen.queryByTestId("preapproval-applied")).toBeNull();
+  });
+
+  it("shows the already-applied state from the deal payload, with no button", () => {
+    gatedBuyer({ preApprovalAppliedAt: "2026-08-20T15:00:00Z" });
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+
+    expect(screen.getByTestId("preapproval-applied")).toBeTruthy();
+    expect(screen.queryByTestId("preapproval-mark-applied")).toBeNull();
+  });
+
+  it("an applied date does NOT unlock making an offer", () => {
+    gatedBuyer({ preApprovalAppliedAt: "2026-08-20T15:00:00Z" });
+    mockTasks = [preApprovalTask()];
+    renderView(<BuyerView />);
+
+    // `canOffer` is `preApproved || financingType === 'cash'` — and stays false.
+    expect(screen.getByText(/get pre-approved to make an offer/i)).toBeTruthy();
+  });
+});

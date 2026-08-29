@@ -345,11 +345,45 @@ function TaskCard({ task, done = false, onComplete, onUncomplete, onUploaded }: 
 // already showing, so it is its own surface. Everything shared with the task
 // list (title, description, completing it) still comes from the same task row.
 //
-// No "mark as applied" here on purpose — that is FF14 (#437), which needs a
-// two-state model so a buyer can't unlock offer-making on their own say-so.
-// Until it ships the task closes the way any other one does: in the task list
-// below, or by the agent.
-function PreApprovalTaskCard({ task }: { task: Task }) {
+// "I've already applied" (#437, FF14) is the third action. It posts to the
+// participant-scoped POST /api/deals/[id]/pre-approval, which stamps
+// `pre_approval_applied_at` and closes this task — and moves NO gate. The
+// buyer's own word is worth clearing their to-do list; it is not worth
+// unlocking "Make an Offer", which stays on `deals.pre_approved` and stays
+// agent/admin-only server-side. Do not wire this button to the flags route.
+function PreApprovalTaskCard({
+  task,
+  appliedAt,
+  onApplied,
+}: {
+  task: Task;
+  /** ISO timestamp from `deal.preApprovalAppliedAt`, or null/undefined. */
+  appliedAt?: string | null;
+  onApplied?: () => void;
+}) {
+  const [marking, setMarking] = useState(false);
+  const [markError, setMarkError] = useState<string | null>(null);
+  // Optimistic, so the confirmation lands on the tap rather than a refetch
+  // later. The card unmounts a moment afterwards anyway — the task it renders
+  // is gone from `openTasks` — so this is only what they see in between.
+  const [justApplied, setJustApplied] = useState(false);
+  const applied = justApplied || !!appliedAt;
+
+  async function handleApplied() {
+    if (marking) return;
+    setMarking(true);
+    setMarkError(null);
+    try {
+      await api.post(`/deals/${task.dealId}/pre-approval`, {});
+      setJustApplied(true);
+      onApplied?.();
+    } catch {
+      setMarkError("Couldn't save that — please try again.");
+    } finally {
+      setMarking(false);
+    }
+  }
+
   return (
     <div
       data-testid="preapproval-card"
@@ -395,6 +429,49 @@ function PreApprovalTaskCard({ task }: { task: Task }) {
           Takes about 10 minutes. You&apos;ll re-enter a few basics — the application is
           your lender&apos;s, not ours.
         </p>
+
+        {/* #437 — the way out for someone who already did this elsewhere (on
+            the phone with Paul, or with a lender before they ever signed up).
+            Deliberately the quietest control on the card: applying is the ask,
+            this is the exception. */}
+        <div className="border-t border-gray-100 pt-3">
+          {applied ? (
+            <p
+              data-testid="preapproval-applied"
+              className="flex items-center justify-center gap-1.5 text-center text-xs font-semibold text-green-700"
+            >
+              <CheckCircle2 size={13} />
+              Thanks — we&apos;ve told your agent you applied
+            </p>
+          ) : (
+            <>
+              <button
+                type="button"
+                data-testid="preapproval-mark-applied"
+                onClick={handleApplied}
+                disabled={marking}
+                // A real border and a 44px-tall target: at 375px this had no
+                // hover state to lean on and read as a line of grey text
+                // rather than something to tap. Still the quietest control on
+                // the card — outlined grey against two filled navy CTAs.
+                className="min-h-11 w-full rounded-xl border border-gray-200 px-3 py-3 text-center text-xs font-bold text-gray-500 transition-colors hover:bg-gray-50 hover:text-brand-navy active:scale-[0.99] disabled:opacity-50"
+              >
+                {marking ? 'Saving…' : "I've already applied"}
+              </button>
+              {markError && (
+                <p role="alert" className="mt-1 text-center text-[11px] font-medium text-red-600">
+                  {markError}
+                </p>
+              )}
+            </>
+          )}
+          {/* Says out loud what the button does and does not do, so nobody
+              reads it as "and now I can make offers". */}
+          <p className="mt-1 text-center text-[11px] leading-relaxed text-gray-400">
+            Your agent confirms your pre-approval once the letter is in — that&apos;s what
+            unlocks making an offer.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -2449,7 +2526,20 @@ export default function BuyerView() {
           until it is done it IS the next step. It stays out of the task list so
           a buyer landing here straight out of onboarding sees one unambiguous
           thing to do. */}
-      {preApprovalTask && <PreApprovalTaskCard task={preApprovalTask} />}
+      {preApprovalTask && (
+        <PreApprovalTaskCard
+          task={preApprovalTask}
+          appliedAt={deal.preApprovalAppliedAt}
+          // Both, and in this order: the task list behind the card has to lose
+          // the row, and the deal payload has to pick up the applied date the
+          // agent's side reads. Neither is optional — refreshing only tasks
+          // would leave a stale `appliedAt` on a re-render.
+          onApplied={() => {
+            refreshTasks();
+            refreshDeals();
+          }}
+        />
+      )}
 
       {/* Fast Pass — awaiting payment (#440). Deliberately NOT gated on stage:
           the survey runs during onboarding, so the buyer who owes for it is

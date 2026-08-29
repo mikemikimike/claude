@@ -146,6 +146,33 @@ export async function seedStageAutoTasks(
  * lib/intake.ts reads the questionnaire); this function only decides whether
  * the deal already has one.
  */
+/**
+ * Close the deal's open pre-approval task (#437).
+ *
+ * Both halves of the two-state model land here: the buyer marking *applied*
+ * (`POST /api/deals/[id]/pre-approval`) and the agent/admin confirming
+ * *pre-approved* (`PATCH /api/deals/[id]/flags`). Neither of those callers
+ * should have to know how the task is identified.
+ *
+ * Keyed on `source`, never on the title — same rule as `seedPreApprovalTask`
+ * (#460). And deliberately scoped to tasks that are still open: a row someone
+ * already SKIPPED stays skipped rather than being rewritten to 'completed',
+ * because "the agent waved this away" and "this got done" are different
+ * answers and only one of them is ours to give.
+ *
+ * A no-op when the deal has no such task — a cash buyer, or a deal where it
+ * was already closed. Callers can fire it unconditionally.
+ */
+export async function closePreApprovalTask(dealId: string): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE tasks
+    SET status = 'completed', updated_at = NOW()
+    WHERE deal_id = ${dealId}::uuid
+      AND source = ${PRE_APPROVAL_TASK_SOURCE}
+      AND status NOT IN ('completed', 'skipped')
+  `;
+}
+
 export async function seedPreApprovalTask(dealId: string): Promise<void> {
   await prisma.$executeRaw`
     INSERT INTO tasks (deal_id, title, description, priority, source, stage_context, role, due_date)
