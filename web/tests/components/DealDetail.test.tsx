@@ -191,6 +191,20 @@ vi.mock("@/hooks/useNetSheet", () => ({
 vi.mock("@/hooks/useContingencies", () => ({
   useContingencies: () => ({ contingencies: [], loading: false, refresh: vi.fn() }),
 }));
+// DealDetail calls this for the Inspection tab's open-item badge (#429). Like
+// every other hook here it must be stubbed — the real one reaches for a
+// QueryClient these tests deliberately don't mount.
+vi.mock("@/hooks/useInspectionItems", () => ({
+  useInspectionItems: () => ({
+    items: [],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    addItem: vi.fn(),
+    updateItem: vi.fn(),
+    deleteItem: vi.fn(),
+  }),
+}));
 vi.mock("@/components/MetroMap", () => ({ default: () => null }));
 vi.mock("@/components/DealInviteModal", () => ({ default: () => null }));
 vi.mock("@/components/pages/agent/SendTemplateModal", () => ({ default: () => null }));

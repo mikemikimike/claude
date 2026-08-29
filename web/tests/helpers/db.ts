@@ -13,6 +13,7 @@ const USER_DATA_TABLES = [
   "messages",
   "documents",
   "checklist_items",
+  "deal_inspection_items",
   "deal_contingencies",
   "deal_stage_history",
   "deal_participants",

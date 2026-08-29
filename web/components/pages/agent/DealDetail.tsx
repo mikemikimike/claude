@@ -17,6 +17,7 @@ import {
   CheckSquare,
   GitBranch,
   Building2,
+  ClipboardList,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -27,9 +28,12 @@ import { MessagesTab } from "@/components/deal/MessagesTab";
 import { DocumentsTab, UploadDocModal } from "@/components/deal/DocumentsTab";
 import { VendorsTab } from "@/components/deal/VendorsTab";
 import { TimelineTab } from "@/components/deal/TimelineTab";
+import { InspectionTab } from "@/components/deal/InspectionTab";
 import { StageAdvanceModal, type BlockingTask, type OfferDetails } from "@/components/deal/StageAdvanceModal";
 import { useProperties } from "@/hooks/useProperties";
 import { useOffers } from "@/hooks/useOffers";
+import { useInspectionItems } from "@/hooks/useInspectionItems";
+import { isClosedInspectionStatus } from "@/lib/inspection-items";
 import { StageTransitionBar } from "@/components/deal/StageTransitionBar";
 import { DealHeader } from "@/components/deal/DealHeader";
 
@@ -39,7 +43,7 @@ export { SellerBuyerStatusCard, ContingenciesCard, TasksTab, DocumentsTab, Uploa
 
 // ─── Tab definitions ────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'tasks' | 'messages' | 'documents' | 'timeline' | 'vendors';
+type TabId = 'overview' | 'tasks' | 'messages' | 'documents' | 'timeline' | 'inspection' | 'vendors';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview',  label: 'Overview',  icon: LayoutDashboard },
@@ -47,6 +51,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'tasks',     label: 'Tasks',     icon: CheckSquare },
   { id: 'messages',  label: 'Messages',  icon: MessageSquare },
   { id: 'documents', label: 'Documents', icon: FileText },
+  { id: 'inspection', label: 'Inspection', icon: ClipboardList },
   { id: 'vendors',   label: 'Vendors',   icon: Building2 },
 ];
 
@@ -61,7 +66,7 @@ export default function DealDetail() {
     // the Documents tab, where the return banner + refreshed statuses live.
     if (searchParams.get('signed_doc')) return 'documents';
     const t = searchParams.get('tab');
-    const valid: TabId[] = ['overview', 'tasks', 'messages', 'documents', 'timeline', 'vendors'];
+    const valid: TabId[] = ['overview', 'tasks', 'messages', 'documents', 'timeline', 'inspection', 'vendors'];
     return (valid as string[]).includes(t ?? '') ? (t as TabId) : 'overview';
   })();
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
@@ -80,6 +85,9 @@ export default function DealDetail() {
   // the modal so StageAdvanceModal stays a pure, prop-driven component.
   const { properties: dealProperties } = useProperties(dealId);
   const { addOffer, refresh: refreshOffers } = useOffers(dealId);
+  // Fetched here only for the tab's open-item badge. InspectionTab calls the
+  // same hook, and React Query dedupes on the shared key — one request, not two.
+  const { items: inspectionItems } = useInspectionItems(dealId ?? '');
 
   if (dealLoading) {
     return (
@@ -207,6 +215,7 @@ export default function DealDetail() {
   const tabCounts: Partial<Record<TabId, number>> = {
     tasks: dealTasks.filter((t) => t.status !== 'completed').length,
     documents: dealDocs.length,
+    inspection: inspectionItems.filter((i) => !isClosedInspectionStatus(i.status)).length,
   };
 
   return (
@@ -360,6 +369,7 @@ export default function DealDetail() {
       {activeTab === 'messages' && <MessagesTab deal={localDeal} />}
       {activeTab === 'documents' && <DocumentsTab deal={localDeal} docs={dealDocs} loading={docsLoading} onRefresh={refreshDocs} />}
       {activeTab === 'timeline' && <TimelineTab deal={localDeal} tasks={dealTasks} />}
+      {activeTab === 'inspection' && <InspectionTab deal={localDeal} />}
       {activeTab === 'vendors' && <VendorsTab deal={localDeal} />}
     </div>
   );
