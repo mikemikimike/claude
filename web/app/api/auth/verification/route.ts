@@ -7,16 +7,25 @@ import { getAuth0Client } from "@/lib/auth0";
  * The API access token only carries sub + roles (see lib/auth.ts — the Auth0
  * Post-Login Action injects roles, not email_verified), so verification state
  * comes from the Management API's getUser. When the M2M credentials are not
- * configured the GET reports verified=true — the banner stays quiet instead of
- * nagging users about a check we cannot perform.
+ * configured the GET reports `email_verified: null` — "we could not determine
+ * this" — and callers keep the banner quiet rather than nagging about a check
+ * we cannot perform.
+ *
+ * It used to report `true` in that case, which produced the same quiet UI by
+ * asserting something it had not checked. That fails OPEN: the credentials were
+ * empty strings in production for months (#405), so every account looked
+ * verified and nothing could tell a verified address from an unverified one.
+ * `null` keeps the UI identical while letting any caller that GATES on
+ * verification treat "unknown" as "not verified" — the safe direction.
  */
 
-// GET /api/auth/verification → { email_verified: boolean } for the caller.
+// GET /api/auth/verification → { email_verified: boolean | null } for the
+// caller; null means undeterminable, never assume it either way.
 export async function GET(req: Request): Promise<Response> {
   return (await withAuth(req, async (claims): Promise<Response> => {
     const auth0 = getAuth0Client();
     if (!auth0.managementEnabled()) {
-      return json({ email_verified: true });
+      return json({ email_verified: null });
     }
     try {
       const user = await auth0.getUser(claims.sub);

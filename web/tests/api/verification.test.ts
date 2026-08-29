@@ -88,14 +88,20 @@ describe("GET /api/auth/verification", () => {
     expect(await res.json()).toEqual({ email_verified: true });
   });
 
-  it("treats the user as verified when the Management API is not configured (no nagging)", async () => {
+  // #405 — this used to answer `true` when it had checked nothing. The prod M2M
+  // credentials were empty strings for months, so every account reported
+  // verified and no caller could tell a verified address from an unverified
+  // one. `null` says "undeterminable" so a caller that GATES on verification
+  // can fail closed; the banner still stays quiet (it only shows on `false`).
+  it("reports email_verified: null when the Management API is not configured", async () => {
     const { client, getUserCalls } = fakeAuth0({ managementEnabled: false });
     setAuth0ForTesting(client);
 
     const res = await getVerification(await authHeader("auth0|anyone", ["agent"]));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ email_verified: true });
+    expect(await res.json()).toEqual({ email_verified: null });
+    // Never asserts verified without asking Auth0 — and never asks when it can't.
     expect(getUserCalls).toHaveLength(0);
   });
 

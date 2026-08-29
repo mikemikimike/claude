@@ -5,13 +5,22 @@ import { MailWarning, X, Loader2 } from 'lucide-react';
 import { api } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/store/authStore";
 
-type VerificationStatus = { email_verified: boolean };
+/** null = the server could not determine it (Management API unconfigured/down). */
+type VerificationStatus = { email_verified: boolean | null };
 type ResendResponse = { ok: boolean; already_verified?: boolean };
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
 
+/**
+ * Answer for this tab: true/false when known, `"unknown"` when the server told
+ * us it couldn't check. Distinct from the cache's `null`, which means "not
+ * fetched yet" — collapsing the two would make the guard below treat every
+ * unknown as a cache miss and re-request on every client-side navigation.
+ */
+type Verification = boolean | 'unknown';
+
 // Per-tab memory so client-side navigation between sections doesn't re-hit the
 // Auth0 Management API (the GET route calls it) or resurrect a dismissed banner.
-let cachedVerified: boolean | null = null;
+let cachedVerified: Verification | null = null;
 let dismissedThisSession = false;
 
 /**
@@ -36,7 +45,7 @@ export function resetVerifyEmailBannerCache(): void {
 export default function VerifyEmailBanner() {
   const isLoaded = useAuthStore((s) => s.isLoaded);
   const activeUser = useAuthStore((s) => s.activeUser);
-  const [verified, setVerified] = useState<boolean | null>(cachedVerified);
+  const [verified, setVerified] = useState<Verification | null>(cachedVerified);
   const [dismissed, setDismissed] = useState(dismissedThisSession);
   const [sendState, setSendState] = useState<SendState>('idle');
 
@@ -46,13 +55,18 @@ export default function VerifyEmailBanner() {
     api
       .get<VerificationStatus>('/auth/verification')
       .then((status) => {
-        cachedVerified = status.email_verified;
-        if (!cancelled) setVerified(status.email_verified);
+        // null from the server = it couldn't determine the state. Record that
+        // as a real answer so the cache is filled and we don't re-ask on every
+        // navigation — but never as `true`, which would claim it IS verified.
+        const next: Verification = status.email_verified ?? 'unknown';
+        cachedVerified = next;
+        if (!cancelled) setVerified(next);
       })
       .catch(() => {
-        // Can't check (offline, unconfigured, transient) — stay quiet.
-        cachedVerified = true;
-        if (!cancelled) setVerified(true);
+        // Can't check (offline, unconfigured, transient) — stay quiet, but
+        // record it as unknown rather than asserting verified.
+        cachedVerified = 'unknown';
+        if (!cancelled) setVerified('unknown');
       });
     return () => {
       cancelled = true;
