@@ -17,6 +17,9 @@ import {
   pipelinePrice,
   sumKnown,
 } from "@/lib/deal-money";
+// #418 — "is this deal over?", asked in exactly one place. Both dashboards and
+// the pipeline page import this rather than re-deriving it.
+import { splitByLifecycle } from "@/lib/deal-lifecycle";
 // #438 — the buyer's pre-approval state, derived in exactly one place and
 // rendered through the same pill the deal's Overview tab uses.
 import {
@@ -369,15 +372,36 @@ export default function AgentDashboard() {
   const unread = notifications.filter((n) => !n.read);
 
   const { tasks: allTasks } = useAgentTasks();
-  const { deals: agentDeals } = useDeals();
+  const { deals: allAgentDeals } = useDeals();
   // #417 — a second, separately cached query for the deals that are over.
-  // Kept out of `agentDeals` on purpose: every stat and section above is the
+  // Kept out of `allAgentDeals` on purpose: every stat and section above is the
   // ACTIVE pipeline, and folding closed deals in would silently change them.
-  const { deals: completedDeals } = useDeals(CLOSED_DEAL_STATUSES);
+  const { deals: closedByStatus } = useDeals(CLOSED_DEAL_STATUSES);
+
+  // ── Which of these deals is actually still running? (#418) ───────────────
+  // The status query is not enough on its own. Nothing writes `deals.status`
+  // when a deal reaches `post_close`, so a deal the agent has already closed
+  // comes back from the ACTIVE query, still `status: 'active'`, forever — and
+  // used to be counted, bucketed and totalled as though it were live.
+  //
+  // Split it here, once. `agentDeals` is the live pipeline every stat and
+  // column below reads; the closed half is not dropped, it is handed to the
+  // Completed section — otherwise this fix would make a finished deal vanish
+  // from the dashboard entirely, which is worse than the bug.
+  const { open: agentDeals, closed: closedByStage } = splitByLifecycle(allAgentDeals);
+  // Dedupe by id: once an agent archives a post-close deal it satisfies BOTH
+  // queries, and it must be listed once.
+  const completedDeals = [
+    ...closedByStage,
+    ...closedByStatus.filter((d) => !closedByStage.some((c) => c.id === d.id)),
+  ];
 
   // ── Stats ────────────────────────────────────────────────────────────────
   // #459 — a deal counts toward Pipeline Value once it is UNDER CONTRACT, at
   // its contract price; an offer that could still be rejected is not pipeline.
+  // #418 — and it stops counting once it CLOSES: pipeline is money still
+  // coming, a closed deal is money earned. `agentDeals` is already the open
+  // half, so the closed ones are gone from both cards by construction.
   // #411 — and total only the deals whose price the app actually knows: a
   // pipeline with nothing under contract is `null`, which the stat card
   // renders as "—" instead of a confident "$0".
@@ -390,7 +414,10 @@ export default function AgentDashboard() {
            (t.dueDate === today || t.status === 'overdue')
   ).length;
 
-  const getDealForTask = (task: Task) => agentDeals.find((d) => d.id === task.dealId);
+  // Resolved against the FULL active-query result, not the open half: a task
+  // still sitting on a just-closed deal must keep its client name and its link
+  // to the deal, even though the deal no longer counts as pipeline (#418).
+  const getDealForTask = (task: Task) => allAgentDeals.find((d) => d.id === task.dealId);
 
   // ── Pre-approval (#438) ─────────────────────────────────────────────────
   // The pre-approval task carries `role: 'buyer'`, so it used to land in

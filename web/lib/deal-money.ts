@@ -13,6 +13,7 @@
  * a pile of them up without letting the absent ones count as zero.
  */
 
+import { isClosedOut } from "./deal-lifecycle";
 import type { DealStage } from "./stages";
 
 /** What an amount the app doesn't know renders as. */
@@ -78,17 +79,24 @@ export function sumKnown(values: (number | null | undefined)[]): number | null {
 // stage PATCH never touches `deals.price`).
 
 /**
- * The stages at which a deal is under contract or beyond — the only deals that
- * contribute to Pipeline Value and Est. Commission.
+ * The stages at which a deal is under contract but NOT yet closed — the only
+ * deals that contribute to Pipeline Value and Est. Commission.
+ *
+ * #418 removed `post_close` from this list. Pipeline is money still coming;
+ * a deal that has closed is money already earned, and leaving it in meant an
+ * agent's Pipeline Value only ever went up — every deal they had ever closed
+ * stayed in the total forever, because nothing marks a `post_close` deal as
+ * finished. (That is the same reason it kept counting toward Active Deals.)
+ * Earned commission is worth reporting, but as its own number, not smuggled
+ * into the forward-looking one.
  */
 export const PIPELINE_STAGES = [
   "under_contract",
   "pre_close",
   "closing",
-  "post_close",
 ] as const satisfies readonly DealStage[];
 
-/** Is this deal under contract or beyond? */
+/** Is this deal under contract and not yet closed? */
 export function countsTowardPipeline(stage: DealStage | string): boolean {
   return (PIPELINE_STAGES as readonly string[]).includes(stage);
 }
@@ -96,6 +104,8 @@ export function countsTowardPipeline(stage: DealStage | string): boolean {
 /** The shape both rollups need — a `Deal`, structurally. */
 type PricedDeal = {
   stage: DealStage | string;
+  /** Lifecycle status; absent on payloads that don't SELECT it (#418). */
+  status?: string | null;
   property: { price: number | null };
   estimatedCommission: number | null;
 };
@@ -110,6 +120,7 @@ type PricedDeal = {
  * the rollups ask this question.
  */
 export function pipelinePrice(deal: PricedDeal): number | null {
+  if (isClosedOut(deal)) return null;
   return countsTowardPipeline(deal.stage) ? deal.property.price : null;
 }
 
@@ -126,5 +137,6 @@ export function pipelinePrice(deal: PricedDeal): number | null {
  * special case bolted on here.
  */
 export function pipelineCommission(deal: PricedDeal): number | null {
+  if (isClosedOut(deal)) return null;
   return countsTowardPipeline(deal.stage) ? deal.estimatedCommission : null;
 }

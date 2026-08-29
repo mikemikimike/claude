@@ -7,6 +7,8 @@ import { Deal, DealStage, DealType } from "@/lib/types";
 import { AGENT_STAGE_LABELS as STAGE_LABELS, STAGE_ORDER } from "@/lib/stages";
 import { useDeals, type ApiDeal } from "@/hooks/useDeals";
 import { formatMoney } from "@/lib/deal-money";
+// #418 — the same "is this deal over?" rule both dashboards ask.
+import { splitByLifecycle } from "@/lib/deal-lifecycle";
 import { api } from "@/lib/api-client";
 import { ArrowRight, MapPin, Calendar, Clock, Zap, Plus, X } from 'lucide-react';
 
@@ -471,9 +473,15 @@ export default function Pipeline() {
   const activeUser = useAuthStore((s) => s.activeUser);
   const [filter, setFilter] = useState<FilterType>('all');
   const [showNewDeal, setShowNewDeal] = useState(false);
-  const { deals, loading, error, refresh } = useDeals();
+  const { deals: allDeals, loading, error, refresh } = useDeals();
+  // #418 — nothing writes `deals.status` when a deal reaches `post_close`, so
+  // the active-only query keeps returning finished deals forever. The BOARD
+  // still shows them, in their Post-Close group — that is where an agent looks
+  // for a deal they just closed — but the header count is the same "Active
+  // Deals" number as the dashboard's stat, and must agree with it.
+  const { open: openDeals, closed: closedDeals } = splitByLifecycle(allDeals);
 
-  const filteredDeals = deals.filter((d) => {
+  const filteredDeals = allDeals.filter((d) => {
     if (filter === 'buy') return d.type === 'buy';
     if (filter === 'sell') return d.type === 'sell';
     return true;
@@ -485,8 +493,8 @@ export default function Pipeline() {
     return acc;
   }, {});
 
-  const buyCount = deals.filter((d) => d.type === 'buy').length;
-  const sellCount = deals.filter((d) => d.type === 'sell').length;
+  const buyCount = openDeals.filter((d) => d.type === 'buy').length;
+  const sellCount = openDeals.filter((d) => d.type === 'sell').length;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -495,7 +503,9 @@ export default function Pipeline() {
         <div>
           <h1 className="text-2xl font-bold text-brand-navy">Pipeline</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            {loading ? 'Loading…' : `${deals.length} active deal${deals.length !== 1 ? 's' : ''} · ${buyCount} buyer${buyCount !== 1 ? 's' : ''} · ${sellCount} seller${sellCount !== 1 ? 's' : ''}`}
+            {loading
+              ? 'Loading…'
+              : `${openDeals.length} active deal${openDeals.length !== 1 ? 's' : ''} · ${buyCount} buyer${buyCount !== 1 ? 's' : ''} · ${sellCount} seller${sellCount !== 1 ? 's' : ''}${closedDeals.length > 0 ? ` · ${closedDeals.length} closed` : ''}`}
           </p>
           {/* #417 — this list is active-only, and used to be a one-way door:
               nothing on the page admitted that closed deals existed, let alone

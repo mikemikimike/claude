@@ -300,10 +300,32 @@ describe("pipeline contribution by stage (#459)", () => {
     }
   });
 
-  it("counts the contract price from under_contract onward", () => {
-    for (const stage of ["under_contract", "pre_close", "closing", "post_close"]) {
+  it("counts the contract price from under_contract until the deal closes", () => {
+    for (const stage of ["under_contract", "pre_close", "closing"]) {
       expect(pipelinePrice(priced(stage))).toBe(475000);
       expect(pipelineCommission(priced(stage))).toBe(14250);
+    }
+  });
+
+  // #418 — the other end of the window. Pipeline is money still coming; a
+  // closed deal is money already earned. Leaving `post_close` in meant an
+  // agent's Pipeline Value only ever went UP: nothing marks a closed deal
+  // finished, so every deal they had ever closed stayed in the total forever.
+  it("stops counting once the deal closes (#418)", () => {
+    const deal = priced("post_close");
+    // The price is still on the deal — the deal page still shows what it sold for.
+    expect(deal.property.price).toBe(475000);
+    expect(pipelinePrice(deal)).toBeNull();
+    expect(pipelineCommission(deal)).toBeNull();
+  });
+
+  // Same rule from the other direction: a deal archived or fallen through
+  // mid-pipeline is over too, whatever stage it stopped at.
+  it("stops counting a deal whose lifecycle status is no longer active (#418)", () => {
+    for (const status of ["archived", "fallen_through"]) {
+      const deal = { ...priced("under_contract"), status: status as never };
+      expect(pipelinePrice(deal)).toBeNull();
+      expect(pipelineCommission(deal)).toBeNull();
     }
   });
 

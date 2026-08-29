@@ -16,6 +16,16 @@ import {
   pipelinePrice,
   sumKnown,
 } from "@/lib/deal-money";
+// #418 — the one "is this deal over?" rule, shared with the agent dashboard
+// and the pipeline page. This file used to hand-spell it as
+// `stage !== 'post_close'` in four separate rollups — which is how the two
+// dashboards drifted apart in the first place, and which missed an ARCHIVED
+// deal that never reached post-close.
+//
+// The Fast Pass / Smooth Exit sections further down deliberately still test
+// `stage === 'post_close'` directly: those are about the CLOSING EVENT (when
+// a fee is collected), not about whether the deal is still in the pipeline.
+import { isOpenPipeline } from "@/lib/deal-lifecycle";
 import { FormReview } from "@/components/pages/admin/FormReview";
 import {
   AlertTriangle,
@@ -168,7 +178,7 @@ function DealRow({ deal }: { deal: Deal }) {
 // ─── Pipeline Overview ─────────────────────────────────────────────────────────
 
 function PipelineOverview({ deals }: { deals: Deal[] }) {
-  const activeDeals = deals.filter((d) => d.stage !== 'post_close');
+  const activeDeals = deals.filter(isOpenPipeline);
   // Literally the same rule as the agent dashboard, from the same module, so
   // the two can't drift: count a deal only once it is under contract, at its
   // contract price (#459), and total only what the app knows — "—", not "$0",
@@ -253,7 +263,7 @@ function PipelineOverview({ deals }: { deals: Deal[] }) {
           <div className="space-y-2">
             {redDeals.map((d) => <DealRow key={d.id} deal={d} />)}
             {deals.filter(
-              (d) => d.health !== 'red' && d.stage !== 'post_close' && (d.overdueTaskCount ?? 0) > 0,
+              (d) => d.health !== 'red' && isOpenPipeline(d) && (d.overdueTaskCount ?? 0) > 0,
             ).map((d) => <DealRow key={d.id} deal={d} />)}
           </div>
         </section>
@@ -514,7 +524,7 @@ function PreApprovalQueue({ deals }: { deals: Deal[] }) {
 
 function StuckDeals({ deals }: { deals: Deal[] }) {
   const stuck = deals.filter(
-    (d) => d.stage !== 'post_close' && d.timeline.daysInStage >= 14,
+    (d) => isOpenPipeline(d) && d.timeline.daysInStage >= 14,
   );
 
   return (
@@ -2222,7 +2232,7 @@ type OutstandingGroup = {
 };
 
 function OutstandingItems({ deals }: { deals: Deal[] }) {
-  const active = deals.filter((d) => d.stage !== 'post_close');
+  const active = deals.filter(isOpenPipeline);
 
   const groups: OutstandingGroup[] = [
     {
