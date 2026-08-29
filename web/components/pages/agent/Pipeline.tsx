@@ -388,6 +388,14 @@ export function DealCard({ deal }: { deal: Deal }) {
                 <Zap size={9} /> Fast Pass
               </span>
             )}
+            {/* #484 — refunded is its own state on the pipeline card too, for
+                the same reason as the deal header: silence would read as
+                "never enrolled". */}
+            {deal.fastPass?.status === 'refunded' && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[11px] font-bold text-red-700">
+                <Zap size={9} /> Fast Pass refunded
+              </span>
+            )}
             {deal.smoothExit?.status === 'active' && (
               <span className="rounded-full bg-purple-100 border border-purple-200 px-2 py-0.5 text-[11px] font-bold text-purple-700">
                 Smooth Exit

@@ -165,6 +165,12 @@ export const smoothExitApiDataSchema = z.object({
   selected_upsells: z.array(z.string()).optional(),
   upsell_total_cents: z.number().optional(),
   upsells_paid: z.boolean().optional(),
+  /**
+   * #484 — the Stripe webhook has written this since #366, but nothing read it:
+   * a zod object strips unknown keys, so a refunded add-on basket reached the UI
+   * indistinguishable from one that simply hadn't been paid for yet.
+   */
+  upsells_refunded: z.boolean().nullish(),
   /** #426 — dropped here until now, same as the Fast Pass side. */
   survey_answers: smoothExitSurveyAnswersSchema.nullish(),
 });

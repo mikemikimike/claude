@@ -1593,12 +1593,16 @@ export function FastPassCard({ deal }: { deal: Deal }) {
     pending_payment: 'bg-amber-100 text-amber-700',
     complete: 'bg-gray-100 text-gray-500',
     collected: 'bg-gray-100 text-gray-500',
+    // #484 — red, not grey: a refund is something the agent has to know about,
+    // not a quietly finished enrollment.
+    refunded: 'bg-red-100 text-red-700',
   };
   const STATUS_LABELS: Record<string, string> = {
     active: 'Active',
     pending_payment: 'Awaiting payment',
     complete: 'Complete',
     collected: 'Collected',
+    refunded: 'Refunded',
   };
 
   if (fp) {
@@ -1615,11 +1619,18 @@ export function FastPassCard({ deal }: { deal: Deal }) {
     // `paid` and `status` are independent (see the type): an `at_closing`
     // enrollment is Active and unpaid for weeks, so the money line is its own
     // statement rather than something inferred from the status pill.
-    const paidLabel = fp.paid
-      ? 'Paid'
-      : fp.status === 'pending_payment'
-        ? 'Not paid yet'
-        : 'Due at closing';
+    //
+    // #484 — `refunded` is checked FIRST because it also carries `paid: false`,
+    // which would otherwise fall through to "Due at closing": money owed, the
+    // exact opposite of money returned.
+    const refunded = fp.status === 'refunded';
+    const paidLabel = refunded
+      ? 'Refunded'
+      : fp.paid
+        ? 'Paid'
+        : fp.status === 'pending_payment'
+          ? 'Not paid yet'
+          : 'Due at closing';
 
     return (
       <div className="rounded-xl bg-white shadow-sm overflow-hidden">
@@ -1664,7 +1675,15 @@ export function FastPassCard({ deal }: { deal: Deal }) {
               {fastPassPaymentOptionLabel(fp.paymentOption)}
             </span>
             <span className="text-gray-200">·</span>
-            <span className={fp.paid ? 'font-semibold text-green-600' : 'font-semibold text-amber-600'}>
+            <span
+              className={
+                refunded
+                  ? 'font-semibold text-red-600'
+                  : fp.paid
+                    ? 'font-semibold text-green-600'
+                    : 'font-semibold text-amber-600'
+              }
+            >
               {paidLabel}
             </span>
             {fp.promoCode && (
@@ -1678,6 +1697,21 @@ export function FastPassCard({ deal }: { deal: Deal }) {
             )}
           </div>
         </button>
+
+        {/* #484 — a refund is a conversation the agent has to have, so it is
+            stated in words rather than left to a pill. The add-ons and the
+            agreed total stay on screen below: this says the money went back,
+            not that the enrollment never happened. */}
+        {refunded && (
+          <div
+            data-testid="fp-refunded-note"
+            className="border-t border-red-100 bg-red-50/60 px-5 py-3 text-xs text-red-700"
+          >
+            <span className="font-semibold">Refunded.</span> The charge was
+            reversed in Stripe, so Fast Pass is no longer running on this deal.
+            What was enrolled is kept below for the record.
+          </div>
+        )}
 
         {/* Add-ons: always visible. This is the question the agent actually
             walked in with, so it must not be hidden behind the expander. */}
@@ -1845,8 +1879,24 @@ export function SmoothExitCard({ deal }: { deal: Deal }) {
             {upsells.length > 0 && (
               <>
                 <span className="text-gray-200">·</span>
-                <span className={se.upsellsPaid ? 'font-semibold text-green-600' : 'font-semibold text-amber-600'}>
-                  {se.upsellsPaid ? 'Add-ons paid' : 'Add-ons not paid'}
+                {/* #484 — refunded is checked first: it also carries
+                    `upsellsPaid: false`, and "not paid" reads as money still
+                    owed, the opposite of money returned. The enrollment itself
+                    is untouched — only this basket was refunded. */}
+                <span
+                  className={
+                    se.upsellsRefunded
+                      ? 'font-semibold text-red-600'
+                      : se.upsellsPaid
+                        ? 'font-semibold text-green-600'
+                        : 'font-semibold text-amber-600'
+                  }
+                >
+                  {se.upsellsRefunded
+                    ? 'Add-ons refunded'
+                    : se.upsellsPaid
+                      ? 'Add-ons paid'
+                      : 'Add-ons not paid'}
                 </span>
               </>
             )}

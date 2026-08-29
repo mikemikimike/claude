@@ -16,7 +16,21 @@ export type DealStatus = 'active' | 'archived' | 'fallen_through';
 
 // ── Fast Pass enrollment (deal.fastPass) ─────────────────────────────────────
 
-export type FastPassEnrollmentStatus = 'pending_payment' | 'active' | 'complete' | 'collected';
+/**
+ * `refunded` is TERMINAL (#484): the Stripe charge was fully reversed or
+ * disputed, so the service is no longer running. It is deliberately a status of
+ * its own rather than a cleared enrollment — every reader here is an
+ * `=== 'active'` check, and without a distinct state a refunded client would
+ * collapse into "never enrolled" and get pitched Fast Pass all over again.
+ * Re-enrolment after a refund is out of scope (#484) — it goes through a fresh
+ * enrollment, not by rewinding this one.
+ */
+export type FastPassEnrollmentStatus =
+  | 'pending_payment'
+  | 'active'
+  | 'complete'
+  | 'collected'
+  | 'refunded';
 
 export type FastPassPaymentOption = 'now' | 'at_closing' | 'seller_concession';
 
@@ -121,6 +135,12 @@ export type SmoothExitSurveyAnswers = {
   notes?: string;
 };
 
+/**
+ * No `refunded` member, on purpose (#484). The only Smooth Exit charge Stripe
+ * can reverse is the ADD-ON basket; the enrollment's 1%-of-sale fee is billed
+ * from proceeds at closing and is not part of it. A refunded basket therefore
+ * leaves the enrollment running — see `upsellsRefunded` below.
+ */
 export type SmoothExitEnrollmentStatus = 'pending' | 'active' | 'complete';
 
 export type SmoothExitEnrollment = {
@@ -135,6 +155,13 @@ export type SmoothExitEnrollment = {
   selectedUpsells?: string[];
   upsellTotalCents?: number;
   upsellsPaid?: boolean;
+  /**
+   * The add-on charge was fully refunded or disputed (#484). Distinct from
+   * `upsellsPaid === false`, which means the money has not arrived YET — the
+   * opposite reading. `upsellTotalCents` and `selectedUpsells` stay put: the
+   * refund reverses the money, not the record of what was agreed.
+   */
+  upsellsRefunded?: boolean;
 };
 
 // ── Deal view model ──────────────────────────────────────────────────────────

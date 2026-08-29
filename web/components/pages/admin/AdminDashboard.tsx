@@ -676,6 +676,14 @@ const STATUS_STYLES: Record<string, { badge: string; border: string; label: stri
     border: 'border-l-gray-300',
     label: 'Complete',
   },
+  // #484 — a refunded enrollment reaches this map now. Without an entry
+  // `STATUS_STYLES[fp.status]` below is `undefined` and reading `.border` off it
+  // throws, so this is load-bearing, not decoration.
+  refunded: {
+    badge: 'bg-red-100 text-red-700',
+    border: 'border-l-red-400',
+    label: 'Refunded',
+  },
 };
 
 const PAYMENT_OPTION_LABELS: Record<string, string> = {
@@ -720,11 +728,15 @@ function ActiveFastPass({ deals, refresh }: { deals: Deal[]; refresh: () => void
       (d.fastPass.paymentOption === 'at_closing' || d.fastPass.paymentOption === 'seller_concession'),
   );
   const active = fpDeals.filter((d) => d.fastPass?.status === 'active' && d.stage !== 'post_close');
+  // #484 — a refunded enrollment matches none of the buckets above, so without
+  // its own section it would simply vanish from this page: enrolled, charged,
+  // refunded, and then invisible to the person who has to reconcile it.
+  const refunded = fpDeals.filter((d) => d.fastPass?.status === 'refunded');
   const noEnrollment = fpDeals.filter((d) => !d.fastPass && d.stage !== 'post_close');
 
   function FPDealCard({ d }: { d: Deal }) {
     const fp = d.fastPass;
-    const style = fp ? STATUS_STYLES[fp.status] : STATUS_STYLES.active;
+    const style = (fp ? STATUS_STYLES[fp.status] : undefined) ?? STATUS_STYLES.active;
     const upsellItems = fp
       ? FAST_PASS_UPSELLS.filter((u) => fp.selectedUpsells.includes(u.id))
       : [];
@@ -755,7 +767,11 @@ function ActiveFastPass({ deals, refresh }: { deals: Deal[]; refresh: () => void
                 <div className="text-sm font-black text-brand-navy">
                   ${fp.totalPaid.toLocaleString()}
                 </div>
-                <div className="text-xs text-gray-400">paid</div>
+                {/* #484 — the figure is what was agreed either way; the word
+                    under it is what happened to the money. */}
+                <div className="text-xs text-gray-400">
+                  {fp.status === 'refunded' ? 'refunded' : 'paid'}
+                </div>
               </>
             )}
           </div>
@@ -830,7 +846,13 @@ function ActiveFastPass({ deals, refresh }: { deals: Deal[]; refresh: () => void
   }
 
   const allFpDeals = deals.filter((d) => d.fastPass);
-  const totalRevenue = allFpDeals.reduce((sum, d) => sum + (d.fastPass?.totalPaid ?? 0), 0);
+  // #484 — "Total Paid" is money the business kept. A refunded enrollment gave
+  // it back, so counting it here overstates revenue by the refund. The
+  // enrollment still counts under "Total Enrolled": it did happen.
+  const totalRevenue = allFpDeals.reduce(
+    (sum, d) => sum + (d.fastPass?.status === 'refunded' ? 0 : (d.fastPass?.totalPaid ?? 0)),
+    0
+  );
 
   return (
     <div className="space-y-7">
@@ -934,6 +956,17 @@ function ActiveFastPass({ deals, refresh }: { deals: Deal[]; refresh: () => void
             </section>
           )}
 
+          {refunded.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-red-600">
+                Refunded ({refunded.length})
+              </h2>
+              <div className="space-y-3">
+                {refunded.map((d) => <FPDealCard key={d.id} d={d} />)}
+              </div>
+            </section>
+          )}
+
           {noEnrollment.length > 0 && (
             <section>
               <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">
@@ -969,7 +1002,17 @@ function SmoothExitQueue({ deals, refresh }: { deals: Deal[]; refresh: () => voi
   const pending = seDeals.filter((d) => d.smoothExit?.status === 'pending');
   const active = seDeals.filter((d) => d.smoothExit?.status === 'active');
   const totalFees = allSeDeals.reduce((sum, d) => sum + (d.smoothExit?.fee ?? 0), 0);
-  const totalUpsells = allSeDeals.reduce((sum, d) => sum + Math.round((d.smoothExit?.upsellTotalCents ?? 0) / 100), 0);
+  // #484 — same rule as the Fast Pass total: a refunded add-on basket is money
+  // that went back, so it is not revenue. The enrollment's own 1% fee is
+  // untouched by an add-on refund and keeps counting in `totalFees`.
+  const totalUpsells = allSeDeals.reduce(
+    (sum, d) =>
+      sum +
+      (d.smoothExit?.upsellsRefunded
+        ? 0
+        : Math.round((d.smoothExit?.upsellTotalCents ?? 0) / 100)),
+    0
+  );
 
   function SECard({ d }: { d: Deal }) {
     const se = d.smoothExit!;
@@ -1015,7 +1058,11 @@ function SmoothExitQueue({ deals, refresh }: { deals: Deal[]; refresh: () => voi
           <div className="border-t border-gray-50 px-5 py-3">
             <div className="mb-1.5 flex items-center justify-between">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Add-ons</div>
-              {se.upsellsPaid ? (
+              {/* #484 — refunded first: it also carries upsellsPaid=false, and
+                  "Unpaid" claims money is still owed. */}
+              {se.upsellsRefunded ? (
+                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Refunded</span>
+              ) : se.upsellsPaid ? (
                 <span className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700">
                   <Check size={9} strokeWidth={3} /> Paid
                 </span>

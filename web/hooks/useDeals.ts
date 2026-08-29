@@ -89,6 +89,9 @@ function smoothExitFromApi(d: SmoothExitApiData): SmoothExitEnrollment {
     selectedUpsells: d.selected_upsells ?? [],
     upsellTotalCents: d.upsell_total_cents ?? 0,
     upsellsPaid: d.upsells_paid ?? false,
+    // #484 — "refunded" and "not paid yet" are opposite statements about the
+    // money; the card has to be able to tell them apart.
+    upsellsRefunded: d.upsells_refunded ?? false,
     ...(survey ? { surveyAnswers: survey } : {}),
     ...(nextStep ? { nextStep } : {}),
   };

@@ -2582,6 +2582,9 @@ export default function BuyerView() {
   // ── #422: what goes in which section, and which section leads ──────────────
   const hasOverdue = buyerTasks.some((t) => t.status === 'overdue');
   const fastPassNeedsPayment = deal.fastPass?.status === 'pending_payment';
+  // #484 — refunded is neither "running" nor "never enrolled". It suppresses
+  // both the tracker and the pitch below.
+  const fastPassRefunded = deal.fastPass?.status === 'refunded';
   const stageFocus = STAGE_FOCUS[deal.stage];
   // The tab bar (and with it the task list) is hidden at post_close, exactly as
   // before. Without it the actions section would be a heading over nothing —
@@ -2746,8 +2749,16 @@ export default function BuyerView() {
 
       {/* Fast Pass tracker (enrolled) or pitch (unenrolled). An enrollment that
           still owes money is handled in the actions section above, so it never
-          gets pitched something it already bought. */}
-      {deal.stage !== 'intake' && !fastPassNeedsPayment && (
+          gets pitched something it already bought.
+
+          #484 — a REFUNDED enrollment gets neither. The tracker would run a
+          service they no longer have; the pitch would try to re-sell, on their
+          own portal, the thing they were just refunded for. That second failure
+          is the whole point of giving a refund its own status instead of
+          clearing the enrollment: `!== 'active'` is not the same question as
+          "never enrolled". Re-enrolment is a conversation with their agent
+          (#484 puts it out of scope), not a button here. */}
+      {deal.stage !== 'intake' && !fastPassNeedsPayment && !fastPassRefunded && (
         deal.fastPass?.status === 'active'
           ? <FastPassTracker deal={deal} />
           : deal.stage !== 'post_close' && <FastPassPitch dealId={deal.id} />
