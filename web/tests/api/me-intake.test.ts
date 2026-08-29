@@ -20,6 +20,7 @@
  *   - `deals.intake` is still written correctly in every case,
  *   - the stage's auto-tasks are seeded, same as an agent-driven advance.
  */
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 
 /**
@@ -1085,5 +1086,303 @@ describe("pre-approval task identity is not its copy (#460)", () => {
       data: { status: "completed" },
     });
     expect((await patchStage("offer_active")).status).toBe(200);
+  });
+});
+
+/**
+ * Issue #451 — the financing type is a real column (`deals.financing_type`,
+ * migration 000066), written at intake instead of derived from `deals.intake`
+ * on every read.
+ *
+ * What that buys, and what these assert:
+ *   - the offer gate no longer depends on a questionnaire KEY NAME at read
+ *     time, so renaming `cashOrLoan` can't silently re-gate the cash buyers
+ *     who already answered,
+ *   - the portal payload no longer hauls the intake JSON to extract one string,
+ *   - the fail-closed contract from #409 survives the move: only an explicit
+ *     `cash` unlocks; unknown / absent / malformed stays NULL and keeps the
+ *     pre-approval gate.
+ */
+describe("deals.financing_type — written at intake (#451)", () => {
+  async function myDealRow(auth0Id: string, dealId: string) {
+    const { GET: getMyDeals } = await import("@/app/api/me/deals/route");
+    const res = await getMyDeals(
+      new Request("http://localhost/api/me/deals", {
+        headers: { authorization: await authHeader(auth0Id, ["buyer"]) },
+      })
+    );
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as {
+      id: string;
+      financing_type: string | null;
+      intake?: unknown;
+    }[];
+    return rows.find((r) => r.id === dealId);
+  }
+
+  async function column(dealId: string) {
+    const row = await prisma.deals.findUnique({
+      where: { id: dealId },
+      select: { financing_type: true },
+    });
+    return row?.financing_type ?? null;
+  }
+
+  // Case 1 — fails against the pre-#451 code: nothing wrote the column, so it
+  // stayed NULL and only the derived payload field was ever populated.
+  it("13. a 'cash' onboarding answer lands in the COLUMN, not just the payload", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "col-cash",
+    });
+    expect(await column(deal.id)).toBeNull();
+
+    const res = await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS, cashOrLoan: "cash" } },
+        await authHeader("auth0|client-col-cash", ["buyer"])
+      )
+    );
+    expect(res.status).toBe(200);
+
+    expect(await column(deal.id)).toBe("cash");
+    expect((await myDealRow("auth0|client-col-cash", deal.id))?.financing_type).toBe("cash");
+  });
+
+  it("14. a 'loan' answer lands in the column too", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "col-loan",
+    });
+    await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS, cashOrLoan: "loan" } },
+        await authHeader("auth0|client-col-loan", ["buyer"])
+      )
+    );
+    expect(await column(deal.id)).toBe("loan");
+  });
+
+  // Case 6 — fail closed. An unanswered or unrecognized answer must leave the
+  // column NULL, which is what keeps the pre-approval gate in front of them.
+  it("15. an unanswered or unrecognized questionnaire leaves the column NULL", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "col-none",
+    });
+
+    // No answer at all (BUYER_ANSWERS deliberately carries no cashOrLoan).
+    await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS } },
+        await authHeader("auth0|client-col-none", ["buyer"])
+      )
+    );
+    expect(await column(deal.id)).toBeNull();
+    expect((await myDealRow("auth0|client-col-none", deal.id))?.financing_type).toBeNull();
+
+    // A value that only LOOKS like the answer never unlocks anything.
+    for (const bogus of ["CASH", "cash ", "Cash", true, 1, ["cash"], { value: "cash" }]) {
+      await postIntake(
+        intakeReq(
+          { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS, cashOrLoan: bogus } },
+          await authHeader("auth0|client-col-none", ["buyer"])
+        )
+      );
+      expect(await column(deal.id)).toBeNull();
+    }
+  });
+
+  it("16. a seller questionnaire never writes a financing type", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "seller",
+      dealType: "sell",
+      suffix: "col-seller",
+    });
+    await postIntake(
+      intakeReq(
+        {
+          deal_id: deal.id,
+          role: "seller",
+          answers: { address: "9 Pine St", cashOrLoan: "cash" },
+        },
+        await authHeader("auth0|client-col-seller", ["seller"])
+      )
+    );
+    expect(await column(deal.id)).toBeNull();
+  });
+
+  /**
+   * Case 2 — the failure mode #409 shipped with, made impossible.
+   *
+   * The old payload derived the flag from `deals.intake`, so a deal carrying a
+   * cash financing type but no intake JSON reported `null` and the gate came
+   * back. The column is the source of truth now: the intake is irrelevant to
+   * the read, and the endpoint no longer SELECTs it.
+   */
+  it("17. the portal reads the column even with deals.intake absent", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      stage: "active_search",
+      suffix: "col-nojson",
+    });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: { financing_type: "cash" },
+    });
+    const stored = await prisma.deals.findUnique({
+      where: { id: deal.id },
+      select: { intake: true },
+    });
+    expect(stored?.intake).toBeNull(); // nothing derived it — the column stands alone
+
+    const row = await myDealRow("auth0|client-col-nojson", deal.id);
+    expect(row?.financing_type).toBe("cash");
+    // …and the raw questionnaire JSON is not in the payload at all.
+    expect(row).not.toHaveProperty("intake");
+  });
+
+  /**
+   * A re-submitted questionnaire that carries no recognizable answer must not
+   * wipe a financing type already on the deal — that would silently re-gate a
+   * cash buyer, and it is how an agent's correction would otherwise be lost.
+   */
+  it("18. a re-submitted answer-less questionnaire does not clear the column", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "col-keep",
+    });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: { financing_type: "loan" },
+    });
+
+    await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS } },
+        await authHeader("auth0|client-col-keep", ["buyer"])
+      )
+    );
+    expect(await column(deal.id)).toBe("loan");
+  });
+});
+
+/**
+ * Case 3 — the migration 000066 backfill, exercised through the SQL that
+ * actually ships. The statement is read out of the migration file rather than
+ * re-typed here, so this cannot drift from what production will execute.
+ *
+ * Prod (queried 2026-08-28): 7 deals, 2 of them carrying an intake, both buyer
+ * questionnaires answering `cash` — so the real backfill sets exactly those 2
+ * rows to 'cash' and leaves the other 5 NULL. The cases below are the shapes it
+ * has to survive, not just the two it will actually meet.
+ */
+describe("migration 000066 — intake backfill (#451)", () => {
+  /** The UPDATE statements from the shipped .up.sql, comments and all. */
+  function backfillSql(): string[] {
+    const sql = readFileSync(
+      new URL("../../../migrations/000066_deals_financing_type.up.sql", import.meta.url),
+      "utf8"
+    );
+    const statements = sql
+      .split(";")
+      .map((s) => s.trim())
+      .filter((s) => /^update\s+deals/i.test(s.replace(/^(\s*--[^\n]*\n)+/, "").trim()));
+    expect(statements.length).toBeGreaterThan(0);
+    return statements;
+  }
+
+  async function runBackfill() {
+    for (const stmt of backfillSql()) {
+      await prisma.$executeRawUnsafe(stmt);
+    }
+  }
+
+  async function dealWithIntake(agentId: string, intake: unknown) {
+    const deal = await createDeal({ agent_id: agentId, stage: "active_search" });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: { intake: intake as object },
+    });
+    return deal.id;
+  }
+
+  it("copies a buyer's cash / loan answer and nothing else", async () => {
+    const agent = await createUser({ role: "agent" });
+    const answered = (v: unknown) => ({
+      role: "buyer",
+      submitted_at: "2026-06-09T00:00:00.000Z",
+      answers: { bedrooms: "3", cashOrLoan: v },
+    });
+
+    const cash = await dealWithIntake(agent.id, answered("cash"));
+    const loan = await dealWithIntake(agent.id, answered("loan"));
+    const noAnswer = await dealWithIntake(agent.id, {
+      role: "buyer",
+      answers: { bedrooms: "3" },
+    });
+    const seller = await dealWithIntake(agent.id, {
+      role: "seller",
+      answers: { cashOrLoan: "cash" },
+    });
+    // Free-form JSON the app never writes, but that the column cannot guess at.
+    const wrongCase = await dealWithIntake(agent.id, answered("CASH"));
+    const boolAnswer = await dealWithIntake(agent.id, answered(true));
+    const arrayAnswer = await dealWithIntake(agent.id, answered(["cash"]));
+    const answersNotObject = await dealWithIntake(agent.id, { role: "buyer", answers: "cash" });
+    const intakeIsArray = await dealWithIntake(agent.id, [
+      { role: "buyer", answers: { cashOrLoan: "cash" } },
+    ]);
+    const intakeIsScalar = await dealWithIntake(agent.id, "cash");
+    const noIntake = (await createDeal({ agent_id: agent.id })).id;
+
+    await runBackfill();
+
+    const ids = [cash, loan, noAnswer, seller, wrongCase, boolAnswer, arrayAnswer,
+      answersNotObject, intakeIsArray, intakeIsScalar, noIntake];
+    const rows = await prisma.deals.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, financing_type: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r.financing_type]));
+
+    expect(byId.get(cash)).toBe("cash");
+    expect(byId.get(loan)).toBe("loan");
+    for (const id of ids.filter((i) => i !== cash && i !== loan)) {
+      expect(byId.get(id)).toBeNull();
+    }
+  });
+
+  it("never overwrites a value already on the deal (an agent's correction)", async () => {
+    const agent = await createUser({ role: "agent" });
+    const corrected = await dealWithIntake(agent.id, {
+      role: "buyer",
+      answers: { cashOrLoan: "cash" },
+    });
+    await prisma.deals.update({
+      where: { id: corrected },
+      data: { financing_type: "loan" },
+    });
+
+    await runBackfill();
+
+    const row = await prisma.deals.findUnique({
+      where: { id: corrected },
+      select: { financing_type: true },
+    });
+    expect(row?.financing_type).toBe("loan");
+  });
+
+  it("the column rejects anything but cash / loan (CHECK constraint)", async () => {
+    const agent = await createUser({ role: "agent" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await expect(
+      prisma.$executeRaw`UPDATE deals SET financing_type = 'seller-financed' WHERE id = ${deal.id}::uuid`
+    ).rejects.toThrow();
   });
 });

@@ -43,8 +43,8 @@ export async function GET(req: Request): Promise<Response> {
         disclosures_complete: boolean;
         buyer_status: string | null;
         intake_submitted: boolean;
-        /** Raw questionnaire JSON — derived from, then stripped, below (#409). */
-        intake: unknown;
+        /** `deals.financing_type` straight off the column, narrowed below (#451). */
+        financing_type: unknown;
         created_at: Date;
         updated_at: Date;
         stage_entered_at: Date;
@@ -67,11 +67,11 @@ export async function GET(req: Request): Promise<Response> {
              -- read through GET /api/deals/[id]/intake, and this endpoint
              -- deliberately carries no agent-facing columns.
              (deals.intake IS NOT NULL) AS intake_submitted,
-             -- #409: the buyer's cash/loan answer lives in this JSON. It is
-             -- read through lib/intake's typed helper and stripped from the
-             -- response by withFinancingType — the answers themselves are
-             -- still only served by GET /api/deals/[id]/intake.
-             deals.intake,
+             -- #451: the buyer's cash/loan answer, promoted to a real column.
+             -- #409 SELECTed the whole intake JSON here just to read this one
+             -- string; do not put it back — the answers are served by
+             -- GET /api/deals/[id]/intake and nothing else.
+             deals.financing_type,
              deals.created_at, deals.updated_at,
              ${stageEnteredAtExpr} AS stage_entered_at,
              u.name AS agent_name, u.email AS agent_email, u.phone AS agent_phone,

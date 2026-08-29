@@ -224,7 +224,15 @@ export default function DealDetail() {
         deal={localDeal}
         canEdit={activeUser?.id === deal.agentId}
         onFlagChange={async (flags) => {
-          await api.patch(`/deals/${localDeal.id}/flags`, flags).catch(() => {});
+          // PATCH /flags speaks the DB's snake_case. The camelCase object was
+          // being posted straight through, so the route recognized nothing in
+          // it and the write was a silent no-op — caught while wiring the #451
+          // financing override onto the same handler.
+          const body: Record<string, unknown> = {};
+          if (flags.preApproved !== undefined) body.pre_approved = flags.preApproved;
+          // `null` is meaningful here (clear it), so test for presence.
+          if ('financingType' in flags) body.financing_type = flags.financingType ?? null;
+          await api.patch(`/deals/${localDeal.id}/flags`, body).catch(() => {});
           refreshDeal();
         }}
         onSave={async (patch) => {

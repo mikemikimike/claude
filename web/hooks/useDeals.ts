@@ -244,8 +244,8 @@ export function apiDealToFrontend(d: ApiDeal): Deal {
     // #407 — only /api/me/deals serves this; agent payloads omit it, and an
     // absent flag must NOT read as "already onboarded".
     intakeSubmitted: d.intake_submitted ?? false,
-    // #409 — server-derived cash/loan. An absent or null value must stay
-    // undefined so the pre-approval gate holds; only an explicit 'cash' lifts it.
+    // #409/#451 — the server's cash/loan column. An absent or null value must
+    // stay undefined so the pre-approval gate holds; only 'cash' lifts it.
     financingType: d.financing_type ?? undefined,
     // #428 — only /api/me/deals serves this. Left UNDEFINED when absent, never
     // coerced to false: an agent payload (or a response cached from before the

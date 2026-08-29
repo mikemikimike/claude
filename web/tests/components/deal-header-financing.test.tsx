@@ -7,8 +7,9 @@
  * who can suddenly make offers without it had nothing telling them why. The
  * header now shows the financing type the buyer picked in onboarding.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { DealHeader } from "@/components/deal/DealHeader";
 import type { Deal } from "@/lib/types";
 
@@ -50,5 +51,55 @@ describe("DealHeader — buyer financing type (#409)", () => {
   it("never badges a sell deal as a cash buyer", () => {
     render(<DealHeader deal={{ ...DEAL, type: "sell", financingType: "cash" }} />);
     expect(screen.queryByText(/cash buyer/i)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #451 — the agent override.
+ *
+ * #409 made the buyer's own onboarding answer the thing that lifts the offer
+ * gate, with no agent-side undo: a buyer who mis-clicked "💰 Cash purchase"
+ * unlocked their own "Make an Offer" CTA permanently, and the only correction
+ * was hand-editing `deals.intake` in the database. The badge is a control now.
+ */
+describe("DealHeader — the agent corrects the financing type (#451)", () => {
+  it("offers cash / financed on a buy deal when the agent can edit flags", () => {
+    render(<DealHeader deal={{ ...DEAL, financingType: "cash" }} onFlagChange={() => {}} />);
+    const select = screen.getByLabelText(/financing/i) as HTMLSelectElement;
+    expect(select.value).toBe("cash");
+    expect(screen.getByRole("option", { name: /cash/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /financed/i })).toBeInTheDocument();
+  });
+
+  it("emits the correction when the agent switches a mis-clicked cash buyer to financed", async () => {
+    const onFlagChange = vi.fn();
+    render(<DealHeader deal={{ ...DEAL, financingType: "cash" }} onFlagChange={onFlagChange} />);
+
+    await userEvent.selectOptions(screen.getByLabelText(/financing/i), "loan");
+    expect(onFlagChange).toHaveBeenCalledWith({ financingType: "loan" });
+  });
+
+  it("clears back to unknown with an explicit null — the safe direction", async () => {
+    const onFlagChange = vi.fn();
+    render(<DealHeader deal={{ ...DEAL, financingType: "cash" }} onFlagChange={onFlagChange} />);
+
+    await userEvent.selectOptions(screen.getByLabelText(/financing/i), "");
+    expect(onFlagChange).toHaveBeenCalledWith({ financingType: null });
+  });
+
+  it("shows the control on a buyer who never answered, so it can be set", () => {
+    render(<DealHeader deal={DEAL} onFlagChange={() => {}} />);
+    expect((screen.getByLabelText(/financing/i) as HTMLSelectElement).value).toBe("");
+  });
+
+  it("never offers it on a sell deal — financing is a buy-side question", () => {
+    render(<DealHeader deal={{ ...DEAL, type: "sell" }} onFlagChange={() => {}} />);
+    expect(screen.queryByLabelText(/financing/i)).not.toBeInTheDocument();
+  });
+
+  it("stays a read-only badge for a viewer who cannot edit flags", () => {
+    render(<DealHeader deal={{ ...DEAL, financingType: "cash" }} />);
+    expect(screen.queryByLabelText(/financing/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/cash buyer/i)).toBeInTheDocument();
   });
 });

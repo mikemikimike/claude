@@ -18,16 +18,12 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   financingTypeFromAnswers,
-  financingTypeFromIntake,
   lenderChoiceFromAnswers,
   needsPreApprovalTask,
+  normalizeFinancingType,
   withFinancingType,
 } from "./intake";
 import { PRE_APPROVAL_TASK_SOURCE, PRE_APPROVAL_TASK_TITLE } from "./stage-task-seed";
-
-function buyerIntake(answers: Record<string, unknown>) {
-  return { role: "buyer", submitted_at: "2026-08-27T12:00:00.000Z", answers };
-}
 
 describe("financingTypeFromAnswers (#409)", () => {
   it("reads the buyer questionnaire's cash answer", () => {
@@ -54,60 +50,71 @@ describe("financingTypeFromAnswers (#409)", () => {
   });
 });
 
-describe("financingTypeFromIntake (#409)", () => {
-  it("derives cash / loan from a stored buyer intake", () => {
-    expect(financingTypeFromIntake(buyerIntake({ cashOrLoan: "cash" }))).toBe("cash");
-    expect(financingTypeFromIntake(buyerIntake({ cashOrLoan: "loan" }))).toBe("loan");
+/**
+ * Issue #451 — the derivation above is now the WRITE path only. The read path
+ * is the `deals.financing_type` column (migration 000066), which is why
+ * `financingTypeFromIntake` is gone: nothing reads the questionnaire key back
+ * out at request time any more, so renaming `cashOrLoan` can no longer
+ * silently re-gate every existing cash buyer.
+ */
+describe("normalizeFinancingType (#451)", () => {
+  it("passes the two values the column is constrained to", () => {
+    expect(normalizeFinancingType("cash")).toBe("cash");
+    expect(normalizeFinancingType("loan")).toBe("loan");
   });
 
-  it("is null for a deal with no intake yet", () => {
-    expect(financingTypeFromIntake(null)).toBeNull();
-    expect(financingTypeFromIntake(undefined)).toBeNull();
-  });
-
-  it("guards every level of the free-form JSON", () => {
-    expect(financingTypeFromIntake("cash")).toBeNull();
-    expect(financingTypeFromIntake(42)).toBeNull();
-    expect(financingTypeFromIntake([{ role: "buyer", answers: { cashOrLoan: "cash" } }])).toBeNull();
-    expect(financingTypeFromIntake({ answers: { cashOrLoan: "cash" } })).toBeNull(); // no role
-    expect(financingTypeFromIntake({ role: "agent", answers: { cashOrLoan: "cash" } })).toBeNull();
-    expect(financingTypeFromIntake({ role: "buyer" })).toBeNull(); // no answers
-    expect(financingTypeFromIntake({ role: "buyer", answers: "cash" })).toBeNull();
-    expect(financingTypeFromIntake({ role: "buyer", answers: ["cash"] })).toBeNull();
-  });
-
-  it("is null for a seller intake", () => {
-    expect(
-      financingTypeFromIntake({ role: "seller", answers: { cashOrLoan: "cash" } })
-    ).toBeNull();
+  // Case 6 — the #409 fail-closed guard, moved onto the column. Only an
+  // explicit 'cash' lifts the pre-approval offer gate; anything else keeps it.
+  it("fails closed on anything else", () => {
+    for (const v of [null, undefined, "", "CASH", "cash ", "financed", 0, 1, true, ["cash"], { financing_type: "cash" }]) {
+      expect(normalizeFinancingType(v)).toBeNull();
+    }
   });
 });
 
-describe("withFinancingType (#409)", () => {
-  it("swaps the raw intake JSON for the derived flag", () => {
-    const row = { id: "d1", title: "Betty Buyer", intake: buyerIntake({ cashOrLoan: "cash" }) };
-    expect(withFinancingType(row)).toEqual({
+describe("withFinancingType (#451)", () => {
+  it("normalizes the column onto the payload", () => {
+    expect(withFinancingType({ id: "d1", title: "Betty Buyer", financing_type: "cash" })).toEqual({
       id: "d1",
       title: "Betty Buyer",
       financing_type: "cash",
     });
   });
 
-  it("never leaks the questionnaire answers into an API payload", () => {
-    const row = {
-      id: "d1",
-      intake: buyerIntake({ cashOrLoan: "loan", minBudget: 250000, areas: "Hoover" }),
-    };
-    const out = withFinancingType(row);
-    expect(out).not.toHaveProperty("intake");
-    expect(JSON.stringify(out)).not.toContain("minBudget");
-  });
-
-  it("reports null financing for a deal whose client hasn't onboarded", () => {
-    expect(withFinancingType({ id: "d1", intake: null })).toEqual({
+  it("keeps a deal whose buyer never answered at null", () => {
+    expect(withFinancingType({ id: "d1", financing_type: null })).toEqual({
       id: "d1",
       financing_type: null,
     });
+  });
+
+  it("fails closed if the column somehow holds something else", () => {
+    // The CHECK constraint makes this unreachable through the app, but the
+    // mapper is the last line before the offer gate — it must not pass through
+    // a value it doesn't recognize.
+    expect(withFinancingType({ id: "d1", financing_type: "CASH" }).financing_type).toBeNull();
+  });
+
+  /**
+   * Case 2 — the failure mode #409 shipped with, made impossible.
+   *
+   * The old mapper took `{ intake?: unknown }`: a deal SELECT that forgot the
+   * column compiled fine and quietly produced `financing_type: null`, silently
+   * putting the pre-approval gate back in front of every cash buyer. The
+   * property is required now (a row without it is a TYPE error — see the
+   * @ts-expect-error below), and a missing key throws rather than deriving a
+   * null nobody would notice.
+   */
+  it("throws instead of silently reporting null when the SELECT forgot the column", () => {
+    // @ts-expect-error — a row without `financing_type` must not typecheck.
+    expect(() => withFinancingType({ id: "d1", title: "Betty Buyer" })).toThrow(
+      /financing_type/
+    );
+  });
+
+  it("never carries the questionnaire answers — they aren't in the row at all", () => {
+    const out = withFinancingType({ id: "d1", financing_type: "loan" });
+    expect(out).not.toHaveProperty("intake");
   });
 });
 

@@ -84,10 +84,10 @@ END
 }
 
 /**
- * A raw deal SELECT before `withFinancingType` runs over it: it still carries
- * the `deals.intake` JSON the derivation reads. Never returned to a client.
+ * A raw deal SELECT before `withFinancingType` runs over it: `financing_type`
+ * is still the unnarrowed column value straight out of Postgres (#451).
  */
-type DealRowWithIntake = Omit<DealRow, "financing_type"> & { intake: unknown };
+type RawDealRow = Omit<DealRow, "financing_type"> & { financing_type: unknown };
 
 export type DealRow = {
   id: string;
@@ -115,10 +115,13 @@ export type DealRow = {
   /** Agent-set "Buyer's Progress" step shown on the seller portal (#184). */
   buyer_status: string | null;
   /**
-   * How the buyer said they're paying, derived from the onboarding intake
-   * (#409) — `cash` | `loan`, or null when they haven't onboarded / it's a
-   * sell deal. Derived, not stored: see `financingTypeFromIntake` in
-   * lib/intake.ts.
+   * How the buyer is paying — `cash` | `loan`, or null when they haven't
+   * answered, it's a sell deal, or the agent cleared it.
+   *
+   * A real column since #451 (`deals.financing_type`, migration 000066),
+   * written from the onboarding answer by `applyIntakeToDeal` and correctable
+   * by the deal's agent through PATCH /api/deals/[id]/flags. #409 derived it
+   * from the `deals.intake` JSON on every read; nothing does that any more.
    */
   financing_type: "cash" | "loan" | null;
   /**
@@ -201,7 +204,7 @@ export async function listDealsForUser(
     ? Prisma.sql`WHERE ${Prisma.join(conds, " AND ")}`
     : Prisma.sql``;
 
-  const rows = await prisma.$queryRaw<(DealRowWithIntake & {
+  const rows = await prisma.$queryRaw<(RawDealRow & {
     agent_name: string;
     agent_email: string;
     agent_phone: string | null;
@@ -215,7 +218,7 @@ export async function listDealsForUser(
            deals.fee_status, deals.fee_amount_cents, deals.fee_paid_at,
            deals.fast_pass, deals.smooth_exit,
            deals.pre_approved, deals.baa_signed, deals.disclosures_complete, deals.buyer_status,
-           deals.intake, -- #409: derived into financing_type, then stripped
+           deals.financing_type, -- #451: a real column; never SELECT deals.intake here
            deals.closing_date::text AS closing_date,
            deals.commission_pct::text AS commission_pct,
            deals.created_at, deals.updated_at,
@@ -242,14 +245,14 @@ export async function getDealForAgent(
   agentId: string
 ): Promise<DealRow | null> {
   const thresholds = await getStageThresholds();
-  const rows = await prisma.$queryRaw<DealRowWithIntake[]>`
+  const rows = await prisma.$queryRaw<RawDealRow[]>`
     SELECT id, agent_id, type::text AS type, stage::text AS stage,
            ${healthExpr(thresholds)} AS health, status,
            title, address, price::text AS price, arive_linked,
            arive_loan_id, arive_milestones, arive_key_dates, arive_loan_status, arive_synced_at,
            notes, fee_status, fee_amount_cents, fee_paid_at,
            fast_pass, smooth_exit, pre_approved, baa_signed, disclosures_complete,
-           buyer_status, intake, closing_date::text AS closing_date,
+           buyer_status, financing_type, closing_date::text AS closing_date,
            commission_pct::text AS commission_pct,
            created_at, updated_at,
            ${stageEnteredAtExpr} AS stage_entered_at
@@ -266,14 +269,14 @@ export async function getDealForAgent(
  */
 export async function getDealById(dealId: string): Promise<DealRow | null> {
   const thresholds = await getStageThresholds();
-  const rows = await prisma.$queryRaw<DealRowWithIntake[]>`
+  const rows = await prisma.$queryRaw<RawDealRow[]>`
     SELECT id, agent_id, type::text AS type, stage::text AS stage,
            ${healthExpr(thresholds)} AS health, status,
            title, address, price::text AS price, arive_linked,
            arive_loan_id, arive_milestones, arive_key_dates, arive_loan_status, arive_synced_at,
            notes, fee_status, fee_amount_cents, fee_paid_at,
            fast_pass, smooth_exit, pre_approved, baa_signed, disclosures_complete,
-           buyer_status, intake, closing_date::text AS closing_date,
+           buyer_status, financing_type, closing_date::text AS closing_date,
            commission_pct::text AS commission_pct,
            created_at, updated_at,
            ${stageEnteredAtExpr} AS stage_entered_at

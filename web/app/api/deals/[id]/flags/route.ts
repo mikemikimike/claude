@@ -1,12 +1,20 @@
 import { error, json, withAuth } from "@/lib/http";
 import { prisma } from "@/lib/db";
 import { resolveUserId } from "@/lib/users";
+import { hasRole } from "@/lib/roles";
+import { normalizeFinancingType, type FinancingType } from "@/lib/intake";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 type FlagsBody = {
   pre_approved?: boolean;
   baa_signed?: boolean;
+  /**
+   * The agent's financing-type correction (#451): `'cash' | 'loan'`, or an
+   * explicit `null` to clear it back to "unknown". Omit the key to leave the
+   * column alone — `null` and "absent" mean different things here.
+   */
+  financing_type?: unknown;
 };
 
 export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
@@ -22,17 +30,43 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
     } catch {
       return error("invalid request body", 400);
     }
+    // `null` and `[1,2]` are valid JSON but not a flags object — reading a
+    // property off them would be a 500 where a 400 is the honest answer.
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return error("invalid request body", 400);
+    }
 
-    const data: { pre_approved?: boolean; baa_signed?: boolean; updated_at: Date } = {
-      updated_at: new Date(),
-    };
+    const data: {
+      pre_approved?: boolean;
+      baa_signed?: boolean;
+      financing_type?: FinancingType | null;
+      updated_at: Date;
+    } = { updated_at: new Date() };
     if (typeof body.pre_approved === "boolean") data.pre_approved = body.pre_approved;
     if (typeof body.baa_signed === "boolean") data.baa_signed = body.baa_signed;
 
-    const result = await prisma.deals.updateMany({
-      where: { id: dealId, agent_id: userId },
-      data,
-    });
+    // #451 — the agent's undo for a buyer who mis-clicked "cash" in onboarding.
+    // Validated strictly rather than normalized-to-null: a typo must be a 400
+    // the agent can see, not a silent clear that quietly re-gates the buyer.
+    if ("financing_type" in body) {
+      if (body.financing_type === null) {
+        data.financing_type = null;
+      } else {
+        const financing = normalizeFinancingType(body.financing_type);
+        if (!financing) return error("financing_type must be 'cash', 'loan', or null", 400);
+        data.financing_type = financing;
+      }
+    }
+
+    // Scoping (CLAUDE.md: server-side is the boundary). An agent may correct
+    // their OWN deals; an admin any deal. Everyone else — the buyer whose
+    // answer this is, a TC, another agent — matches no row and gets a 404,
+    // which is also what keeps a buyer from unlocking their own offer CTA.
+    const where = hasRole(claims.roles, ["admin"])
+      ? { id: dealId }
+      : { id: dealId, agent_id: userId };
+
+    const result = await prisma.deals.updateMany({ where, data });
     if (result.count === 0) return error("deal not found", 404);
 
     return json({ ok: true });

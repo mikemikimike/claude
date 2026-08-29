@@ -263,9 +263,10 @@ export type Deal = {
    */
   intakeSubmitted?: boolean;
   /**
-   * How the buyer said they're paying in onboarding (#409). Derived
-   * server-side from `deals.intake`; undefined when they haven't onboarded,
-   * on sell deals, and on payloads that don't carry it.
+   * How the buyer is paying (#409). A real column since #451
+   * (`deals.financing_type`), written from the onboarding answer and
+   * correctable by the deal's agent; undefined when they haven't answered, on
+   * sell deals, and on payloads that don't carry it.
    *
    * `'cash'` is what lets the buyer portal drop the pre-approval offer gate —
    * a cash buyer has no lender and can never satisfy it. Undefined must keep

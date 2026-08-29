@@ -86,34 +86,42 @@ export function financingTypeFromAnswers(
 }
 
 /**
- * The same derivation, straight off a `deals.intake` JSONB value as read back
- * out of Postgres (#409).
+ * Narrows a `deals.financing_type` column value (#451).
  *
- * `deals.intake` is free-form, client-written JSON, so every level is guarded
- * and anything unrecognized derives to `null`. That default direction is
- * load-bearing: `null` keeps the existing pre-approval gate, while a wrong
- * "cash" would unlock the offer CTA for a financed buyer who has no letter.
+ * The column has a CHECK constraint, so in practice this only ever sees
+ * `'cash'`, `'loan'` or `null` — but it is the last thing between the database
+ * and the pre-approval offer gate, so it fails closed on anything else. That
+ * default direction is load-bearing: `null` keeps the existing gate, while a
+ * wrong "cash" would unlock the offer CTA for a financed buyer with no letter.
  */
-export function financingTypeFromIntake(intake: unknown): FinancingType | null {
-  if (typeof intake !== "object" || intake === null || Array.isArray(intake)) return null;
-  const { role, answers } = intake as { role?: unknown; answers?: unknown };
-  if (!isIntakeRole(role)) return null;
-  if (typeof answers !== "object" || answers === null || Array.isArray(answers)) return null;
-  return financingTypeFromAnswers(role, answers as Record<string, unknown>);
+export function normalizeFinancingType(value: unknown): FinancingType | null {
+  return value === "cash" || value === "loan" ? value : null;
 }
 
 /**
- * Row mapper for the deal API payloads: swaps the raw `intake` JSON a query
- * SELECTed for the derivation with the derived `financing_type` alone.
+ * Row mapper for the deal API payloads: normalizes the `deals.financing_type`
+ * column onto the response (#451).
  *
- * Dropping `intake` is deliberate — the questionnaire answers are served by
- * GET /api/deals/[id]/intake and must not ride along in every deal list.
+ * The property is REQUIRED on the input row, on purpose. #409's version took
+ * `{ intake?: unknown }` and derived the value from the questionnaire JSON, so
+ * a deal SELECT that forgot to include the source column still compiled and
+ * quietly produced `financing_type: null` — silently putting the pre-approval
+ * gate back in front of every cash buyer. Now such a SELECT is a type error,
+ * and if one slips past the types anyway (raw SQL is unchecked) the missing key
+ * throws instead of failing silently. Postgres gives `null` for a NULL column
+ * and omits the key entirely only when the column was never selected, so the
+ * two are cleanly distinguishable.
  */
-export function withFinancingType<T extends { intake?: unknown }>(
+export function withFinancingType<T extends { financing_type: unknown }>(
   row: T
-): Omit<T, "intake"> & { financing_type: FinancingType | null } {
-  const { intake, ...rest } = row;
-  return { ...rest, financing_type: financingTypeFromIntake(intake) };
+): Omit<T, "financing_type"> & { financing_type: FinancingType | null } {
+  const { financing_type, ...rest } = row;
+  if (financing_type === undefined) {
+    throw new Error(
+      "withFinancingType: row is missing financing_type — the SELECT must include deals.financing_type"
+    );
+  }
+  return { ...rest, financing_type: normalizeFinancingType(financing_type) };
 }
 
 /** Which lender the buyer picked in onboarding (#434). */
@@ -224,6 +232,13 @@ export async function applyIntakeToDeal(opts: {
     answers: opts.answers,
   };
   const address = sellerAddressFromAnswers(opts.role, opts.answers);
+  // #451 — the buyer's cash/loan answer is promoted to a real column here, the
+  // same way the seller's address is. Only a recognized answer is written: a
+  // questionnaire that doesn't answer it (or answers it with something that
+  // isn't literally 'cash'/'loan') leaves the column exactly as it was, so a
+  // re-submitted onboarding can neither invent a financing type nor wipe the
+  // agent's correction.
+  const financingType = financingTypeFromAnswers(opts.role, opts.answers);
   const deal = await prisma.deals.findUnique({
     where: { id: opts.dealId },
     select: { address: true, stage: true, type: true, title: true },
@@ -241,6 +256,7 @@ export async function applyIntakeToDeal(opts: {
         // are guaranteed JSON-serializable by parseIntakeAnswers.
         intake: intake as object,
         ...(address && !deal?.address?.trim() ? { address } : {}),
+        ...(financingType ? { financing_type: financingType } : {}),
         updated_at: new Date(),
       },
     });

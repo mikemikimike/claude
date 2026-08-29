@@ -1316,6 +1316,161 @@ describe("PATCH /api/deals/[id]/flags", () => {
   });
 });
 
+/**
+ * Issue #451 — the agent override on `deals.financing_type`.
+ *
+ * A buyer who mis-clicks "💰 Cash purchase" in onboarding permanently unlocks
+ * their own offer CTA (#409), and before this the only undo was hand-editing
+ * JSON in the database. The correction rides on the flags route, which is
+ * already the deal's agent-owner-scoped write path.
+ *
+ * Scoping is the security-relevant half: an agent may correct their OWN deals,
+ * an admin any deal, and a buyer — the person whose answer this is — never.
+ */
+describe("PATCH /api/deals/[id]/flags — financing type override (#451)", () => {
+  async function patchFlags(dealId: string, token: string, body: unknown) {
+    const req = new Request(`http://localhost/api/deals/${dealId}/flags`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", authorization: token },
+      body: JSON.stringify(body),
+    });
+    return flagsRoute(req, ctx(dealId));
+  }
+
+  async function financingType(dealId: string) {
+    const row = await prisma.deals.findUnique({
+      where: { id: dealId },
+      select: { financing_type: true },
+    });
+    return row?.financing_type ?? null;
+  }
+
+  async function seedCashDeal() {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|own-agent" });
+    const deal = await createDeal({ agent_id: agent.id, stage: "active_search" });
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: { financing_type: "cash" },
+    });
+    return { agent, deal };
+  }
+
+  // Case 4 — fails against the pre-#451 route: it only read pre_approved /
+  // baa_signed, so the correction was a silent no-op.
+  it("the owning agent corrects cash → loan, and the buyer's gate re-engages", async () => {
+    const { deal } = await seedCashDeal();
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|gated-buyer" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+
+    const res = await patchFlags(deal.id, await authHeader("auth0|own-agent", ["agent"]), {
+      financing_type: "loan",
+    });
+    expect(res.status).toBe(200);
+    expect(await financingType(deal.id)).toBe("loan");
+
+    // The portal the buyer actually reads now reports a financed buyer, so
+    // `preApproved || cash` is back to needing the pre-approval.
+    const portal = await myDealsRoute(
+      new Request("http://localhost/api/me/deals", {
+        headers: { authorization: await authHeader("auth0|gated-buyer", ["buyer"]) },
+      })
+    );
+    const rows = (await portal.json()) as { id: string; financing_type: string | null }[];
+    expect(rows.find((r) => r.id === deal.id)?.financing_type).toBe("loan");
+  });
+
+  it("an explicit null clears it back to unknown — which re-gates, not unlocks", async () => {
+    const { deal } = await seedCashDeal();
+    const res = await patchFlags(deal.id, await authHeader("auth0|own-agent", ["agent"]), {
+      financing_type: null,
+    });
+    expect(res.status).toBe(200);
+    expect(await financingType(deal.id)).toBeNull();
+  });
+
+  it("rejects anything that is not cash / loan / null and changes nothing", async () => {
+    const { deal } = await seedCashDeal();
+    const token = await authHeader("auth0|own-agent", ["agent"]);
+    for (const bogus of ["CASH", "financed", "", 1, true, ["cash"], { v: "cash" }]) {
+      const res = await patchFlags(deal.id, token, { financing_type: bogus });
+      expect(res.status).toBe(400);
+    }
+    expect(await financingType(deal.id)).toBe("cash");
+  });
+
+  // Case 5 — the buyer whose answer this is cannot rewrite it. Client-side
+  // gating is UX only; this is the server-side boundary.
+  it("a buyer on the deal cannot set their own financing type", async () => {
+    const { deal } = await seedCashDeal();
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|self-serve-buyer" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+
+    const res = await patchFlags(deal.id, await authHeader("auth0|self-serve-buyer", ["buyer"]), {
+      financing_type: "cash",
+    });
+    expect(res.status).toBe(404);
+    expect(await financingType(deal.id)).toBe("cash");
+
+    // …and they cannot unlock a financed deal either — the direction that
+    // actually matters.
+    await prisma.deals.update({ where: { id: deal.id }, data: { financing_type: "loan" } });
+    const res2 = await patchFlags(deal.id, await authHeader("auth0|self-serve-buyer", ["buyer"]), {
+      financing_type: "cash",
+    });
+    expect(res2.status).toBe(404);
+    expect(await financingType(deal.id)).toBe("loan");
+  });
+
+  it("another agent cannot touch a deal they don't own", async () => {
+    const { deal } = await seedCashDeal();
+    await createUser({ role: "agent", auth0_id: "auth0|other-agent" });
+
+    const res = await patchFlags(deal.id, await authHeader("auth0|other-agent", ["agent"]), {
+      financing_type: "loan",
+    });
+    expect(res.status).toBe(404);
+    expect(await financingType(deal.id)).toBe("cash");
+  });
+
+  it("an admin can correct any deal", async () => {
+    const { deal } = await seedCashDeal();
+    await createUser({ role: "admin", auth0_id: "auth0|the-admin" });
+
+    const res = await patchFlags(deal.id, await authHeader("auth0|the-admin", ["admin"]), {
+      financing_type: "loan",
+    });
+    expect(res.status).toBe(200);
+    expect(await financingType(deal.id)).toBe("loan");
+  });
+
+  it("400s on a body that is valid JSON but not an object", async () => {
+    const { deal } = await seedCashDeal();
+    const token = await authHeader("auth0|own-agent", ["agent"]);
+    for (const body of ["null", "[1,2]", '"cash"', "not json at all"]) {
+      const req = new Request(`http://localhost/api/deals/${deal.id}/flags`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", authorization: token },
+        body,
+      });
+      expect((await flagsRoute(req, ctx(deal.id))).status).toBe(400);
+    }
+    expect(await financingType(deal.id)).toBe("cash");
+  });
+
+  it("leaves the column alone when the body doesn't mention it", async () => {
+    const { deal } = await seedCashDeal();
+    const res = await patchFlags(deal.id, await authHeader("auth0|own-agent", ["agent"]), {
+      pre_approved: true,
+    });
+    expect(res.status).toBe(200);
+    expect(await financingType(deal.id)).toBe("cash");
+  });
+});
+
 describe("PATCH /api/deals/[id] — edit + soft-archive (#254)", () => {
   async function patchDeal(dealId: string, token: string, body: unknown) {
     const req = new Request(`http://localhost/api/deals/${dealId}`, {

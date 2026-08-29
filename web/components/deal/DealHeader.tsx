@@ -15,7 +15,15 @@ export function DealHeader({
   onSave,
 }: {
   deal: Deal;
-  onFlagChange?: (flags: { preApproved?: boolean }) => void;
+  /**
+   * Agent-side deal flags. `financingType` (#451) accepts an explicit `null`
+   * to clear a mis-clicked answer back to "unknown" — which re-engages the
+   * pre-approval gate, the safe direction.
+   */
+  onFlagChange?: (flags: {
+    preApproved?: boolean;
+    financingType?: 'cash' | 'loan' | null;
+  }) => void;
   /** Owning agent only — shows the Edit / Archive affordances (#254). */
   canEdit?: boolean;
   /** PATCH /api/deals/[id] with the given fields. */
@@ -73,12 +81,35 @@ export function DealHeader({
             )}
             {/* #409 — the buyer's own onboarding answer. Without this the
                 agent has no way to know why the pre-approval pill next to it
-                doesn't gate this buyer's offers. */}
-            {deal.type === 'buy' && deal.financingType === 'cash' && (
+                doesn't gate this buyer's offers.
+                #451 — and it is CORRECTABLE now: a buyer who mis-clicked
+                "💰 Cash purchase" unlocked their own offer CTA permanently,
+                and the only undo used to be editing JSON in the database.
+                Read-only badge for anyone who can't write the deal's flags. */}
+            {deal.type === 'buy' && (onFlagChange ? (
+              <label className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-bold text-gray-600 focus-within:border-brand-navy">
+                <Banknote size={12} className={deal.financingType === 'cash' ? 'text-green-600' : 'text-gray-400'} />
+                <select
+                  aria-label="Financing"
+                  value={deal.financingType ?? ''}
+                  onChange={(e) =>
+                    onFlagChange({
+                      financingType:
+                        e.target.value === '' ? null : (e.target.value as 'cash' | 'loan'),
+                    })
+                  }
+                  className="cursor-pointer bg-transparent text-xs font-bold outline-none"
+                >
+                  <option value="">Financing?</option>
+                  <option value="cash">Cash Buyer</option>
+                  <option value="loan">Financed</option>
+                </select>
+              </label>
+            ) : deal.financingType === 'cash' && (
               <span className="flex items-center gap-1.5 rounded-full border border-green-200 bg-green-100 px-3 py-1 text-xs font-bold text-green-700">
                 <Banknote size={12} /> Cash Buyer
               </span>
-            )}
+            ))}
             {deal.type === 'buy' && (
               <button
                 onClick={() => onFlagChange?.({ preApproved: !preApproved })}
