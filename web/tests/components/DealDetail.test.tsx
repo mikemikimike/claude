@@ -828,6 +828,89 @@ describe("FastPassCard — what the client bought (#426)", () => {
     expect(api.patch).not.toHaveBeenCalled();
     expect(api.delete).not.toHaveBeenCalled();
   });
+
+  // ── #464 (FF24): the price the client actually agreed to, per line ─────────
+  //
+  // #430 repriced deep_clean $197 → $425 the same day #426 shipped this card,
+  // so an add-on bought last week renders at today's number next to a total
+  // that still reflects last week's. The enrolment now stores the price it was
+  // sold at; the card must render THAT, and must say so plainly when an older
+  // enrolment has none.
+  //
+  // The historical price is a literal because it can only be a literal — it is
+  // what the catalog said before the reprice, and the catalog no longer knows
+  // it. Every CURRENT price below still comes from the catalog import.
+  const AGREED_DEEP_CLEAN_CENTS = 19700; // deep_clean, pre-#430
+
+  it("renders the price stored at enrolment, not today's catalog price (#464)", () => {
+    render(
+      <FastPassCard
+        deal={enrolledDeal({
+          upsellPrices: {
+            deep_clean: AGREED_DEEP_CLEAN_CENTS,
+            utility_setup: utilitySetup.price * 100,
+          },
+        })}
+      />
+    );
+
+    expect(
+      screen.getByText(`$${(AGREED_DEEP_CLEAN_CENTS / 100).toLocaleString()}`)
+    ).toBeInTheDocument();
+    // The catalog has moved since; today's number must not be on the card.
+    expect(
+      screen.queryByText(`$${deepClean.price.toLocaleString()}`)
+    ).not.toBeInTheDocument();
+    // And nothing hedges a figure we actually hold.
+    expect(screen.queryAllByTestId("fp-unpriced-line")).toHaveLength(0);
+  });
+
+  it("a legacy enrolment marks its lines as today's list price, never as agreed (#464)", () => {
+    // No `upsellPrices` — an enrolment persisted before this change.
+    render(<FastPassCard deal={enrolledDeal()} />);
+
+    // It still renders, and still lists what they bought.
+    expect(screen.getByText(deepClean.name)).toBeInTheDocument();
+    expect(screen.getByText(utilitySetup.name)).toBeInTheDocument();
+    // Both lines are explicitly flagged as a current estimate…
+    expect(screen.getAllByTestId("fp-unpriced-line")).toHaveLength(2);
+    expect(screen.getAllByTestId("fp-unpriced-line")[0]).toHaveTextContent(
+      /today's list/i
+    );
+    // …and the one figure presented as agreed is the stored total.
+    expect(screen.getByText(/agreed total is \$2,740/i)).toBeInTheDocument();
+  });
+
+  it("flags only the lines whose price is missing (#464)", () => {
+    render(
+      <FastPassCard
+        deal={enrolledDeal({ upsellPrices: { deep_clean: AGREED_DEEP_CLEAN_CENTS } })}
+      />
+    );
+
+    // deep_clean is priced from the enrolment; utility_setup falls back.
+    expect(screen.getAllByTestId("fp-unpriced-line")).toHaveLength(1);
+    expect(
+      screen.getByText(`$${(AGREED_DEEP_CLEAN_CENTS / 100).toLocaleString()}`)
+    ).toBeInTheDocument();
+  });
+
+  it("never renders the Stripe checkout session id, stored prices or not (#426 guard)", () => {
+    // The adapter drops this field (tests/unit/deal-adapter.test.ts holds that
+    // guard — this file mocks @/hooks/useDeals, so the real adapter can't run
+    // here). This is the second half: even handed one, the card renders nothing
+    // that could put Stripe plumbing on an agent's screen.
+    const deal = enrolledDeal({
+      upsellPrices: { deep_clean: AGREED_DEEP_CLEAN_CENTS },
+      ...({ checkoutSessionId: "cs_test_should_not_leak" } as unknown as Partial<
+        NonNullable<Deal["fastPass"]>
+      >),
+    });
+
+    const { container } = render(<FastPassCard deal={deal} />);
+    expect(container.innerHTML).not.toContain("cs_test_should_not_leak");
+    expect(container.innerHTML).not.toMatch(/checkout[_-]?session/i);
+  });
 });
 
 describe("SmoothExitCard — what the seller bought (#426)", () => {

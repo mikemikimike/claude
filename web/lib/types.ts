@@ -51,6 +51,23 @@ export type FastPassEnrollment = {
    */
   paymentOption: FastPassPaymentOption | null;
   selectedUpsells: FastPassUpsellId[];
+  /**
+   * The base fee this enrollment was priced from, in CENTS (#464). Absent on
+   * anything enrolled before #464 — see `upsellPrices`.
+   */
+  basePriceCents?: number;
+  /**
+   * What each selected add-on actually cost at enrollment, in CENTS (#464),
+   * keyed by add-on id. Pre-discount and pre-premium, so
+   * `basePriceCents + Σ upsellPrices − discountCents`, times the at_closing
+   * premium where one applies, is `totalCents`.
+   *
+   * Absent — or missing a key — on enrollments that predate #464, and there is
+   * then NO agreed per-line figure to show. #430 repriced three add-ons, so
+   * today's catalog price is a current estimate, not what the client agreed to;
+   * `fastPassEnrolledUpsellsFor()` marks that case rather than papering over it.
+   */
+  upsellPrices?: Partial<Record<FastPassUpsellId, number>>;
   totalPaid: number;
   surveyAnswers?: FastPassSurveyAnswers;
   /**

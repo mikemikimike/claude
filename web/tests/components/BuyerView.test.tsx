@@ -416,6 +416,43 @@ describe("BuyerView — Fast Pass payment card (#440)", () => {
     renderView(<BuyerView />);
     expect(screen.queryByText(/payment needed/i)).toBeNull();
   });
+
+  // ── #464 (FF24): itemise at the prices the buyer was actually sold ─────────
+  it("itemises the add-on at its stored price, not today's catalog price", () => {
+    // deep_clean was $197 before #430 repriced it to $425. An enrollment from
+    // before that reprice carries 19700 and must keep showing $197 — the total
+    // it is sitting next to was computed from exactly that number.
+    const AGREED_DEEP_CLEAN_CENTS = 19700;
+    useDeal(
+      dealWithFastPass({
+        ...PENDING_FAST_PASS,
+        selectedUpsells: ["deep_clean"],
+        basePriceCents: 178700,
+        upsellPrices: { deep_clean: AGREED_DEEP_CLEAN_CENTS },
+        totalCents: 178700 + AGREED_DEEP_CLEAN_CENTS,
+        totalPaid: 1984,
+      })
+    );
+    renderView(<BuyerView />);
+
+    expect(screen.getByText("$197")).toBeTruthy();
+    expect(screen.queryByText("$425")).toBeNull();
+    // Nothing is hedged when every line has a recorded price.
+    expect(screen.queryAllByTestId("fp-unpriced-line")).toHaveLength(0);
+    // The itemisation adds up to the total the server will charge.
+    expect(screen.getAllByText("$1,984").length).toBeGreaterThan(0);
+  });
+
+  it("labels a legacy enrollment's lines instead of passing today's price off as agreed", () => {
+    // PENDING_FAST_PASS carries no per-line prices — enrolled before #464.
+    useDeal(dealWithFastPass(PENDING_FAST_PASS));
+    renderView(<BuyerView />);
+
+    expect(screen.getAllByTestId("fp-unpriced-line")).toHaveLength(1);
+    expect(screen.getByText(/what you agreed to and what you'll be charged/i)).toBeTruthy();
+    // The authoritative total is unchanged by any of this.
+    expect(screen.getAllByText(NOW_DISPLAY).length).toBeGreaterThan(0);
+  });
 });
 
 /**

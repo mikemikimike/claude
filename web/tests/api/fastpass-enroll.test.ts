@@ -2376,3 +2376,208 @@ describe("POST /api/deals/[id]/fastpass — customer_email prefill (#413)", () =
     expect(calls[0].customer_email).not.toBe("attacker@evil.test");
   });
 });
+
+// ─── #464 (FF24): the price each add-on was actually sold at ──────────────────
+//
+// #426 gave the agent a card listing what the client bought, resolved through
+// the CURRENT catalog. #430 then repriced three add-ons, so a deep clean bought
+// at $197 renders at $425 next to a total that still says $197. The stored
+// `total_cents` was never wrong — the per-line breakdown was.
+//
+// The fix is additive JSONB: `base_price_cents` plus an `upsell_prices` map
+// keyed by add-on id, written from the same catalog read that priced the
+// charge. `selected_upsells` keeps its shape (a bare id list) because several
+// other readers depend on it — see the PR body.
+//
+// Nothing here may weaken the guarantee that `total_cents` is authoritative, so
+// every case reconciles the per-line figures back to it.
+describe("POST /api/deals/[id]/fastpass — per-add-on prices are stored at enrolment (#464)", () => {
+  async function enroll(
+    dealId: string,
+    auth0Sub: string,
+    roles: string[],
+    body: Record<string, unknown>
+  ): Promise<Response> {
+    const r = new Request(`http://localhost/api/deals/${dealId}/fastpass`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(auth0Sub, roles),
+      },
+      body: JSON.stringify(body),
+    });
+    return fastPassRoute(r, ctx(dealId));
+  }
+
+  async function readPricing(dealId: string) {
+    const rows = await prisma.$queryRaw<
+      {
+        total_cents: string | null;
+        base_price_cents: string | null;
+        discount_cents: string | null;
+        payment_option: string | null;
+        upsell_prices: unknown;
+        selected_upsells: unknown;
+      }[]
+    >`
+      SELECT fast_pass->>'total_cents'      AS total_cents,
+             fast_pass->>'base_price_cents' AS base_price_cents,
+             fast_pass->>'discount_cents'   AS discount_cents,
+             fast_pass->>'payment_option'   AS payment_option,
+             fast_pass->'upsell_prices'     AS upsell_prices,
+             fast_pass->'selected_upsells'  AS selected_upsells
+      FROM deals WHERE id = ${dealId}::uuid
+    `;
+    return rows[0];
+  }
+
+  /** Sum of the per-line figures the enrolment stored, in cents. */
+  function lineTotal(row: { base_price_cents: string | null; upsell_prices: unknown }): number {
+    const prices = (row.upsell_prices ?? {}) as Record<string, number>;
+    return (
+      Number(row.base_price_cents) +
+      Object.values(prices).reduce((sum, cents) => sum + cents, 0)
+    );
+  }
+
+  it("stores the price used for EVERY selected add-on, plus the base fee", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id, title: "1 Ledger Ln" });
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      // Duplicated on purpose — the stored map must not double-count.
+      selected_upsells: ["utility_setup", "deep_clean", "deep_clean"],
+    });
+    expect(res.status).toBe(200);
+
+    const row = await readPricing(deal.id);
+    expect(row.base_price_cents).toBe(String(FAST_PASS_BASE_PRICE_CENTS));
+    // Derived from the catalog, never typed here — a reprice must not need a
+    // test edit; only a NEW enrolment picks the new number up.
+    expect(row.upsell_prices).toEqual({
+      utility_setup: FAST_PASS_UPSELL_PRICE_CENTS.utility_setup,
+      deep_clean: FAST_PASS_UPSELL_PRICE_CENTS.deep_clean,
+    });
+    // Every id that was stored has a price stored with it — no half-priced card.
+    for (const id of row.selected_upsells as string[]) {
+      expect((row.upsell_prices as Record<string, number>)[id]).toBeGreaterThan(0);
+    }
+  });
+
+  it("the stored per-line prices reconcile to the stored total_cents (no option)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    expect(
+      (
+        await enroll(deal.id, "auth0|a", ["agent"], {
+          selected_upsells: ["utility_setup", "staging_consult"],
+        })
+      ).status
+    ).toBe(200);
+
+    const row = await readPricing(deal.id);
+    expect(lineTotal(row)).toBe(Number(row.total_cents));
+  });
+
+  it("reconciles through the at_closing premium — lines are the pre-premium basket", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    expect(
+      (
+        await enroll(deal.id, "auth0|a", ["agent"], {
+          payment_option: "at_closing",
+          selected_upsells: ["utility_setup", "staging_consult"],
+        })
+      ).status
+    ).toBe(200);
+
+    const row = await readPricing(deal.id);
+    // Literal 1.15 (not the catalog constant) so a wrong multiplier is caught.
+    expect(Math.round(lineTotal(row) * 1.15)).toBe(Number(row.total_cents));
+    // …and the lines themselves are NOT marked up: the premium is a property of
+    // the payment timing, not of any product.
+    expect(lineTotal(row)).toBe(EXPECTED_TOTAL);
+  });
+
+  it("reconciles through a promo discount — lines are the pre-discount basket", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    await prisma.promo_codes.create({
+      data: {
+        code: "FF24TEN",
+        discount_type: "pct",
+        discount_value: 10,
+        applies_to: ["fast_pass"],
+        max_uses: null,
+        uses_count: 0,
+      },
+    });
+
+    expect(
+      (
+        await enroll(deal.id, "auth0|a", ["agent"], {
+          selected_upsells: ["utility_setup", "staging_consult"],
+          promo_code: "FF24TEN",
+        })
+      ).status
+    ).toBe(200);
+
+    const row = await readPricing(deal.id);
+    expect(Number(row.discount_cents)).toBeGreaterThan(0);
+    expect(lineTotal(row) - Number(row.discount_cents)).toBe(Number(row.total_cents));
+  });
+
+  it("a base-only enrolment stores the base fee and an empty add-on map", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+
+    expect(
+      (await enroll(deal.id, "auth0|a", ["agent"], { selected_upsells: [] })).status
+    ).toBe(200);
+
+    const row = await readPricing(deal.id);
+    expect(row.upsell_prices).toEqual({});
+    expect(lineTotal(row)).toBe(Number(row.total_cents));
+  });
+
+  // ── Regression guard: what protects everyone who ALREADY enrolled ───────────
+  it("a legacy enrolment keeps its agreed total and gains no invented prices", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    // Priced before #430: deep_clean was $197, not today's $425.
+    const LEGACY_DEEP_CLEAN_CENTS = 19700;
+    const LEGACY_TOTAL = FAST_PASS_BASE_PRICE_CENTS + LEGACY_DEEP_CLEAN_CENTS;
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: {
+        fast_pass: {
+          status: "pending_payment",
+          payment_option: null,
+          selected_upsells: ["deep_clean"],
+          total_cents: LEGACY_TOTAL,
+          paid: false,
+          enrolled_at: "2026-08-20T00:00:00.000Z",
+        },
+      },
+    });
+
+    const r = new Request(`http://localhost/api/deals/${deal.id}/fastpass/pay`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader("auth0|a", ["agent"]),
+      },
+      body: JSON.stringify({ payment_option: "seller_concession" }),
+    });
+    expect((await fastPassPayRoute(r, ctx(deal.id))).status).toBe(200);
+
+    const row = await readPricing(deal.id);
+    // The agreed amount is untouched — settling an enrolment never reprices it.
+    expect(row.total_cents).toBe(String(LEGACY_TOTAL));
+    // And nothing back-fills today's catalog price as though it were agreed.
+    expect(row.upsell_prices).toBeNull();
+    expect(row.base_price_cents).toBeNull();
+  });
+});

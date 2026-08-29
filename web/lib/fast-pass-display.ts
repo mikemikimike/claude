@@ -172,6 +172,51 @@ export function fastPassUpsellsFor(ids: readonly string[]): FastPassUpsell[] {
   return FAST_PASS_UPSELLS.filter((u) => ids.includes(u.id));
 }
 
+/**
+ * An enrolled add-on plus the price the client actually agreed to (#464).
+ *
+ * `agreedPriceCents` is `null` for an enrollment persisted before #464 — that
+ * price was simply never recorded, and today's catalog figure is NOT a stand-in
+ * for it: #430 repriced three add-ons, so the two genuinely differ. A caller
+ * that renders `displayPriceCents` while `agreedPriceCents` is null MUST label
+ * it as a current price, or omit it.
+ *
+ * `displayPriceCents` is the one number to render: the agreed cents when we
+ * have them, today's catalog cents otherwise. Both come from cents, never from
+ * a hand-typed dollar figure.
+ */
+export type FastPassEnrolledUpsell = FastPassUpsell & {
+  agreedPriceCents: number | null;
+  displayPriceCents: number;
+};
+
+export function fastPassEnrolledUpsellsFor(
+  ids: readonly string[],
+  agreedPrices?: Readonly<Partial<Record<string, number>>> | null
+): FastPassEnrolledUpsell[] {
+  return fastPassUpsellsFor(ids).map((u) => {
+    const stored = agreedPrices?.[u.id];
+    const agreedPriceCents =
+      typeof stored === 'number' && Number.isFinite(stored) ? stored : null;
+    return {
+      ...u,
+      agreedPriceCents,
+      displayPriceCents: agreedPriceCents ?? FAST_PASS_UPSELL_PRICE_CENTS[u.id],
+    };
+  });
+}
+
+/**
+ * The base fee an enrollment was sold at, in CENTS (#464) — the stored figure
+ * when there is one, today's catalog base otherwise. The same honesty rule
+ * applies: a caller that falls back must say the number is current, not agreed.
+ */
+export function fastPassBaseCentsFor(storedCents?: number | null): number {
+  return typeof storedCents === 'number' && Number.isFinite(storedCents)
+    ? storedCents
+    : FAST_PASS_BASE_PRICE_CENTS;
+}
+
 export function calcFastPassTotal(upsells: FastPassUpsellId[]): number {
   const upsellTotal = FAST_PASS_UPSELLS
     .filter((u) => upsells.includes(u.id))

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { hasDealAccess } from "@/lib/deals";
 import { resolveUserId } from "@/lib/users";
 import {
+  FAST_PASS_BASE_PRICE_CENTS,
+  FAST_PASS_UPSELL_PRICE_CENTS,
   computeFastPassSubtotalCents,
   computeFastPassTotalCents,
   isFastPassUpsellId,
@@ -220,6 +222,26 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       payment_option: paymentOption,
       // Dedupe what we store so the JSONB matches what was actually charged.
       selected_upsells: validatedUpsells,
+      // #464 (FF24): snapshot the catalog figures this enrollment was priced
+      // from, so a later repricing can never restate what the client agreed to.
+      // #430 moved three add-ons ($197→$475, $197→$425, $247→$100) the same day
+      // the agent's card shipped, and the card resolved each id through the
+      // CURRENT catalog — so a deep clean bought at $197 rendered at $425 next
+      // to a total that still said $197.
+      //
+      // ADDITIVE, on purpose. `selected_upsells` keeps its bare-id shape
+      // because several readers index straight off it (this route's dedupe,
+      // /fastpass/pay's re-validation, the Stripe webhook's sibling-key merge,
+      // the admin dashboard, the buyer portal, the wire schema); a sibling map
+      // gives the card what it needs without touching any of them.
+      //
+      // These are the PRE-discount, PRE-premium line figures — exactly the
+      // basket computeFastPassSubtotalCents() just summed — so they reconcile:
+      //   total_cents = round((base + Σ upsell_prices − discount_cents) × premium?)
+      base_price_cents: FAST_PASS_BASE_PRICE_CENTS,
+      upsell_prices: Object.fromEntries(
+        validatedUpsells.map((key) => [key, FAST_PASS_UPSELL_PRICE_CENTS[key]])
+      ),
       total_cents: totalCents,
       // Record the redeemed code + discount for audit (only when one applied).
       ...(appliedPromo
