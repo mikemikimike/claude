@@ -26,17 +26,21 @@ const PROMO_PRODUCT = "fast_pass";
 class PromoExhaustedError extends Error {}
 
 /**
- * Undo the `payment_option: "now"` optimism after Checkout could not be
+ * Undo the `payment_option: "now"` choice after Checkout could not be
  * created (#453).
  *
  * The enrollment is persisted BEFORE Stripe is called, so a failed hand-off
- * would otherwise leave `status: 'active'` / `payment_option: 'now'` / unpaid —
- * a record that says the buyer is enrolled and settled when no money moved, and
- * which `/fastpass/pay` then refuses (it requires `pending_payment`), stranding
- * them with no way to pay. Demoting it to the #439 deferred shape puts it back
- * in exactly the state FF16 produces, so the dashboard pay card (#440) picks it
- * up and the buyer can retry. The stored `total_cents` is already the
- * un-premiumed figure a `pending_payment` enrollment carries, so it stays.
+ * would otherwise leave a record claiming the buyer chose to pay now when they
+ * were never shown a payment page. Clearing the option puts it back in exactly
+ * the #439 shape FF16 produces — `pending_payment` with no option — so the
+ * dashboard pay card (#440) offers the choice again and the buyer can retry.
+ * The stored `total_cents` is already the un-premiumed figure a
+ * `pending_payment` enrollment carries, so it stays.
+ *
+ * #463 note: `status` is now ALREADY `pending_payment` on this path (a pay-now
+ * enrollment is no longer optimistically activated), so this only has to clear
+ * the option — but it still writes the status explicitly, both as documentation
+ * and so the record is normalised even if it somehow arrived here otherwise.
  *
  * Guarded on the exact shape this request just wrote, so it can never touch a
  * concurrently-updated or already-settled enrollment. Best-effort: the caller
@@ -54,7 +58,7 @@ async function leaveEnrollmentPayable(dealId: string): Promise<void> {
           updated_at = NOW()
       WHERE id = ${dealId}::uuid
         AND fast_pass IS NOT NULL
-        AND fast_pass->>'status' = 'active'
+        AND fast_pass->>'status' = 'pending_payment'
         AND fast_pass->>'payment_option' = 'now'
         AND COALESCE((fast_pass->>'paid')::boolean, false) = false
     `;
@@ -81,6 +85,23 @@ async function leaveEnrollmentPayable(dealId: string): Promise<void> {
 // direct API callers, but "now" no longer swallows a Stripe failure (#453): it
 // 502s and leaves the enrollment `pending_payment` so /fastpass/pay can settle
 // it. Nothing in the UI posts an option to THIS route any more.
+//
+// #463 (FF23) brought the "now" branch the rest of the way onto /fastpass/pay's
+// contract. A SUCCESSFUL "now" now stays `pending_payment` and records the
+// Checkout session id; only Stripe's webhook may mark it paid and promote it to
+// `active`. Before, reaching Checkout was enough to persist `active`, so a
+// buyer who closed the tab left an `active`, unpaid enrollment — and with no
+// session id stored, the #282 double-session guard in /fastpass/pay could not
+// see a session this route had minted.
+//
+// RECOMMENDATION (out of scope for #463, deliberately not done here): the two
+// routes now agree on everything that matters, so this "now" branch is pure
+// duplication of /fastpass/pay and should eventually be deleted, leaving this
+// route to do only what the app uses it for — enroll, price, never charge.
+// The blocker is test coverage, not behaviour: several cases in
+// tests/api/fastpass-enroll.test.ts reach Stripe only through here, including
+// the ONLY assertion that a #281 promo discount reaches the Stripe line item
+// (promo redemption lives on this route, not on /pay). Re-home those first.
 //
 // Ports EnrollFastPass (backend/internal/handlers/enrollment.go), except the
 // total is priced server-side from lib/fast-pass-catalog.ts (#78) instead of
@@ -176,9 +197,26 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     });
 
     const enrollment = {
-      // No payment option means the buyer has enrolled but not paid — the
-      // status `fastpass/mark-paid` and FF17 both key off (#439).
-      status: paymentOption === null ? "pending_payment" : "active",
+      // What "active" is allowed to mean (#463):
+      //
+      //   null (#439)       → enrolled, nothing chosen, nothing charged.
+      //   now               → a card charge is about to be attempted. The money
+      //                       has NOT arrived, so this stays `pending_payment`
+      //                       until Stripe's webhook says otherwise — exactly
+      //                       what /fastpass/pay does. Persisting `active` here
+      //                       meant a buyer who reached Checkout and closed the
+      //                       tab left an `active`, unpaid enrollment behind.
+      //   at_closing /
+      //   seller_concession → deferred by design: no money moves now and none
+      //                       is expected to, so `active` is honest, and the
+      //                       separate `paid` flag stays false until it lands.
+      //
+      // Only the webhook (or the admin override in `fastpass/mark-paid`) may
+      // promote a `pending_payment` enrollment.
+      status:
+        paymentOption === null || paymentOption === "now"
+          ? "pending_payment"
+          : "active",
       payment_option: paymentOption,
       // Dedupe what we store so the JSONB matches what was actually charged.
       selected_upsells: validatedUpsells,
@@ -241,6 +279,15 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       const cancelUrl = isOwner
         ? `${origin}/agent/deals/${dealId}`
         : `${origin}/fast-pass/survey?deal_id=${dealId}`;
+      // #413: prefill Checkout with the payer's own address, read here from the
+      // DB for the authenticated caller (agent or buyer — whoever submitted
+      // this enrollment) rather than accepted from the request body, which
+      // would let a caller point the receipt at an address they don't own.
+      const payer = await prisma.users.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      });
+
       // #453 (FF20): BOTH failure shapes are hard errors. This used to catch
       // the throw, log it, and fall through to `{ ok: true }` — success
       // reported for a payment that never happened (#412), which the caller
@@ -254,6 +301,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
           amountCents: totalCents,
           successUrl,
           cancelUrl,
+          customerEmail: payer?.email ?? undefined,
         });
       } catch (err) {
         console.error("stripe fast pass checkout error", { dealId, err });
@@ -268,6 +316,33 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
         await leaveEnrollmentPayable(dealId);
         return error("could not start checkout — please try again", 502);
       }
+
+      // #463: record the session that was just minted. Without this the #282
+      // double-session guard in /fastpass/pay is blind to a session THIS route
+      // created, and a buyer with the enrollment still open could be handed a
+      // second, independently-payable Checkout for the same $1,787+ charge.
+      // (That was previously masked only by the `active` status this route used
+      // to write — which is the other half of #463, hence one ticket.)
+      //
+      // A merge (`||`), not a whole-row rewrite, so it can't clobber a sibling
+      // key. Guarded on `pending_payment` so a webhook that landed while
+      // Checkout was being created is never rewound to unpaid — the same guard
+      // /fastpass/pay uses. Deliberately NOT written before the Stripe call:
+      // storing an id for a session that failed to exist would make the guard
+      // 409 on a retrieve that can only fail.
+      await prisma.$executeRaw`
+        UPDATE deals
+        SET fast_pass = fast_pass || jsonb_build_object(
+              'checkout_session_id', ${session.id}::text
+            ),
+            updated_at = NOW()
+        WHERE id = ${dealId}::uuid
+          AND fast_pass IS NOT NULL
+          AND fast_pass->>'status' = 'pending_payment'
+      `;
+
+      // `enrollment.status` is `pending_payment` on this branch (#463) — the
+      // buyer is being sent to Checkout, not confirmed as having paid.
       return json({ ok: true, status: enrollment.status, checkout_url: session.url });
     }
 

@@ -58,6 +58,15 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       // expired → fall through and mint a fresh, retryable session below.
     }
 
+    // #413: prefill Checkout with the payer's own address so they don't retype
+    // it and the receipt reaches the RealTourFlow account. This route is
+    // agent-only (the 403 above), so the payer is always the owning agent — and
+    // the address is read here from the DB, never taken from the request.
+    const payer = await prisma.users.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+
     const url = new URL(req.url);
     const origin = `${url.protocol}//${url.host}`;
     const session = await createCheckoutSession({
@@ -65,6 +74,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       dealTitle: deal.title,
       successUrl: `${origin}/agent/deals/${dealId}?fee=paid`,
       cancelUrl: `${origin}/agent/deals/${dealId}?fee=cancelled`,
+      customerEmail: payer?.email ?? undefined,
     });
 
     await prisma.deals.update({

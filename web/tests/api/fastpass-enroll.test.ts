@@ -3,6 +3,9 @@ import type Stripe from "stripe";
 import { POST as fastPassRoute } from "@/app/api/deals/[id]/fastpass/route";
 // #440 (FF17) — paying for an existing enrollment from the buyer's dashboard.
 import { POST as fastPassPayRoute } from "@/app/api/deals/[id]/fastpass/pay/route";
+// #463 — the Stripe webhook is the ONLY thing that may mark an enrollment paid,
+// so the promotion it performs is part of this route's contract.
+import { POST as stripeWebhook } from "@/app/api/stripe/webhook/route";
 import { fastPassTotalForPaymentOption } from "@/lib/fast-pass-payment";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
 import { setStripeForTesting } from "@/lib/stripe";
@@ -292,7 +295,9 @@ describe("POST /api/deals/[id]/fastpass", () => {
              fast_pass->>'total_cents' AS total_cents
       FROM deals WHERE id = ${deal.id}::uuid
     `;
-    expect(rows[0].status).toBe("active");
+    // #463: a pay-now enrollment is NOT active until Stripe's webhook says the
+    // money landed — reaching Checkout is not the same as paying for it.
+    expect(rows[0].status).toBe("pending_payment");
     expect(rows[0].paid).toBe(false);
     expect(rows[0].total_cents).toBe(String(EXPECTED_TOTAL));
   });
@@ -448,7 +453,8 @@ describe("POST /api/deals/[id]/fastpass", () => {
              fast_pass->>'payment_option' AS payment_option
       FROM deals WHERE id = ${deal.id}::uuid
     `;
-    expect(rows[0].status).toBe("active");
+    // #463: reaching Checkout is not paying — the webhook activates it.
+    expect(rows[0].status).toBe("pending_payment");
     expect(rows[0].payment_option).toBe("now");
   });
 
@@ -1833,7 +1839,540 @@ describe("POST /api/deals/[id]/fastpass — 'now' that cannot reach Checkout (#4
     expect(body.checkout_url).toBe("https://stripe.test/checkout/cs_ok");
 
     const row = await readFastPass(deal.id);
-    expect(row.status).toBe("active");
+    // #463: still `pending_payment` — the webhook, not the redirect, activates.
+    expect(row.status).toBe("pending_payment");
     expect(row.payment_option).toBe("now");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #463 (FF23) — the old enrollment route's `now` branch must not claim an
+// enrollment is settled before the money arrives, and must record the Checkout
+// session it minted.
+//
+// Two defects, deliberately one ticket:
+//
+//   1. A SUCCESSFUL `now` used to persist `status: 'active'` the moment Stripe
+//      handed back a URL. A buyer who reached Checkout and closed the tab left
+//      an `active`, unpaid enrollment behind — a payment record that lies.
+//   2. It stored no `checkout_session_id`, so the #282 double-session guard in
+//      /fastpass/pay could not see a session this route created.
+//
+// Fixing (1) alone would re-open a double-charge path: the `active` status was
+// the only thing making /pay 409 such a record. Hence both, together.
+//
+// This route is not reachable from the UI (FastPassSurvey stopped sending a
+// payment_option in #439, and BuyerView posts to /fastpass/pay), so these are
+// latent defects on a direct-API path — but it is still a payment route.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("POST /api/deals/[id]/fastpass — 'now' is not paid until the webhook (#463)", () => {
+  async function enroll(
+    dealId: string,
+    auth0Sub: string,
+    roles: string[],
+    body: Record<string, unknown>
+  ): Promise<Response> {
+    const r = new Request(`http://localhost/api/deals/${dealId}/fastpass`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(auth0Sub, roles),
+      },
+      body: JSON.stringify(body),
+    });
+    return fastPassRoute(r, ctx(dealId));
+  }
+
+  async function pay(
+    dealId: string,
+    auth0Sub: string,
+    roles: string[],
+    body: Record<string, unknown>
+  ): Promise<Response> {
+    const r = new Request(`http://localhost/api/deals/${dealId}/fastpass/pay`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(auth0Sub, roles),
+      },
+      body: JSON.stringify(body),
+    });
+    return fastPassPayRoute(r, ctx(dealId));
+  }
+
+  async function readFastPass(dealId: string) {
+    const rows = await prisma.$queryRaw<
+      {
+        status: string | null;
+        payment_option: string | null;
+        total_cents: string | null;
+        paid: boolean | null;
+        session_id: string | null;
+        paid_at: string | null;
+        selected_upsells: unknown;
+        enrolled_at: string | null;
+      }[]
+    >`
+      SELECT fast_pass->>'status'              AS status,
+             fast_pass->>'payment_option'      AS payment_option,
+             fast_pass->>'total_cents'         AS total_cents,
+             (fast_pass->>'paid')::boolean     AS paid,
+             fast_pass->>'checkout_session_id' AS session_id,
+             fast_pass->>'paid_at'             AS paid_at,
+             fast_pass->'selected_upsells'     AS selected_upsells,
+             fast_pass->>'enrolled_at'         AS enrolled_at
+      FROM deals WHERE id = ${dealId}::uuid
+    `;
+    return rows[0];
+  }
+
+  /**
+   * Stripe fake. `create` mints sequential open sessions and records every
+   * params object; `retrieve` reports the remembered status (open sessions keep
+   * a payable url, expired ones don't — matching real Stripe).
+   */
+  function fakeStripe(seed: Record<string, "open" | "complete" | "expired"> = {}) {
+    const createCalls: Stripe.Checkout.SessionCreateParams[] = [];
+    const status: Record<string, "open" | "complete" | "expired"> = { ...seed };
+    let n = 0;
+    setStripeForTesting({
+      checkout: {
+        sessions: {
+          create: async (params: Stripe.Checkout.SessionCreateParams) => {
+            createCalls.push(params);
+            n += 1;
+            const id = `cs_enroll_${n}`;
+            status[id] = "open";
+            return { id, url: `https://stripe.test/checkout/${id}` };
+          },
+          retrieve: async (id: string) => {
+            const st = status[id] ?? "open";
+            return {
+              id,
+              status: st,
+              url: st === "open" ? `https://stripe.test/checkout/${id}` : null,
+            } as Pick<Stripe.Checkout.Session, "id" | "url" | "status">;
+          },
+        },
+      },
+      webhooks: {
+        constructEvent: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+    return createCalls;
+  }
+
+  /** Injects a checkout.session.completed event for the given session shape. */
+  function setSessionCompleted(session: Record<string, unknown>) {
+    setStripeForTesting({
+      checkout: { sessions: { create: async () => ({ id: "x", url: null }) } },
+      webhooks: {
+        constructEvent: () =>
+          ({
+            type: "checkout.session.completed",
+            data: { object: session as unknown as Stripe.Checkout.Session },
+          }) as unknown as Stripe.Event,
+      },
+    });
+  }
+
+  function webhookReq() {
+    return new Request("http://localhost/api/stripe/webhook", {
+      method: "POST",
+      headers: { "stripe-signature": "t=fake,v1=fake" },
+      body: "{}",
+    });
+  }
+
+  // ── 1. A successful `now` stays pending_payment ───────────────────────────
+  it("a successful 'now' persists pending_payment, NOT active — no money has arrived yet", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id, title: "1 Unpaid Way" });
+    fakeStripe();
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "now",
+      selected_upsells: ["utility_setup", "staging_consult"],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok?: boolean; status?: string };
+    expect(body.ok).toBe(true);
+    // The echoed status matches /fastpass/pay's contract exactly.
+    expect(body.status).toBe("pending_payment");
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    expect(row.status).not.toBe("active");
+    expect(row.paid).toBe(false);
+    expect(row.paid_at).toBeNull();
+    // The choice IS recorded — only the settlement isn't.
+    expect(row.payment_option).toBe("now");
+    // Nothing else about the enrollment shifted.
+    expect(row.total_cents).toBe(String(EXPECTED_TOTAL));
+    expect(row.selected_upsells).toEqual(["utility_setup", "staging_consult"]);
+    expect(row.enrolled_at).toBeTruthy();
+  });
+
+  // ── 2. The minted session id is recorded ──────────────────────────────────
+  it("a successful 'now' stores the checkout_session_id it just minted", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id, title: "2 Session Sq" });
+    fakeStripe();
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "now",
+      selected_upsells: [],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { checkout_url?: string };
+    expect(body.checkout_url).toBe("https://stripe.test/checkout/cs_enroll_1");
+
+    const row = await readFastPass(deal.id);
+    expect(row.session_id).toBe("cs_enroll_1");
+  });
+
+  // ── 3. The webhook promotes a record from THIS route just like one from /pay
+  it("the webhook promotes a record from this route identically to one from /fastpass/pay (#440 CASE)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const viaEnroll = await createDeal({ agent_id: agent.id, title: "3 Old Route" });
+    const viaPay = await createDeal({ agent_id: agent.id, title: "3 New Route" });
+
+    fakeStripe();
+    expect(
+      (
+        await enroll(viaEnroll.id, "auth0|a", ["agent"], {
+          payment_option: "now",
+          selected_upsells: ["utility_setup"],
+        })
+      ).status
+    ).toBe(200);
+
+    // The /pay equivalent: a #439 deferred enrollment settled from the dashboard.
+    expect(
+      (
+        await enroll(viaPay.id, "auth0|a", ["agent"], {
+          selected_upsells: ["utility_setup"],
+        })
+      ).status
+    ).toBe(200);
+    expect(
+      (await pay(viaPay.id, "auth0|a", ["agent"], { payment_option: "now" })).status
+    ).toBe(200);
+
+    // Both records reach the webhook in the SAME state — that is the parity
+    // the #440 CASE promotion depends on.
+    const beforeEnroll = await readFastPass(viaEnroll.id);
+    const beforePay = await readFastPass(viaPay.id);
+    expect(beforeEnroll.status).toBe("pending_payment");
+    expect(beforePay.status).toBe("pending_payment");
+    expect(beforeEnroll.session_id).toBeTruthy();
+    expect(beforePay.session_id).toBeTruthy();
+
+    for (const dealId of [viaEnroll.id, viaPay.id]) {
+      setSessionCompleted({
+        id: "cs_webhook_promo",
+        payment_status: "paid",
+        metadata: { deal_id: dealId, type: "fast_pass" },
+      });
+      expect((await stripeWebhook(webhookReq())).status).toBe(200);
+    }
+
+    const afterEnroll = await readFastPass(viaEnroll.id);
+    const afterPay = await readFastPass(viaPay.id);
+    for (const row of [afterEnroll, afterPay]) {
+      expect(row.paid).toBe(true);
+      expect(row.status).toBe("active");
+      expect(row.session_id).toBe("cs_webhook_promo");
+      expect(row.paid_at).toBeTruthy();
+      expect(row.payment_option).toBe("now");
+    }
+    // Identical lifecycle, not merely both "fine".
+    expect(afterEnroll.status).toBe(afterPay.status);
+    expect(afterEnroll.paid).toBe(afterPay.paid);
+    expect(afterEnroll.total_cents).toBe(afterPay.total_cents);
+  });
+
+  // ── 4. /fastpass/pay now SEES the session this route created (#282) ────────
+  it("/fastpass/pay reuses the session this route stored instead of minting a second (#282)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id, title: "4 One Session" });
+    const calls = fakeStripe();
+
+    expect(
+      (
+        await enroll(deal.id, "auth0|a", ["agent"], {
+          payment_option: "now",
+          selected_upsells: [],
+        })
+      ).status
+    ).toBe(200);
+    expect(calls).toHaveLength(1);
+
+    // The buyer re-opens the pay card and clicks "pay now" again.
+    const res = await pay(deal.id, "auth0|a", ["agent"], { payment_option: "now" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { checkout_url?: string };
+    // Same live session, not a second independently-payable one.
+    expect(body.checkout_url).toBe("https://stripe.test/checkout/cs_enroll_1");
+    expect(calls).toHaveLength(1);
+    expect((await readFastPass(deal.id)).session_id).toBe("cs_enroll_1");
+  });
+
+  it("a live session from this route also blocks a DEFERRAL through /fastpass/pay", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id, title: "5 No Deferral" });
+    fakeStripe();
+
+    expect(
+      (
+        await enroll(deal.id, "auth0|a", ["agent"], {
+          payment_option: "now",
+          selected_upsells: [],
+        })
+      ).status
+    ).toBe(200);
+
+    // Recording "pay at closing" while a session charging the un-premiumed
+    // total is still payable would leave the buyer able to pay an amount the
+    // record no longer agrees with.
+    const res = await pay(deal.id, "auth0|a", ["agent"], {
+      payment_option: "at_closing",
+    });
+    expect(res.status).toBe(409);
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    expect(row.payment_option).toBe("now");
+  });
+
+  // ── 5. #453 is unregressed: a FAILED 'now' still 502s and stays payable ────
+  it("a failed 'now' still 502s and leaves the enrollment payable at pending_payment (#453)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id, title: "6 Still Broken" });
+    setStripeForTesting({
+      checkout: {
+        sessions: {
+          create: async () => {
+            throw new Error("stripe is down");
+          },
+        },
+      },
+      webhooks: {
+        constructEvent: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "now",
+      selected_upsells: ["utility_setup", "staging_consult"],
+    });
+    expect(res.status).toBe(502);
+    expect(await res.text()).not.toContain('"ok":true');
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    // Demoted back to the #439 shape so the dashboard pay card offers the
+    // choice again — a `now` that never reached Checkout is not a choice made.
+    expect(row.payment_option).toBeNull();
+    expect(row.paid).toBe(false);
+    // No session was minted, so none may be recorded — otherwise the #282
+    // guard would later try to retrieve a session that does not exist.
+    expect(row.session_id).toBeNull();
+    expect(row.total_cents).toBe(String(EXPECTED_TOTAL));
+  });
+
+  // ── 6. REGRESSION: the path the app actually uses is untouched (#439) ──────
+  it("no payment_option → 200 pending_payment, no Stripe, no session id (#439 regression)", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const buyer = await createUser({ role: "buyer", auth0_id: "auth0|buyer" });
+    const deal = await createDeal({ agent_id: agent.id, title: "7 Survey St" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+    let stripeTouched = false;
+    setStripeForTesting({
+      checkout: {
+        sessions: {
+          create: async () => {
+            stripeTouched = true;
+            return { id: "cs_nope", url: "https://stripe.test/nope" };
+          },
+        },
+      },
+      webhooks: {
+        constructEvent: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+
+    const res = await enroll(deal.id, "auth0|buyer", ["buyer"], {
+      selected_upsells: ["utility_setup", "staging_consult"],
+      survey_answers: { currentSituation: "renting" },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok?: boolean;
+      status?: string;
+      checkout_url?: string;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.status).toBe("pending_payment");
+    expect(body.checkout_url).toBeUndefined();
+    expect(stripeTouched).toBe(false);
+
+    const row = await readFastPass(deal.id);
+    expect(row.status).toBe("pending_payment");
+    expect(row.payment_option).toBeNull();
+    expect(row.paid).toBe(false);
+    expect(row.session_id).toBeNull();
+    expect(row.total_cents).toBe(String(EXPECTED_TOTAL));
+  });
+
+  it("the deferred options still activate immediately, with no session id", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    for (const option of ["at_closing", "seller_concession"] as const) {
+      const deal = await createDeal({ agent_id: agent.id, title: `8 ${option}` });
+      fakeStripe();
+      const res = await enroll(deal.id, "auth0|a", ["agent"], {
+        payment_option: option,
+        selected_upsells: [],
+      });
+      expect(res.status).toBe(200);
+      const row = await readFastPass(deal.id);
+      // No money moves now, so `active` is honest here — unchanged behaviour.
+      expect(row.status).toBe("active");
+      expect(row.payment_option).toBe(option);
+      expect(row.paid).toBe(false);
+      expect(row.session_id).toBeNull();
+    }
+  });
+
+  // ── 7. checkout_session_id is plumbing — it never reaches a client ─────────
+  it("the checkout_session_id never appears in the route's response payload", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id, title: "9 No Leak Ln" });
+    fakeStripe();
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "now",
+      selected_upsells: [],
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // It IS stored…
+    expect((await readFastPass(deal.id)).session_id).toBe("cs_enroll_1");
+    // …and it is NOT a field on the payload. (The id is not a secret — a real
+    // Checkout URL embeds it, and the buyer's browser is about to be sent
+    // there. What must not happen is the enrollment's internal plumbing key
+    // becoming part of the wire schema, which is what clients would then read.)
+    expect(text).not.toContain("checkout_session_id");
+    const payload = JSON.parse(text) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("checkout_session_id");
+    expect(Object.keys(payload).sort()).toEqual(["checkout_url", "ok", "status"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #413 — Stripe Checkout is prefilled with the PAYING USER's account email.
+//
+// Read server-side from `users.email` for the authenticated caller, never from
+// the request body: an email taken from the client would let a caller point the
+// receipt (and the Stripe customer record) at an address they don't own.
+//
+// /fastpass/pay already does this (its own case lives above). These cover the
+// old enrollment route; the sibling checkouts (Smooth Exit, closing fee) are
+// covered in tests/api/smoothexit.test.ts and tests/api/fee-checkout.test.ts.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("POST /api/deals/[id]/fastpass — customer_email prefill (#413)", () => {
+  function captureCreate(): Stripe.Checkout.SessionCreateParams[] {
+    const calls: Stripe.Checkout.SessionCreateParams[] = [];
+    setStripeForTesting({
+      checkout: {
+        sessions: {
+          create: async (params: Stripe.Checkout.SessionCreateParams) => {
+            calls.push(params);
+            return {
+              id: "cs_email_1",
+              url: "https://stripe.test/checkout/cs_email_1",
+            };
+          },
+        },
+      },
+      webhooks: {
+        constructEvent: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+    return calls;
+  }
+
+  async function enroll(
+    dealId: string,
+    auth0Sub: string,
+    roles: string[],
+    body: Record<string, unknown>
+  ): Promise<Response> {
+    const r = new Request(`http://localhost/api/deals/${dealId}/fastpass`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(auth0Sub, roles),
+      },
+      body: JSON.stringify(body),
+    });
+    return fastPassRoute(r, ctx(dealId));
+  }
+
+  it("a 'now' enrollment prefills customer_email from the paying user's users.email", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const buyer = await createUser({
+      role: "buyer",
+      auth0_id: "auth0|buyer",
+      email: "betty@buyer.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id, title: "1 Prefill Pl" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: buyer.id, role: "buyer" },
+    });
+    const calls = captureCreate();
+
+    const res = await enroll(deal.id, "auth0|buyer", ["buyer"], {
+      payment_option: "now",
+      selected_upsells: [],
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    // The buyer is the one paying — not the deal's agent.
+    expect(calls[0].customer_email).toBe("betty@buyer.test");
+    expect(calls[0].customer_email).not.toBe(agent.email);
+    // The metadata the refund/dispute webhooks resolve the deal from is intact.
+    expect(calls[0].metadata).toMatchObject({ deal_id: deal.id, type: "fast_pass" });
+  });
+
+  it("an email in the request body is ignored — the prefill comes from the DB", async () => {
+    const agent = await createUser({
+      role: "agent",
+      auth0_id: "auth0|a",
+      email: "real@agent.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id, title: "2 Spoof St" });
+    const calls = captureCreate();
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "now",
+      selected_upsells: [],
+      // Hostile client tries to redirect the receipt.
+      customer_email: "attacker@evil.test",
+      email: "attacker@evil.test",
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].customer_email).toBe("real@agent.test");
+    expect(calls[0].customer_email).not.toBe("attacker@evil.test");
   });
 });

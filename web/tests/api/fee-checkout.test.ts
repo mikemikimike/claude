@@ -248,3 +248,60 @@ describe("POST /api/deals/[id]/fee/checkout — double-charge guard (#282)", () 
     expect(stripe.createCalls.length).toBe(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #413 — the $75 closing-fee Checkout is prefilled with the PAYING USER's
+// account email, read server-side from `users.email`. This route is agent-only
+// (a non-owner 403s before Stripe is reached), so the payer is always the
+// owning agent — but the email still comes from the DB, never the request.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("POST /api/deals/[id]/fee/checkout — customer_email prefill (#413)", () => {
+  it("prefills customer_email from the owning agent's users.email", async () => {
+    const agent = await createUser({
+      role: "agent",
+      auth0_id: "auth0|a",
+      email: "agnes@agent.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id, title: "1 Prefill Pl" });
+    const stripe = fakeStripe();
+
+    const res = await checkout(deal.id, "auth0|a", ["agent"]);
+    expect(res.status).toBe(200);
+    expect(stripe.createCalls).toHaveLength(1);
+    expect(stripe.createCalls[0].customer_email).toBe("agnes@agent.test");
+    // The metadata the refund/dispute webhooks resolve the deal from is intact.
+    expect(stripe.createCalls[0].metadata).toMatchObject({
+      deal_id: deal.id,
+      type: "closing_fee",
+    });
+  });
+
+  it("a body carrying a different email is ignored — this route reads no body at all", async () => {
+    const agent = await createUser({
+      role: "agent",
+      auth0_id: "auth0|a",
+      email: "real@agent.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id, title: "2 Spoof St" });
+    const stripe = fakeStripe();
+
+    const res = await checkoutRoute(
+      new Request(`http://localhost/api/deals/${deal.id}/fee/checkout`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: await authHeader("auth0|a", ["agent"]),
+        },
+        body: JSON.stringify({
+          customer_email: "attacker@evil.test",
+          email: "attacker@evil.test",
+        }),
+      }),
+      ctx(deal.id)
+    );
+    expect(res.status).toBe(200);
+    expect(stripe.createCalls).toHaveLength(1);
+    expect(stripe.createCalls[0].customer_email).toBe("real@agent.test");
+    expect(stripe.createCalls[0].customer_email).not.toBe("attacker@evil.test");
+  });
+});

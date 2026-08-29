@@ -816,3 +816,98 @@ describe("POST /api/deals/[id]/smoothexit — malformed body validation (#88)", 
     expect(res.status).toBe(400);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #413 — the Smooth Exit upsell Checkout is prefilled with the PAYING USER's
+// account email, read server-side from `users.email`. Same fix as the Fast Pass
+// checkouts: without it Stripe collects the address from scratch and the receipt
+// can land somewhere other than the RealTourFlow account.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("POST /api/deals/[id]/smoothexit — customer_email prefill (#413)", () => {
+  function captureCreate(): Stripe.Checkout.SessionCreateParams[] {
+    const calls: Stripe.Checkout.SessionCreateParams[] = [];
+    setStripeForTesting({
+      checkout: {
+        sessions: {
+          create: async (params: Stripe.Checkout.SessionCreateParams) => {
+            calls.push(params);
+            return { id: "cs_se_email", url: "https://stripe.test/checkout/cs_se_email" };
+          },
+        },
+      },
+      webhooks: {
+        constructEvent: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+    return calls;
+  }
+
+  async function enroll(
+    dealId: string,
+    auth0Sub: string,
+    roles: string[],
+    body: Record<string, unknown>
+  ): Promise<Response> {
+    const r = new Request(`http://localhost/api/deals/${dealId}/smoothexit`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader(auth0Sub, roles),
+      },
+      body: JSON.stringify(body),
+    });
+    return smoothExitRoute(r, ctx(dealId));
+  }
+
+  it("prefills customer_email from the paying user's users.email", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const seller = await createUser({
+      role: "seller",
+      auth0_id: "auth0|seller",
+      email: "sam@seller.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id, title: "1 Prefill Pl" });
+    await prisma.deal_participants.create({
+      data: { deal_id: deal.id, user_id: seller.id, role: "seller" },
+    });
+    const calls = captureCreate();
+
+    const res = await enroll(deal.id, "auth0|seller", ["seller"], {
+      payment_option: "from_proceeds",
+      selected_upsells: ["pre_listing_clean"],
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    // The seller is paying — not the deal's agent.
+    expect(calls[0].customer_email).toBe("sam@seller.test");
+    expect(calls[0].customer_email).not.toBe(agent.email);
+    // The metadata the refund/dispute webhooks resolve the deal from is intact.
+    expect(calls[0].metadata).toMatchObject({
+      deal_id: deal.id,
+      type: "smooth_exit_upsell",
+    });
+  });
+
+  it("an email in the request body is ignored — the prefill comes from the DB", async () => {
+    const agent = await createUser({
+      role: "agent",
+      auth0_id: "auth0|a",
+      email: "real@agent.test",
+    });
+    const deal = await createDeal({ agent_id: agent.id, title: "2 Spoof St" });
+    const calls = captureCreate();
+
+    const res = await enroll(deal.id, "auth0|a", ["agent"], {
+      payment_option: "from_proceeds",
+      selected_upsells: ["pre_listing_clean"],
+      customer_email: "attacker@evil.test",
+      email: "attacker@evil.test",
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].customer_email).toBe("real@agent.test");
+    expect(calls[0].customer_email).not.toBe("attacker@evil.test");
+  });
+});

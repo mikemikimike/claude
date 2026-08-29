@@ -140,6 +140,14 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       const successUrl = isOwner
         ? `${origin}/smooth-exit/complete?deal_id=${dealId}&upsells=paid`
         : `${origin}/seller/${userId}?smoothexit=paid`;
+      // #413: prefill Checkout with the payer's own address, read here from the
+      // DB for the authenticated caller (agent or seller — whoever actually
+      // submitted this enrollment) rather than accepted from the request body,
+      // which would let a caller point the receipt at an address they don't own.
+      const payer = await prisma.users.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      });
       try {
         const session = await createSmoothExitUpsellCheckout({
           dealId,
@@ -147,6 +155,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
           amountCents: chargeCents,
           successUrl,
           cancelUrl: `${origin}/smooth-exit/survey?deal_id=${dealId}&cancelled=1`,
+          customerEmail: payer?.email ?? undefined,
         });
         if (session.url) {
           return json({ ok: true, checkout_url: session.url });
