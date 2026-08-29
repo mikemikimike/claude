@@ -12,6 +12,10 @@ import { useMyDeals } from "@/hooks/useMyDeals";
 import { useNotifications } from "@/hooks/useNotifications";
 import PortalDealDocuments from "@/components/portal/PortalDealDocuments";
 import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
+// #422 — the same orienting frame the buyer portal uses; the guidance line
+// lives once, in PortalStageHeader.
+import PortalStageHeader from "@/components/portal/PortalStageHeader";
+import PortalSection from "@/components/portal/PortalSection";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskCompletion } from "@/hooks/useTaskCompletion";
 import { useMessages, postMessage } from "@/hooks/useMessages";
@@ -37,6 +41,61 @@ const SELLER_STAGE_LABELS: Record<DealStage, string> = {
   pre_close:      'Pre-Close',
   closing:        'Closing Day',
   post_close:     'Sold!',
+};
+
+/**
+ * #422 — the seller half of "the portal has to explain itself".
+ *
+ * The buyer portal already had STAGE_DESCRIPTIONS (buried in its journey rail);
+ * the seller portal had nothing at all, so a seller's only clue about where
+ * they were was a two-word label in a pill.
+ */
+const SELLER_STAGE_DESCRIPTIONS: Record<DealStage, string> = {
+  intake:         'Getting your file set up with your agent.',
+  active_search:  'Getting the house ready to go on the market.',
+  offer_active:   'Your home is live — showings and offers are coming in.',
+  under_contract: 'Under contract and working through the buyer’s conditions.',
+  pre_close:      'Final checks before closing day.',
+  closing:        'Signing day is here!',
+  post_close:     'Sold. Congratulations!',
+};
+
+/**
+ * How each stage's own cards are introduced — a heading and one line saying who
+ * is driving that work. Separate from the descriptions above: that one answers
+ * "where am I", this one answers "whose job is what's below".
+ */
+const SELLER_STAGE_FOCUS: Record<DealStage, { title: string; blurb: string }> = {
+  intake: {
+    // NOT "Getting started" — the stage header above and the intake card below
+    // both already say that.
+    title: 'Your first step',
+    blurb: 'Answer a few questions about your property. Your agent builds your listing plan from your answers.',
+  },
+  active_search: {
+    title: 'Getting your home listed',
+    blurb: 'Work through your prep checklist. Your agent handles pricing, photography and the listing itself.',
+  },
+  offer_active: {
+    title: 'Your live listing',
+    blurb: 'Your agent is running showings and bringing you every offer. Keep your showing availability up to date.',
+  },
+  under_contract: {
+    title: 'Your transaction',
+    blurb: 'Your agent is working the buyer’s inspection, appraisal and financing steps. Anything that needs you shows up in your to-do list.',
+  },
+  pre_close: {
+    title: 'Getting to the closing table',
+    blurb: 'Your agent is lining up the final paperwork with the title company.',
+  },
+  closing: {
+    title: 'Closing day',
+    blurb: 'Here’s what to bring. Your agent meets you at the table.',
+  },
+  post_close: {
+    title: 'After closing',
+    blurb: 'The sale is done. These are the loose ends you can tie up whenever suits you.',
+  },
 };
 
 const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
@@ -260,8 +319,10 @@ function JourneyTracker({ deal, openTasks = [] }: { deal: Deal; openTasks?: Task
   const openByStage = openTaskCountsByStage(openTasks);
 
   return (
+    // #422 — the rail's own heading moved out to the PortalSection that wraps
+    // it, so the secondary column reads as one labelled group instead of a
+    // stack of separately-titled cards.
     <div className="rounded-2xl bg-white shadow-sm p-5">
-      <h3 className="mb-4 text-xs font-bold uppercase tracking-widest text-gray-400">Your Selling Journey</h3>
       <div className="space-y-2">
         {STAGE_ORDER.map((stage, i) => {
           const isPast    = i < currentIdx;
@@ -1123,17 +1184,113 @@ export default function SellerView() {
     }
   };
 
+  // ── #422: what goes in which section, and which section leads ──────────────
+  const hasOverdue = !isFallenThrough && sellerTasks.some((t) => t.status === 'overdue');
+  const showTabs = !isFallenThrough && deal.stage !== 'post_close';
+  // A fallen-through deal has no tabs but does still get the message thread, so
+  // the client's section is never a heading over nothing.
+  const showActions = showTabs || isFallenThrough || hasOverdue;
+  const actionsFirst = hasOverdue || openTasks.length > 0;
+  const stageFocus = SELLER_STAGE_FOCUS[deal.stage];
+
+  const actionsSection = showActions ? (
+    <PortalSection
+      key="actions"
+      testId="portal-actions"
+      title={isFallenThrough ? 'Talk to your agent' : 'What you need to do'}
+      blurb={
+        isFallenThrough
+          ? "The sale didn't close. Your agent will walk you through what happens next."
+          : "Your side of the sale — your to-do list, your messages, and your paperwork. Everything else is your agent's to handle."
+      }
+    >
+      {/* Overdue alert */}
+      {hasOverdue && (
+        <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
+          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-700">You have overdue tasks</p>
+            <p className="text-xs text-red-400">Your agent is waiting — take a look below</p>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      {showTabs && (
+        <>
+          <TabBar
+            active={activeTab}
+            onChange={handleTabChange}
+            taskCount={openTasks.length}
+            msgCount={unreadMessageNotifications.length}
+          />
+          {activeTab === 'tasks' && (
+            <div className="space-y-2">
+              {completeError && (
+                <div role="alert" className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
+                  <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+                  <p className="text-xs font-medium text-red-600">{completeError}</p>
+                </div>
+              )}
+              {openTasks.length === 0 && (
+                <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
+                  <CheckCircle2 size={32} className="mx-auto mb-2 text-green-400" />
+                  <p className="text-sm font-medium text-gray-500">
+                    {deal.stage === 'intake' ? 'Tasks unlock after your consultation.' : 'All caught up — great work!'}
+                  </p>
+                </div>
+              )}
+              {openTasks.filter((t) => t.status === 'overdue').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
+              {openTasks.filter((t) => t.status === 'in_progress').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
+              {openTasks.filter((t) => t.status === 'pending').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
+              {completedCount > 0 && (
+                <p className="text-center text-xs text-gray-300 pt-1">
+                  {completedCount} task{completedCount !== 1 ? 's' : ''} completed
+                </p>
+              )}
+              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} />)}
+            </div>
+          )}
+          {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}
+          {activeTab === 'documents' && <PortalDealDocuments dealId={deal.id} />}
+        </>
+      )}
+
+      {isFallenThrough && <MessagesTab dealId={deal.id} />}
+    </PortalSection>
+  ) : null;
+
+  const stageSection = (
+    <PortalSection
+      key="stage"
+      testId="portal-stage"
+      title={isFallenThrough ? 'Where things stand' : stageFocus.title}
+      blurb={
+        isFallenThrough
+          ? 'This sale fell through. Your agent is working out the next move with you.'
+          : stageFocus.blurb
+      }
+    >
+      <StageCard deal={deal} firstName={firstName} />
+
+      {/* Smooth Exit pitch — only if not enrolled */}
+      {!deal.smoothExit?.status && !isFallenThrough && deal.stage !== 'post_close' && (
+        <SmoothExitPitch dealId={deal.id} />
+      )}
+    </PortalSection>
+  );
+
   return (
     /*
-     * Responsive shell (#421) — mirrors BuyerView. Below `lg` this is the old
-     * single `max-w-lg` column exactly: each wrapper keeps `space-y-4` and the
-     * root's own `space-y-4` supplies the gap between them. At `lg` the root
-     * becomes a two-column grid: band on top, stage/pitch/tabs in the wide
-     * column, journey/vendors/agent beside it. Both modals are
-     * `position: fixed`, so they're out of flow and never become grid items.
+     * Responsive shell (#421) — mirrors BuyerView, with #422's content
+     * placement on top of it. Below `lg` one narrow column; at `lg` a
+     * two-column grid.
      *
-     * The wrappers' children are deliberately NOT re-indented, to keep this a
-     * layout-container-only diff.
+     * THE TRAP: the columns are placed EXPLICITLY — `lg:row-start-2` hard-codes
+     * the band as row 1, so a fourth top-level wrapper would overlap rather
+     * than flow. This stays at exactly three grid children (band / primary /
+     * secondary); everything #422 adds goes INSIDE one of them. Both modals are
+     * `position: fixed`, so they're out of flow and never become grid items.
      */
     <div
       data-testid="portal-root"
@@ -1151,7 +1308,7 @@ export default function SellerView() {
       )}
 
       {/* Full-width band above the columns */}
-      <div className="space-y-4 lg:col-span-2">
+      <div className="space-y-4 lg:col-span-2 lg:col-start-1 lg:row-start-1">
       <ClientNotifications />
 
       {/* Header */}
@@ -1197,79 +1354,42 @@ export default function SellerView() {
           </div>
         </div>
       </div>
+
+      {/* Where you are + who moves this on (#422) — on every stage. */}
+      <PortalStageHeader
+        accent="purple"
+        stageLabel={isFallenThrough ? 'Fell Through' : SELLER_STAGE_LABELS[deal.stage]}
+        description={
+          isFallenThrough
+            ? "This sale didn't close. Your agent will talk you through your options."
+            : SELLER_STAGE_DESCRIPTIONS[deal.stage]
+        }
+      />
       </div>
 
-      {/* Primary column */}
-      <div data-testid="portal-primary" className="space-y-4 lg:col-start-1 lg:row-start-2">
-
-      {/* Stage-specific card */}
-      <StageCard deal={deal} firstName={firstName} />
-
-      {/* Smooth Exit pitch — only if not enrolled */}
-      {!deal.smoothExit?.status && !isFallenThrough && deal.stage !== 'post_close' && (
-        <SmoothExitPitch dealId={deal.id} />
-      )}
-
-      {/* Overdue alert */}
-      {!isFallenThrough && sellerTasks.some((t) => t.status === 'overdue') && (
-        <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-red-700">You have overdue tasks</p>
-            <p className="text-xs text-red-400">Your agent is waiting — take a look below</p>
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
-      {!isFallenThrough && deal.stage !== 'post_close' && (
-        <>
-          <TabBar
-            active={activeTab}
-            onChange={handleTabChange}
-            taskCount={openTasks.length}
-            msgCount={unreadMessageNotifications.length}
-          />
-          {activeTab === 'tasks' && (
-            <div className="space-y-2">
-              {completeError && (
-                <div role="alert" className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
-                  <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
-                  <p className="text-xs font-medium text-red-600">{completeError}</p>
-                </div>
-              )}
-              {openTasks.length === 0 && (
-                <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
-                  <CheckCircle2 size={32} className="mx-auto mb-2 text-green-400" />
-                  <p className="text-sm font-medium text-gray-500">
-                    {deal.stage === 'intake' ? 'Tasks unlock after your consultation.' : 'All caught up — great work!'}
-                  </p>
-                </div>
-              )}
-              {openTasks.filter((t) => t.status === 'overdue').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
-              {openTasks.filter((t) => t.status === 'in_progress').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
-              {openTasks.filter((t) => t.status === 'pending').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
-              {completedCount > 0 && (
-                <p className="text-center text-xs text-gray-300 pt-1">
-                  {completedCount} task{completedCount !== 1 ? 's' : ''} completed
-                </p>
-              )}
-              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} />)}
-            </div>
-          )}
-          {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}
-          {activeTab === 'documents' && <PortalDealDocuments dealId={deal.id} />}
-        </>
-      )}
-
-      {isFallenThrough && <MessagesTab dealId={deal.id} />}
+      {/* Primary column — the seller's own work, and the stage's own cards. */}
+      <div data-testid="portal-primary" className="space-y-6 lg:col-start-1 lg:row-start-2">
+        {actionsFirst ? [actionsSection, stageSection] : [stageSection, actionsSection]}
       </div>
 
-      {/* Secondary column */}
-      <div data-testid="portal-secondary" className="space-y-4 lg:col-start-2 lg:row-start-2">
-      <JourneyTracker deal={deal} openTasks={openTasks} />
-      <VendorDirectory dealId={deal.id} />
-      <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
+      {/* Secondary column — reference. Nothing here needs the seller to act. */}
+      <div data-testid="portal-secondary" className="space-y-6 lg:col-start-2 lg:row-start-2">
+        <PortalSection
+          testId="portal-progress"
+          title="Your selling journey"
+          blurb="Every step of the sale, and where you are in it."
+        >
+          <JourneyTracker deal={deal} openTasks={openTasks} />
+        </PortalSection>
+
+        <PortalSection
+          testId="portal-team"
+          title="Your team"
+          blurb="The people working your sale, and how to reach them."
+        >
+          <VendorDirectory dealId={deal.id} />
+          <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
+        </PortalSection>
       </div>
 
       {/* Welcome modal — shown once after onboarding completes */}

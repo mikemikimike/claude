@@ -25,6 +25,11 @@ import { useProperties, TrackedProperty, PropertyStatus } from "@/hooks/usePrope
 import { useMLSListings, MLSListing } from "@/hooks/useMLS";
 import PortalDealDocuments from "@/components/portal/PortalDealDocuments";
 import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
+// #422 — the orienting frame. The stage header answers "where am I" and "who
+// moves this on"; PortalSection groups the cards under a heading that says
+// whose job they are.
+import PortalStageHeader from "@/components/portal/PortalStageHeader";
+import PortalSection from "@/components/portal/PortalSection";
 import { useDocuments, getSigningUrl, requestUploadUrl, confirmUpload } from "@/hooks/useDocuments";
 import { uploadFileToStorage } from "@/lib/direct-upload";
 import ClientNotifications from "@/components/ClientNotifications";
@@ -494,6 +499,51 @@ const STAGE_DESCRIPTIONS: Record<DealStage, string> = {
   pre_close:      'Final checks before closing day.',
   closing:        'Signing day is here!',
   post_close:     'Keys are yours. Welcome home!',
+};
+
+/**
+ * #422 — how the stage's own cards are introduced.
+ *
+ * The portal used to drop `UnderContractCard`, `ClosingCard` and friends onto
+ * the page unannounced, so a first-time reader had no way to tell a card they
+ * were supposed to act on from one that was just telling them something. Each
+ * stage now gets a heading and one line saying who is driving it.
+ *
+ * Deliberately kept separate from STAGE_DESCRIPTIONS above: that one describes
+ * the *stage* ("where am I", in the header at the top of the page); this one
+ * describes the *cards underneath it* ("who owns this work").
+ */
+const STAGE_FOCUS: Record<DealStage, { title: string; blurb: string }> = {
+  intake: {
+    // NOT "Getting started": the stage header above and the intake card below
+    // both already carry that label, and three of them in a row read as a bug.
+    title: 'Your first step',
+    blurb: "Answer a few questions about what you're looking for. Your agent sets everything else up from your answers.",
+  },
+  active_search: {
+    title: 'Your home search',
+    blurb: 'Track the homes you like and tell your agent which ones to pursue — they book the showings and write the offers.',
+  },
+  offer_active: {
+    title: 'Your offer',
+    blurb: "Your agent is negotiating with the seller's side. Nothing here needs you — just stay reachable.",
+  },
+  under_contract: {
+    title: 'Your transaction',
+    blurb: 'Your agent, lender and inspector are working through the contract steps. Anything that needs you shows up in your to-do list.',
+  },
+  pre_close: {
+    title: 'Getting to the closing table',
+    blurb: 'Your agent is booking the walkthrough and checking the final numbers with the title company.',
+  },
+  closing: {
+    title: 'Closing day',
+    blurb: "Here's what to bring. Your agent meets you at the table.",
+  },
+  post_close: {
+    title: 'After closing',
+    blurb: 'The deal is done. These are the loose ends you can tie up whenever suits you.',
+  },
 };
 
 /**
@@ -2297,25 +2347,137 @@ export default function BuyerView() {
     }
   };
 
+  // ── #422: what goes in which section, and which section leads ──────────────
+  const hasOverdue = buyerTasks.some((t) => t.status === 'overdue');
+  const fastPassNeedsPayment = deal.fastPass?.status === 'pending_payment';
+  const stageFocus = STAGE_FOCUS[deal.stage];
+  // The tab bar (and with it the task list) is hidden at post_close, exactly as
+  // before. Without it the actions section would be a heading over nothing —
+  // so it only renders when it actually has something in it.
+  const showTabs = deal.stage !== 'post_close';
+  const showActions =
+    showTabs || hasOverdue || !!preApprovalTask || fastPassNeedsPayment;
+  // Anything genuinely waiting on the buyer puts their own section first. When
+  // nothing is, an empty to-do list must not be the first thing they read —
+  // the stage's own card leads instead (the intake CTA, most of all).
+  const actionsFirst =
+    hasOverdue || openTasks.length > 0 || !!preApprovalTask || fastPassNeedsPayment;
+
+  const actionsSection = showActions ? (
+    <PortalSection
+      key="actions"
+      testId="portal-actions"
+      title="What you need to do"
+      blurb="Your side of the deal — your to-do list, your messages, and your paperwork. Everything else is your agent's to handle."
+    >
+      {/* Overdue alert */}
+      {hasOverdue && (
+        <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
+          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-700">You have overdue tasks</p>
+            <p className="text-xs text-red-400">Your agent is waiting — take a look below</p>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-approval ask (#435) — first in the buyer's own section, because
+          until it is done it IS the next step. It stays out of the task list so
+          a buyer landing here straight out of onboarding sees one unambiguous
+          thing to do. */}
+      {preApprovalTask && <PreApprovalTaskCard task={preApprovalTask} />}
+
+      {/* Fast Pass — awaiting payment (#440). Deliberately NOT gated on stage:
+          the survey runs during onboarding, so the buyer who owes for it is
+          usually still sitting at `intake`. It lives here rather than with the
+          tracker below because paying is theirs to do. */}
+      {fastPassNeedsPayment && (
+        <FastPassPaymentCard deal={deal} onSettled={refreshDeals} />
+      )}
+
+      {/* Tasks / messages / documents (hidden on post-close to keep it clean) */}
+      {showTabs && (
+        <>
+          <TabBar
+            active={activeTab}
+            onChange={handleTabChange}
+            taskCount={openTasks.length}
+            msgCount={unreadMessageNotifications.length}
+          />
+          {activeTab === 'tasks' && (
+            <div className="space-y-2">
+              {completeError && (
+                <div role="alert" className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
+                  <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+                  <p className="text-xs font-medium text-red-600">{completeError}</p>
+                </div>
+              )}
+              {openTasks.length === 0 && (
+                <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
+                  <CheckCircle2 size={32} className="mx-auto mb-2 text-green-400" />
+                  <p className="text-sm font-medium text-gray-500">
+                    {deal.stage === 'intake'
+                      ? 'Nothing on your list yet — your agent adds your first steps once they have your answers.'
+                      : 'All caught up — great work!'}
+                  </p>
+                </div>
+              )}
+              {openTasks.filter((t) => t.status === 'overdue').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
+              {openTasks.filter((t) => t.status === 'in_progress').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
+              {openTasks.filter((t) => t.status === 'pending').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
+              {completedCount > 0 && (
+                <p className="text-center text-xs text-gray-300 pt-1">
+                  {completedCount} task{completedCount !== 1 ? 's' : ''} completed
+                </p>
+              )}
+              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} onUploaded={invalidateDocuments} />)}
+            </div>
+          )}
+          {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}
+          {activeTab === 'documents' && <PortalDealDocuments dealId={deal.id} />}
+        </>
+      )}
+    </PortalSection>
+  ) : null;
+
+  const stageSection = (
+    <PortalSection
+      key="stage"
+      testId="portal-stage"
+      title={stageFocus.title}
+      blurb={stageFocus.blurb}
+    >
+      <StageCard deal={deal} firstName={firstName} lenderCtaHandledAbove={!!preApprovalTask} onRefresh={refreshDeals} />
+
+      {/* Fast Pass tracker (enrolled) or pitch (unenrolled). An enrollment that
+          still owes money is handled in the actions section above, so it never
+          gets pitched something it already bought. */}
+      {deal.stage !== 'intake' && !fastPassNeedsPayment && (
+        deal.fastPass?.status === 'active'
+          ? <FastPassTracker deal={deal} />
+          : deal.stage !== 'post_close' && <FastPassPitch dealId={deal.id} />
+      )}
+    </PortalSection>
+  );
+
   return (
     /*
-     * Responsive shell (#421). Below `lg` this is byte-for-byte the old
-     * single `max-w-lg` column: the three wrappers each keep `space-y-4`, and
-     * the root's own `space-y-4` supplies the gap between them, so every
-     * section sits exactly where it did. At `lg` the root becomes a two-column
-     * grid — band across the top, everything that was above the lender card in
-     * the wide column, the lender/vendors/agent stack beside it.
+     * Responsive shell (#421), with #422's content placement on top of it.
+     * Below `lg` this is one narrow column; at `lg` it is a two-column grid.
      *
-     * The wrappers' children are deliberately NOT re-indented: several other
-     * tickets are queued against this file and re-indenting ~130 lines would
-     * turn a four-line layout change into a conflict for all of them.
+     * THE TRAP (#421, called out on #422): the columns are placed EXPLICITLY —
+     * `lg:row-start-2` hard-codes the band as row 1. Adding a fourth top-level
+     * wrapper would silently overlap rather than flow, so this stays at exactly
+     * three grid children (band / primary / secondary) and everything #422 adds
+     * goes INSIDE one of them. The band now carries its row and column
+     * explicitly too, so the placement is stated rather than inferred.
      */
     <div
       data-testid="portal-root"
       className="mx-auto max-w-lg space-y-4 pb-10 md:max-w-2xl lg:grid lg:max-w-6xl lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start lg:gap-x-6 lg:gap-y-4 lg:space-y-0"
     >
       {/* Full-width band above the columns */}
-      <div className="space-y-4 lg:col-span-2">
+      <div className="space-y-4 lg:col-span-2 lg:col-start-1 lg:row-start-1">
       <ClientNotifications />
 
       {/* Header */}
@@ -2358,106 +2520,40 @@ export default function BuyerView() {
           </div>
         </div>
       </div>
+
+      {/* Where you are + who moves this on (#422) — on every stage. */}
+      <PortalStageHeader
+        stageLabel={BUYER_STAGE_LABELS[deal.stage]}
+        description={STAGE_DESCRIPTIONS[deal.stage]}
+      />
       </div>
 
-      {/* Primary column */}
-      <div data-testid="portal-primary" className="space-y-4 lg:col-start-1 lg:row-start-2">
-
-      {/* Overdue alert — right after header, before journey */}
-      {buyerTasks.some((t) => t.status === 'overdue') && (
-        <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-red-700">You have overdue tasks</p>
-            <p className="text-xs text-red-400">Your agent is waiting — take a look below</p>
-          </div>
-        </div>
-      )}
-
-      {/* Pre-approval ask (#435) — above the journey tracker, because until it
-          is done it IS the next step. It sits here rather than in the task list
-          so a buyer who lands on the portal straight out of onboarding sees one
-          unambiguous thing to do. */}
-      {preApprovalTask && <PreApprovalTaskCard task={preApprovalTask} />}
-
-      {/* Journey tracker */}
-      <div className={buyerTasks.some((t) => t.status === 'overdue') ? 'pt-6' : ''}>
-        <JourneyTracker deal={deal} openTasks={openTasks} />
+      {/* Primary column — the buyer's own work, and the stage's own cards. */}
+      <div data-testid="portal-primary" className="space-y-6 lg:col-start-1 lg:row-start-2">
+        {actionsFirst ? [actionsSection, stageSection] : [stageSection, actionsSection]}
       </div>
 
-      {/* Stage-specific card */}
-      <StageCard deal={deal} firstName={firstName} lenderCtaHandledAbove={!!preApprovalTask} onRefresh={refreshDeals} />
+      {/* Secondary column — reference. Nothing here needs the buyer to act;
+          #421 left it deliberately sparse for this ticket to fill, so the
+          journey rail (context) and the people on the deal live here now. */}
+      <div data-testid="portal-secondary" className="space-y-6 lg:col-start-2 lg:row-start-2">
+        <PortalSection
+          testId="portal-progress"
+          title="Your progress"
+          blurb="Every step of the deal, and where you are in it."
+        >
+          <JourneyTracker deal={deal} openTasks={openTasks} />
+        </PortalSection>
 
-      {/* Fast Pass — awaiting payment (#440) takes priority over both the
-          tracker and the pitch, and is deliberately NOT gated on stage: the
-          survey runs during onboarding, so the buyer who owes for it is
-          usually still sitting at `intake`. Without this they'd be shown the
-          "enroll in Fast Pass" pitch for something they already enrolled in. */}
-      {deal.fastPass?.status === 'pending_payment' && (
-        <FastPassPaymentCard deal={deal} onSettled={refreshDeals} />
-      )}
-
-      {/* Fast Pass tracker (enrolled) or pitch (unenrolled) */}
-      {deal.stage !== 'intake' && deal.fastPass?.status !== 'pending_payment' && (
-        deal.fastPass?.status === 'active'
-          ? <FastPassTracker deal={deal} />
-          : deal.stage !== 'post_close' && <FastPassPitch dealId={deal.id} />
-      )}
-
-      {/* Tabs (hidden on post-close to keep it clean) */}
-      {deal.stage !== 'post_close' && (
-        <>
-          <div className="pt-6" />
-          <TabBar
-            active={activeTab}
-            onChange={handleTabChange}
-            taskCount={openTasks.length}
-            msgCount={unreadMessageNotifications.length}
-          />
-          {activeTab === 'tasks' && (
-            <div className="space-y-2">
-              {completeError && (
-                <div role="alert" className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
-                  <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
-                  <p className="text-xs font-medium text-red-600">{completeError}</p>
-                </div>
-              )}
-              {openTasks.length === 0 && (
-                <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
-                  <CheckCircle2 size={32} className="mx-auto mb-2 text-green-400" />
-                  <p className="text-sm font-medium text-gray-500">All caught up — great work!</p>
-                </div>
-              )}
-              {openTasks.filter((t) => t.status === 'overdue').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
-              {openTasks.filter((t) => t.status === 'in_progress').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
-              {openTasks.filter((t) => t.status === 'pending').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
-              {completedCount > 0 && (
-                <p className="text-center text-xs text-gray-300 pt-1">
-                  {completedCount} task{completedCount !== 1 ? 's' : ''} completed
-                </p>
-              )}
-              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} onUploaded={invalidateDocuments} />)}
-            </div>
-          )}
-          {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}
-          {activeTab === 'documents' && <PortalDealDocuments dealId={deal.id} />}
-        </>
-      )}
-      </div>
-
-      {/* Secondary column */}
-      <div data-testid="portal-secondary" className="space-y-4 lg:col-start-2 lg:row-start-2">
-
-      {/* Lender card */}
-      <div className="pt-14 lg:pt-0">
-        <LenderCard deal={deal} />
-      </div>
-
-      {/* Agent's preferred vendor directory */}
-      <VendorDirectory dealId={deal.id} />
-
-      {/* Agent card */}
-      <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
+        <PortalSection
+          testId="portal-team"
+          title="Your team"
+          blurb="The people working your deal, and how to reach them."
+        >
+          <LenderCard deal={deal} />
+          <VendorDirectory dealId={deal.id} />
+          <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
+        </PortalSection>
       </div>
     </div>
   );

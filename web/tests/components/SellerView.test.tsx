@@ -639,3 +639,149 @@ describe("SellerView — the journey rail only checks off finished stages (#420)
       .toBe("fell-out");
   });
 });
+
+/**
+ * #422 — the seller portal has to explain itself, same as the buyer's.
+ *
+ * The seller portal had it worse: it never had a STAGE_DESCRIPTIONS map at all,
+ * so the only clue about where the seller was in the sale was a two-word label
+ * in a pill.
+ */
+describe("SellerView — portal orientation (#422)", () => {
+  const ALL_STAGES: MyDeal["stage"][] = [
+    "intake",
+    "active_search",
+    "offer_active",
+    "under_contract",
+    "pre_close",
+    "closing",
+    "post_close",
+  ];
+
+  function task(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-seller-1",
+      dealId: DEAL_ID,
+      title: "Declutter the living room",
+      assignedTo: "seller",
+      assignedToId: "u-seller",
+      status: "pending",
+      priority: "medium",
+      source: "ai",
+      stageContext: "active_search",
+      ...overrides,
+    } as Task;
+  }
+
+  // Case 1 — fails against the old code.
+  it.each(ALL_STAGES)("says the agent moves the seller along, at stage %s", (stage) => {
+    dealOverrides = { stage };
+    renderSeller(<SellerView />);
+
+    const header = screen.getByTestId("portal-stage-header");
+    expect(header.textContent).toMatch(/your agent will move you along this process/i);
+    expect(header.textContent).toMatch(/notification when something needs you/i);
+  });
+
+  it("names the current stage and explains it in plain language", () => {
+    dealOverrides = { stage: "active_search" };
+    renderSeller(<SellerView />);
+
+    const header = screen.getByTestId("portal-stage-header");
+    expect(header.textContent).toMatch(/listing prep/i);
+    expect(header.textContent).toMatch(/ready to go on the market/i);
+  });
+
+  // Case 2 — the seller's tasks live in a labelled region of their own.
+  it("renders the seller's tasks inside a labelled actions region", () => {
+    dealOverrides = { stage: "active_search" };
+    mockTasks = [task()];
+    renderSeller(<SellerView />);
+
+    const actions = screen.getByTestId("portal-actions");
+    expect(actions.textContent).toMatch(/what you need to do/i);
+    expect(actions.contains(screen.getByText("Declutter the living room"))).toBe(true);
+
+    const stage = screen.getByTestId("portal-stage");
+    expect(actions.contains(stage)).toBe(false);
+    expect(stage.contains(actions)).toBe(false);
+  });
+
+  it("leads with the seller's own work when they have some", () => {
+    dealOverrides = { stage: "active_search" };
+    mockTasks = [task()];
+    renderSeller(<SellerView />);
+
+    const actions = screen.getByTestId("portal-actions");
+    const stage = screen.getByTestId("portal-stage");
+    expect(
+      actions.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("leads with the stage card when nothing is waiting on the seller", () => {
+    dealOverrides = { stage: "intake" };
+    mockTasks = [];
+    renderSeller(<SellerView />);
+
+    const actions = screen.getByTestId("portal-actions");
+    const stage = screen.getByTestId("portal-stage");
+    expect(
+      stage.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // Case 3 — the reorganisation guard.
+  it.each(ALL_STAGES)("renders the whole portal at stage %s", (stage) => {
+    dealOverrides = { stage };
+    renderSeller(<SellerView />);
+
+    expect(screen.getByTestId("portal-root")).toBeTruthy();
+    expect(screen.getByTestId("portal-stage-header")).toBeTruthy();
+    const section = screen.getByTestId("portal-stage");
+    expect((section.textContent ?? "").trim().length).toBeGreaterThan(0);
+    expect(
+      screen.getByTestId(`stage-row-${stage}`).getAttribute("data-stage-state"),
+    ).toBe("current");
+  });
+
+  it("frames a fallen-through deal honestly and still says who drives it", () => {
+    dealOverrides = {
+      stage: "under_contract",
+      status: "fallen_through",
+      fellFromStage: "under_contract",
+    } as Partial<MyDeal>;
+    renderSeller(<SellerView />);
+
+    const header = screen.getByTestId("portal-stage-header");
+    expect(header.textContent).toMatch(/fell through/i);
+    expect(header.textContent).toMatch(/your agent will move you along this process/i);
+    // Never a "what you need to do" heading over a deal that fell out.
+    expect(screen.getByTestId("portal-actions").textContent).toMatch(/talk to your agent/i);
+  });
+
+  // Case 4 — the #407 fix must survive the reorganisation here too.
+  it("never shows the onboarding CTA once the intake is submitted", () => {
+    dealOverrides = { stage: "intake", intakeSubmitted: true };
+    renderSeller(<SellerView />);
+
+    expect(screen.queryByRole("button", { name: /begin my onboarding/i })).toBeNull();
+    expect(screen.getByText(/onboarding complete/i)).toBeTruthy();
+  });
+
+  it("still shows the onboarding CTA to a seller who has not submitted one", () => {
+    dealOverrides = { stage: "intake", intakeSubmitted: false };
+    renderSeller(<SellerView />);
+
+    expect(screen.getByRole("button", { name: /begin my onboarding/i })).toBeTruthy();
+  });
+
+  it("keeps the journey rail and the agent card in the secondary column", () => {
+    dealOverrides = { stage: "active_search" };
+    renderSeller(<SellerView />);
+
+    const secondary = screen.getByTestId("portal-secondary");
+    expect(secondary.contains(screen.getByTestId("stage-row-active_search"))).toBe(true);
+    expect(secondary.textContent).toMatch(/sarah johnson/i);
+  });
+});

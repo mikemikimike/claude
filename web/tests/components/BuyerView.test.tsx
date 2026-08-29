@@ -814,3 +814,158 @@ describe("BuyerView — honest completion indicators (#420)", () => {
     });
   });
 });
+
+/**
+ * #422 — the buyer portal has to explain itself.
+ *
+ * A tester opening it cold said "I don't even know what I'm looking at". The
+ * top of the portal must now answer three questions immediately: where am I,
+ * what do I need to do, and what happens next / who makes it happen. These
+ * cases pin the parts of that a later reorganisation could quietly undo.
+ */
+describe("BuyerView — portal orientation (#422)", () => {
+  const ALL_STAGES: MyDeal["stage"][] = [
+    "intake",
+    "active_search",
+    "offer_active",
+    "under_contract",
+    "pre_close",
+    "closing",
+    "post_close",
+  ];
+
+  function buyerTask(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-1",
+      dealId: DEAL_ID,
+      title: "Tour three homes",
+      assignedTo: "buyer",
+      assignedToId: "u-buyer",
+      status: "pending",
+      priority: "medium",
+      source: "ai",
+      stageContext: "active_search",
+      ...overrides,
+    } as Task;
+  }
+
+  function atStage(stage: MyDeal["stage"], extra: Partial<MyDeal> = {}) {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [{ ...DEAL, stage, ...extra }],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+  }
+
+  // Case 1 — fails against the old code: nothing anywhere said who advances the
+  // deal, so the client was left guessing what triggers the next step.
+  it.each(ALL_STAGES)("says the agent moves the buyer along, at stage %s", (stage) => {
+    atStage(stage);
+    renderView(<BuyerView />);
+
+    const header = screen.getByTestId("portal-stage-header");
+    expect(header.textContent).toMatch(/your agent will move you along this process/i);
+    expect(header.textContent).toMatch(/notification when something needs you/i);
+  });
+
+  // The "where am I" half of the same card: the stage in the buyer's own
+  // vocabulary, plus the plain-language description that already existed in
+  // STAGE_DESCRIPTIONS but was only reachable inside the journey rail.
+  it("names the current stage and explains it in plain language", () => {
+    atStage("under_contract");
+    renderView(<BuyerView />);
+
+    const header = screen.getByTestId("portal-stage-header");
+    expect(header.textContent).toMatch(/under contract/i);
+    expect(header.textContent).toMatch(/working through the details/i);
+  });
+
+  // Case 2 — fails against the old code: the buyer's tasks sat in an unlabelled
+  // tab among informational cards, with nothing marking them as theirs.
+  it("renders the buyer's tasks inside a labelled actions region", () => {
+    atStage("active_search");
+    mockTasks = [buyerTask()];
+    renderView(<BuyerView />);
+
+    const actions = screen.getByTestId("portal-actions");
+    expect(actions.textContent).toMatch(/what you need to do/i);
+    expect(actions.contains(screen.getByText("Tour three homes"))).toBe(true);
+
+    // …and the stage's informational cards are a separate region, not nested
+    // inside the client's own.
+    const stage = screen.getByTestId("portal-stage");
+    expect(actions.contains(stage)).toBe(false);
+    expect(stage.contains(actions)).toBe(false);
+  });
+
+  it("leads with the buyer's own work when they have some", () => {
+    atStage("active_search");
+    mockTasks = [buyerTask()];
+    renderView(<BuyerView />);
+
+    const actions = screen.getByTestId("portal-actions");
+    const stage = screen.getByTestId("portal-stage");
+    expect(
+      actions.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("leads with the stage card when nothing is waiting on the buyer", () => {
+    // A brand-new deal: an empty to-do list must not be the first thing they
+    // read, with the onboarding card pushed underneath it.
+    atStage("intake");
+    mockTasks = [];
+    renderView(<BuyerView />);
+
+    const actions = screen.getByTestId("portal-actions");
+    const stage = screen.getByTestId("portal-stage");
+    expect(
+      stage.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // Case 3 — the guard that makes the reorganisation safe. Every stage has to
+  // render, with its own framing, on its own.
+  it.each(ALL_STAGES)("renders the whole portal at stage %s", (stage) => {
+    atStage(stage);
+    renderView(<BuyerView />);
+
+    expect(screen.getByTestId("portal-root")).toBeTruthy();
+    expect(screen.getByTestId("portal-stage-header")).toBeTruthy();
+    // The stage section is titled and blurbed for THIS stage — no empty frame.
+    const section = screen.getByTestId("portal-stage");
+    expect((section.textContent ?? "").trim().length).toBeGreaterThan(0);
+    // The journey rail still marks exactly one current stage.
+    expect(
+      screen.getByTestId(`stage-row-${stage}`).getAttribute("data-stage-state"),
+    ).toBe("current");
+  });
+
+  // Case 4 — the #407 fix must survive the reorganisation. This was the worst
+  // bug in the app: a client who had already answered the questions was asked
+  // to do the onboarding again, every single visit.
+  it("never shows the onboarding CTA once the intake is submitted", () => {
+    atStage("intake", { intakeSubmitted: true });
+    renderView(<BuyerView />);
+
+    expect(screen.queryByRole("button", { name: /begin my onboarding/i })).toBeNull();
+    expect(screen.getByText(/onboarding complete/i)).toBeTruthy();
+  });
+
+  it("still shows the onboarding CTA to a buyer who has not submitted one", () => {
+    atStage("intake", { intakeSubmitted: false });
+    renderView(<BuyerView />);
+
+    expect(screen.getByRole("button", { name: /begin my onboarding/i })).toBeTruthy();
+  });
+
+  it("moves the journey rail and the agent card into the secondary column", () => {
+    atStage("active_search");
+    renderView(<BuyerView />);
+
+    const secondary = screen.getByTestId("portal-secondary");
+    expect(secondary.contains(screen.getByTestId("stage-row-active_search"))).toBe(true);
+    expect(secondary.textContent).toMatch(/alice agent/i);
+  });
+});
