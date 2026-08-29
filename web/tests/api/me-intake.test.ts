@@ -41,7 +41,8 @@ vi.mock("@/lib/stage-task-seed", async (importOriginal) => {
   };
 });
 
-import { POST as postIntake } from "@/app/api/me/intake/route";
+import { GET as getIntake, POST as postIntake } from "@/app/api/me/intake/route";
+import { GET as getDealIntake } from "@/app/api/deals/[id]/intake/route";
 import { POST as claimInviteRoute } from "@/app/api/invites/[token]/claim/route";
 import { PATCH as advanceStageRoute } from "@/app/api/deals/[id]/stage/route";
 import { setVerifyOptionsForTesting } from "@/lib/auth";
@@ -1384,5 +1385,382 @@ describe("migration 000066 — intake backfill (#451)", () => {
     await expect(
       prisma.$executeRaw`UPDATE deals SET financing_type = 'seller-financed' WHERE id = ${deal.id}::uuid`
     ).rejects.toThrow();
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #427 — the client can read their own answers back, and change them.
+//
+// Until now `POST /api/me/intake` was the ONLY client-facing intake route: a
+// client submitted ~20 answers and could never see them again. The read is new;
+// the write already overwrote cleanly, and the cases below pin the two ways an
+// EDIT could regress the deal it lands on.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getIntakeReq(query: string, auth: string) {
+  return new Request(`http://localhost/api/me/intake${query}`, {
+    headers: { authorization: auth },
+  });
+}
+
+describe("GET /api/me/intake — a client reads their own answers (#427)", () => {
+  it("28. returns the questionnaire the client submitted, for the deal they are on", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "read",
+    });
+    const auth = await authHeader("auth0|client-read", ["buyer"]);
+    await postIntake(intakeReq({ deal_id: deal.id, role: "buyer", answers: BUYER_ANSWERS }, auth));
+
+    const res = await getIntake(getIntakeReq("?role=buyer", auth));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      deal_id: string;
+      intake: { role: string; submitted_at: string; answers: Record<string, unknown> } | null;
+    };
+    expect(body.deal_id).toBe(deal.id);
+    expect(body.intake?.role).toBe("buyer");
+    expect(body.intake?.answers.bedrooms).toBe("3");
+    expect(body.intake?.answers.areas).toBe("Hoover, Vestavia Hills");
+    // The client does not have to know their deal id to read this back.
+    expect(body.intake?.submitted_at).toBeTruthy();
+  });
+
+  it("29. resolves the deal from an explicit deal_id too", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "seller",
+      dealType: "sell",
+      suffix: "read-explicit",
+    });
+    const auth = await authHeader("auth0|client-read-explicit", ["seller"]);
+    await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "seller", answers: { address: "9 Oak Ln" } },
+        auth
+      )
+    );
+
+    const res = await getIntake(getIntakeReq(`?role=seller&deal_id=${deal.id}`, auth));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { intake: { answers: Record<string, unknown> } | null };
+    expect(body.intake?.answers.address).toBe("9 Oak Ln");
+  });
+
+  it("30. returns null — not an error — before anything has been submitted", async () => {
+    await seedClientOnDeal({ role: "buyer", dealType: "buy", suffix: "read-empty" });
+    const res = await getIntake(
+      getIntakeReq("?role=buyer", await authHeader("auth0|client-read-empty", ["buyer"]))
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { intake: unknown }).intake).toBeNull();
+  });
+
+  it("31. cannot read another client's deal, even with its id", async () => {
+    const mine = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "read-mine",
+    });
+    const theirs = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "read-theirs",
+    });
+    const theirAuth = await authHeader("auth0|client-read-theirs", ["buyer"]);
+    await postIntake(
+      intakeReq({ deal_id: theirs.deal.id, role: "buyer", answers: BUYER_ANSWERS }, theirAuth)
+    );
+
+    const myAuth = await authHeader("auth0|client-read-mine", ["buyer"]);
+    const res = await getIntake(getIntakeReq(`?role=buyer&deal_id=${theirs.deal.id}`, myAuth));
+    expect(res.status).toBe(404);
+
+    // And the unscoped read still finds only their own deal.
+    const own = await getIntake(getIntakeReq("?role=buyer", myAuth));
+    expect(((await own.json()) as { deal_id: string }).deal_id).toBe(mine.deal.id);
+  });
+
+  it("32. rejects a malformed deal_id rather than falling back to any deal", async () => {
+    await seedClientOnDeal({ role: "buyer", dealType: "buy", suffix: "read-bad-id" });
+    const res = await getIntake(
+      getIntakeReq(
+        "?role=buyer&deal_id=not-a-uuid",
+        await authHeader("auth0|client-read-bad-id", ["buyer"])
+      )
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("33. an unauthenticated read is rejected", async () => {
+    const res = await getIntake(
+      new Request("http://localhost/api/me/intake?role=buyer")
+    );
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("editing a submitted intake is safe to re-run (#427)", () => {
+  /**
+   * The two regressions this feature could realistically cause, both invisible
+   * to the client who triggers them:
+   *
+   *   - re-advancing the deal (or writing a second deal_stage_history row) when
+   *     an already-onboarded client corrects an answer, and
+   *   - minting a SECOND Mountain Mortgage pre-approval task, which would sit
+   *     open at high priority and gate the deal's next advance (#434 / #460).
+   *
+   * `applyIntakeToDeal` already guards both — the advance is gated on the deal
+   * still being in `intake`, and `seedPreApprovalTask` keys on `tasks.source`.
+   * These pin that from the EDIT direction specifically, including the case the
+   * ticket's own flow produces: the agent has moved the deal on since.
+   */
+  const MOUNTAIN_BUYER = { ...BUYER_ANSWERS, cashOrLoan: "loan", lenderChoice: "mountain" };
+
+  it("34. an edit does NOT re-advance the deal or add a stage-history row", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "edit-stage",
+    });
+    const auth = await authHeader("auth0|client-edit-stage", ["buyer"]);
+
+    // First submission: intake → active_search, one history row.
+    const first = await postIntake(
+      intakeReq({ deal_id: deal.id, role: "buyer", answers: MOUNTAIN_BUYER }, auth)
+    );
+    expect(((await first.json()) as { stage: string | null }).stage).toBe("active_search");
+
+    // The agent moves the deal on, as they would in the days that follow.
+    await prisma.deals.update({
+      where: { id: deal.id },
+      data: { stage: "under_contract" },
+    });
+
+    // Now the client edits a must-have from the portal.
+    const edit = await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...MOUNTAIN_BUYER, bedrooms: "4+" } },
+        auth
+      )
+    );
+    expect(edit.status).toBe(200);
+    const body = (await edit.json()) as { stage: string | null; updated: boolean };
+    expect(body.stage).toBeNull(); // nothing moved
+    expect(body.updated).toBe(true); // and the route knows it was an edit
+
+    const row = await prisma.deals.findUnique({
+      where: { id: deal.id },
+      select: { stage: true, intake: true },
+    });
+    // The deal stayed where the AGENT put it — an edit never retreats a deal to
+    // active_search, and never re-runs the intake advance.
+    expect(row?.stage).toBe("under_contract");
+    expect((row?.intake as { answers: Record<string, unknown> }).answers.bedrooms).toBe("4+");
+
+    const history = await prisma.deal_stage_history.findMany({
+      where: { deal_id: deal.id },
+      select: { from_stage: true, to_stage: true },
+    });
+    // Exactly the one row the first submission wrote.
+    expect(history).toHaveLength(1);
+    expect(history[0].to_stage).toBe("active_search");
+  });
+
+  it("35. an edit does NOT create a second pre-approval task", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "edit-task",
+    });
+    const auth = await authHeader("auth0|client-edit-task", ["buyer"]);
+
+    await postIntake(
+      intakeReq({ deal_id: deal.id, role: "buyer", answers: MOUNTAIN_BUYER }, auth)
+    );
+    const afterFirst = await prisma.tasks.findMany({
+      where: { deal_id: deal.id, source: PRE_APPROVAL_TASK_SOURCE },
+      select: { id: true, status: true },
+    });
+    expect(afterFirst).toHaveLength(1);
+
+    // The buyer works the task, then later edits their budget.
+    await prisma.tasks.update({
+      where: { id: afterFirst[0].id },
+      data: { status: "completed" },
+    });
+    await postIntake(
+      intakeReq(
+        {
+          deal_id: deal.id,
+          role: "buyer",
+          answers: { ...MOUNTAIN_BUYER, minBudget: 300000, maxBudget: 500000 },
+        },
+        auth
+      )
+    );
+
+    const afterEdit = await prisma.tasks.findMany({
+      where: { deal_id: deal.id, source: PRE_APPROVAL_TASK_SOURCE },
+      select: { id: true, status: true },
+    });
+    // Same single row, still completed — a second one would reopen a piece of
+    // work the buyer has already done and gate the deal's next advance.
+    expect(afterEdit).toHaveLength(1);
+    expect(afterEdit[0].id).toBe(afterFirst[0].id);
+    expect(afterEdit[0].status).toBe("completed");
+  });
+
+  it("36. an edited cash answer stays consistent with the financing_type column (#451)", async () => {
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "edit-financing",
+    });
+    const auth = await authHeader("auth0|client-edit-financing", ["buyer"]);
+
+    await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS, cashOrLoan: "loan" } },
+        auth
+      )
+    );
+    expect(
+      (await prisma.deals.findUnique({
+        where: { id: deal.id },
+        select: { financing_type: true },
+      }))?.financing_type
+    ).toBe("loan");
+
+    // The buyer changes their mind on the review screen.
+    await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS, cashOrLoan: "cash" } },
+        auth
+      )
+    );
+    expect(
+      (await prisma.deals.findUnique({
+        where: { id: deal.id },
+        select: { financing_type: true },
+      }))?.financing_type
+    ).toBe("cash");
+  });
+});
+
+describe("the agent hears about an intake EDIT (#427)", () => {
+  const sent: { to: string; subject: string; html: string }[] = [];
+
+  function captureEmails() {
+    sent.length = 0;
+    setEmailForTesting({
+      emails: {
+        send: async (msg: { to: string; subject: string; html: string }) => {
+          sent.push(msg);
+          return { data: { id: "email_test" }, error: null };
+        },
+      },
+    } as never);
+  }
+
+  it("37. emails the agent when a submitted intake changes, but not on the first submission", async () => {
+    captureEmails();
+    const { agent, deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "notify",
+    });
+    const auth = await authHeader("auth0|client-notify", ["buyer"]);
+
+    await postIntake(
+      intakeReq({ deal_id: deal.id, role: "buyer", answers: BUYER_ANSWERS }, auth)
+    );
+    // A first submission is already announced by the invite claim — sending
+    // here too would double up on one event.
+    expect(sent.filter((m) => /intake/i.test(m.subject))).toHaveLength(0);
+
+    sent.length = 0;
+    await postIntake(
+      intakeReq(
+        {
+          deal_id: deal.id,
+          role: "buyer",
+          answers: { ...BUYER_ANSWERS, minBudget: 300000, maxBudget: 600000 },
+        },
+        auth
+      )
+    );
+
+    const updates = sent.filter((m) => /updated their intake/i.test(m.subject));
+    expect(updates).toHaveLength(1);
+    expect(updates[0].to).toBe(agent.email);
+    // The changed budget is right there in the body — the point of telling them.
+    expect(updates[0].html).toContain("$300K");
+  });
+
+  it("38. a failing send never fails the client's save", async () => {
+    setEmailForTesting({
+      emails: {
+        send: async () => {
+          throw new Error("resend is down");
+        },
+      },
+    } as never);
+    const { deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "notify-fail",
+    });
+    const auth = await authHeader("auth0|client-notify-fail", ["buyer"]);
+
+    await postIntake(
+      intakeReq({ deal_id: deal.id, role: "buyer", answers: BUYER_ANSWERS }, auth)
+    );
+    const res = await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS, bedrooms: "4+" } },
+        auth
+      )
+    );
+
+    expect(res.status).toBe(200);
+    const row = await prisma.deals.findUnique({
+      where: { id: deal.id },
+      select: { intake: true },
+    });
+    expect((row?.intake as { answers: Record<string, unknown> }).answers.bedrooms).toBe("4+");
+  });
+});
+
+describe("GET /api/deals/[id]/intake — the agent still sees the edited answers (#427)", () => {
+  it("39. the agent's Client Intake panel reflects an edit made from the portal", async () => {
+    const { agent, deal } = await seedClientOnDeal({
+      role: "buyer",
+      dealType: "buy",
+      suffix: "agent-sees",
+    });
+    const clientAuth = await authHeader("auth0|client-agent-sees", ["buyer"]);
+
+    await postIntake(
+      intakeReq({ deal_id: deal.id, role: "buyer", answers: BUYER_ANSWERS }, clientAuth)
+    );
+    await postIntake(
+      intakeReq(
+        { deal_id: deal.id, role: "buyer", answers: { ...BUYER_ANSWERS, bedrooms: "5" } },
+        clientAuth
+      )
+    );
+
+    const res = await getDealIntake(
+      new Request(`http://localhost/api/deals/${deal.id}/intake`, {
+        headers: { authorization: await authHeader("auth0|agent-agent-sees", ["agent"]) },
+      }),
+      { params: Promise.resolve({ id: deal.id }) }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { intake: { answers: Record<string, unknown> } };
+    expect(body.intake.answers.bedrooms).toBe("5");
+    expect(agent.id).toBeTruthy();
   });
 });

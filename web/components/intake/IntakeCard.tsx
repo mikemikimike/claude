@@ -20,6 +20,17 @@
 import { useEffect, useState } from "react";
 import { ClipboardList } from "lucide-react";
 import { api } from "@/lib/api-client";
+// #427 — the labels and value formatting are shared with the CLIENT's own
+// review screen (lib/intake-review.ts), so a reworded question reads the same
+// on both sides of the deal.
+import {
+  BUYER_FIELDS,
+  LENDER_LABELS,
+  SELLER_FIELDS,
+  formatValue,
+  humanize,
+  moneyShort,
+} from "@/lib/intake-fields";
 
 export type DealIntakePayload = {
   role: "buyer" | "seller";
@@ -35,110 +46,6 @@ type Props = {
 
 // Keys rendered by the special rows below — excluded from the generic list.
 const SPECIAL_KEYS = new Set(["minBudget", "maxBudget", "lenderChoice"]);
-
-// Number answers formatted as dollars.
-const MONEY_KEYS = new Set(["minBudget", "maxBudget", "mortgageBalance", "propertyTax", "hoaDues"]);
-
-const LENDER_LABELS: Record<string, string> = {
-  mountain: "Mountain Mortgage",
-  fastpass: "Fast Pass (Mountain Mortgage)",
-  other: "Using another lender",
-};
-
-// Curated display order + labels per role. Unknown keys still render (with a
-// humanized label) so future questionnaire fields never silently disappear.
-const BUYER_FIELDS: ReadonlyArray<{ key: string; label: string }> = [
-  { key: "areas", label: "Areas" },
-  { key: "bedrooms", label: "Bedrooms" },
-  { key: "bathrooms", label: "Bathrooms" },
-  { key: "propertyType", label: "Property type" },
-  { key: "cashOrLoan", label: "Cash or loan" },
-  { key: "firstTimeBuyer", label: "First-time buyer" },
-  { key: "journeyStage", label: "Journey stage" },
-  { key: "creditScore", label: "Credit score" },
-  { key: "monthlyIncome", label: "Monthly income" },
-  { key: "employment", label: "Employment" },
-  { key: "military", label: "Military service" },
-  { key: "garage", label: "Garage" },
-  { key: "pool", label: "Pool" },
-  { key: "basement", label: "Basement" },
-  { key: "schools", label: "School preference" },
-  { key: "trackingAddress", label: "First property to track" },
-  { key: "notes", label: "Notes" },
-  { key: "contactName", label: "Contact name" },
-  { key: "contactPhone", label: "Contact phone" },
-  { key: "contactEmail", label: "Contact email" },
-];
-
-const SELLER_FIELDS: ReadonlyArray<{ key: string; label: string }> = [
-  { key: "address", label: "Property address" },
-  { key: "desiredListDate", label: "Target list date" },
-  { key: "whatMattersMost", label: "Top priority" },
-  { key: "priceExpectation", label: "Price expectation" },
-  { key: "hardDeadline", label: "Hard deadline" },
-  { key: "timelineFlexibility", label: "Timeline flexibility" },
-  { key: "reasonsForSelling", label: "Reasons for selling" },
-  { key: "stressfulOrUrgent", label: "Stressful or urgent" },
-  { key: "stressNotes", label: "What's going on" },
-  { key: "hasMortgage", label: "Has a mortgage" },
-  { key: "mortgageBalance", label: "Mortgage balance" },
-  { key: "mortgageRate", label: "Interest rate" },
-  { key: "mortgageAssumable", label: "Assumable" },
-  { key: "hasHeloc", label: "HELOC / 2nd mortgage" },
-  { key: "propertyTax", label: "Annual property tax" },
-  { key: "propertyType", label: "Property type" },
-  { key: "occupancy", label: "Occupancy" },
-  { key: "yearBuilt", label: "Year built" },
-  { key: "conditionRating", label: "Condition" },
-  { key: "knownIssues", label: "Known issues" },
-  { key: "majorUpgrades", label: "Major upgrades" },
-  { key: "upgradesList", label: "Upgrades" },
-  { key: "hasHoa", label: "HOA" },
-  { key: "hoaDues", label: "HOA dues (monthly)" },
-  { key: "preListingPrep", label: "Open to pre-listing prep" },
-  { key: "preListingSpend", label: "Pre-listing budget" },
-  { key: "biggerFear", label: "Bigger fear" },
-  { key: "openToIncentives", label: "Open to incentives" },
-  { key: "alsoLookingToBuy", label: "Also looking to buy" },
-  { key: "buyTiming", label: "Buy timing" },
-  { key: "needSaleProceeds", label: "Needs sale proceeds to buy" },
-  { key: "contactName", label: "Contact name" },
-  { key: "contactPhone", label: "Contact phone" },
-  { key: "contactEmail", label: "Contact email" },
-];
-
-function moneyShort(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M`;
-  return `$${Math.round(n / 1000)}K`;
-}
-
-/** camelCase → "Camel case" fallback label for unlisted keys. */
-function humanize(key: string): string {
-  const spaced = key.replace(/([A-Z])/g, " $1").toLowerCase().trim();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-/** Formats an answer value for display; null = skip the row entirely. */
-function formatValue(key: string, v: unknown): string | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v === "string") {
-    const t = v.trim();
-    if (!t) return null;
-    if (t === "yes") return "Yes";
-    if (t === "no") return "No";
-    return t;
-  }
-  if (typeof v === "number") {
-    if (!Number.isFinite(v)) return null;
-    return MONEY_KEYS.has(key) ? moneyShort(v) : String(v);
-  }
-  if (typeof v === "boolean") return v ? "Yes" : "No";
-  if (Array.isArray(v)) {
-    const items = v.filter((x): x is string => typeof x === "string" && x.trim() !== "");
-    return items.length > 0 ? items.join(", ") : null;
-  }
-  return null;
-}
 
 type Row = { key: string; label: string; value: string };
 

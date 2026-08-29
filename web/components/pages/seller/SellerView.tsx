@@ -12,6 +12,7 @@ import { useMyDeals } from "@/hooks/useMyDeals";
 import { useNotifications } from "@/hooks/useNotifications";
 import PortalDealDocuments from "@/components/portal/PortalDealDocuments";
 import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
+import ClientPreferencesCard from "@/components/portal/ClientPreferencesCard";
 // #422 — the same orienting frame the buyer portal uses; the guidance line
 // lives once, in PortalStageHeader.
 import PortalStageHeader from "@/components/portal/PortalStageHeader";
@@ -1499,6 +1500,16 @@ export default function SellerView() {
           <VendorDirectory dealId={deal.id} />
           <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
         </PortalSection>
+
+        {/* #427 — the opt-in way back into the questionnaire. Renders ONLY once
+            an intake is on file, and lives in the reference rail rather than
+            the actions region: it is something the seller can look at, never
+            something they are being asked to do (#407). */}
+        <ClientPreferencesCard
+          role="seller"
+          intakeSubmitted={deal.intakeSubmitted}
+          reviewHref="/onboard/seller?review=true"
+        />
       </div>
 
       {/* Welcome modal — shown once after onboarding completes */}

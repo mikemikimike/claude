@@ -5,6 +5,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle2, ChevronRight, Circle } from 'lucide-react';
 import OnboardingLayout from './OnboardingLayout';
 import PitchPage, { LenderChoice } from './PitchPage';
+import IntakeReviewScreen from './IntakeReviewScreen';
+import { buildSellerReview } from '@/lib/intake-review';
 import { useAuthStore } from "@/lib/store/authStore";
 import { api } from "@/lib/api-client";
 
@@ -62,16 +64,25 @@ const EMPTY: SellerData = {
 
 // ─── Screen IDs + visibility logic ──────────────────────────────────────────
 
-type ScreenId =
+export type ScreenId =
   | 'address' | 'priceExpectation' | 'whatMattersMost' | 'desiredListDate'
   | 'hardDeadline' | 'timelineFlexibility' | 'reasonsForSelling' | 'stressfulOrUrgent'
   | 'hasMortgage' | 'mortgageBalance' | 'mortgageRate' | 'mortgageAssumable' | 'hasHeloc'
   | 'propertyTax' | 'propertyType' | 'occupancy' | 'yearBuilt' | 'conditionRating'
   | 'knownIssues' | 'majorUpgrades' | 'hasHoa' | 'preListingPrep' | 'preListingSpend'
   | 'biggerFear' | 'openToIncentives' | 'alsoLookingToBuy' | 'buyTiming'
-  | 'needSaleProceeds' | 'pitchPage' | 'smoothExitPitch' | 'contactInfo' | 'confirmation';
+  | 'needSaleProceeds' | 'pitchPage' | 'smoothExitPitch' | 'contactInfo'
+  | 'review' | 'confirmation';
 
-function getVisibleScreens(data: SellerData): ScreenId[] {
+/**
+ * The screens THIS seller is asked, in order — the wizard's own skip logic.
+ *
+ * Exported (#427) for two consumers: `buildSellerReview` takes this list rather
+ * than restating the mortgage / also-buying branches, and
+ * `tests/components/seller-onboarding-review.test.tsx` pins that the review
+ * sits immediately before the confirmation on every branch.
+ */
+export function getVisibleScreens(data: SellerData): ScreenId[] {
   const s: ScreenId[] = [
     'address', 'priceExpectation', 'whatMattersMost', 'desiredListDate',
     'hardDeadline', 'timelineFlexibility', 'reasonsForSelling', 'stressfulOrUrgent',
@@ -88,7 +99,12 @@ function getVisibleScreens(data: SellerData): ScreenId[] {
   if (data.alsoLookingToBuy === 'yes') {
     s.push('buyTiming', 'needSaleProceeds', 'pitchPage');
   }
-  s.push('smoothExitPitch', 'contactInfo', 'confirmation');
+  // #427 — 'review' is the last thing before the questionnaire is sent: every
+  // question this seller was actually asked, each one editable. It sits inside
+  // getVisibleScreens (rather than beside it) so buildSellerReview can take
+  // this list as THE answer to "which questions did they see", instead of
+  // restating the mortgage / also-buying branches above and drifting from them.
+  s.push('smoothExitPitch', 'contactInfo', 'review', 'confirmation');
   return s;
 }
 
@@ -361,6 +377,32 @@ function ConfirmationScreen({ data, agentName }: { data: SellerData; agentName: 
   );
 }
 
+/**
+ * The [localText, localText2, localAnswer] a screen should open with (#427).
+ *
+ * Only screens with a free-text / yes-no local input appear here; everything
+ * else opens blank, exactly as before. Kept beside the renderer it mirrors — if
+ * a screen starts reading a different answer, both halves are on this page.
+ */
+function seedLocalInputs(id: ScreenId | undefined, d: SellerData): [string, string, string] {
+  switch (id) {
+    case 'address':          return [d.address, '', ''];
+    case 'stressfulOrUrgent': return [d.stressNotes, '', d.stressfulOrUrgent];
+    case 'hasMortgage':      return ['', '', d.hasMortgage];
+    case 'mortgageBalance':  return [d.mortgageBalance, '', ''];
+    case 'mortgageRate':     return [d.mortgageRate, '', ''];
+    case 'hasHeloc':         return ['', '', d.hasHeloc];
+    case 'propertyTax':      return [d.propertyTax, '', ''];
+    case 'yearBuilt':        return [d.yearBuilt, '', ''];
+    case 'majorUpgrades':    return [d.upgradesList, '', d.majorUpgrades];
+    case 'hasHoa':           return [d.hoaDues, '', d.hasHoa];
+    case 'alsoLookingToBuy': return ['', '', d.alsoLookingToBuy];
+    case 'needSaleProceeds': return ['', '', d.needSaleProceeds];
+    case 'contactInfo':      return [d.contactName, d.contactPhone, d.contactEmail];
+    default:                 return ['', '', ''];
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function SellerOnboarding() {
@@ -376,6 +418,21 @@ export default function SellerOnboarding() {
 
   const [data, setData] = useState<SellerData>(EMPTY);
   const [screenIndex, setScreenIndex] = useState(0);
+
+  /**
+   * #427 — `?review=true` reopens the finished questionnaire from the portal's
+   * *Your preferences* link. Opt-in only: nothing routes a seller here on its
+   * own and the portal never prompts for it (#407). The wizard boots onto the
+   * review with the saved answers loaded, and "Save changes" posts and returns
+   * to the portal — the pitch, Smooth Exit and confirmation screens are never
+   * reached.
+   */
+  const editMode = searchParams.get('review') === 'true';
+  // An answer changed FROM the review returns to the review, not onwards.
+  const [reviewReturn, setReviewReturn] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editLoaded, setEditLoaded] = useState(!editMode);
 
   // Fetch invite details from token to get real agentName + the seller's deal
   // (threaded into the Smooth Exit pitch links below).
@@ -413,6 +470,34 @@ export default function SellerOnboarding() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, activeUser]);
 
+  // #427 edit mode: pull the submitted questionnaire back so the review shows
+  // what they actually answered. Loads exactly once — a re-run after the seller
+  // has started editing would silently revert their changes.
+  const editLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!editMode || !activeUser || editLoadedRef.current) return;
+    editLoadedRef.current = true;
+    api
+      .get<{ deal_id: string | null; intake: { answers?: Record<string, unknown> } | null }>(
+        '/me/intake?role=seller',
+      )
+      .then((res) => {
+        if (res.deal_id) setDealId(res.deal_id);
+        const saved = res.intake?.answers;
+        const merged = saved ? { ...EMPTY, ...(saved as Partial<SellerData>) } : EMPTY;
+        setData(merged);
+        // The index is only meaningful against the screen list the loaded
+        // answers produce — the mortgage / also-buying branches change its
+        // length — so it is computed from `merged`, not from EMPTY.
+        setScreenIndex(Math.max(getVisibleScreens(merged).indexOf('review'), 0));
+        setEditLoaded(true);
+      })
+      .catch(() => {
+        setEditLoaded(true);
+        setSaveError("We couldn't load your saved answers. Try again in a moment.");
+      });
+  }, [editMode, activeUser]);
+
   // On confirmation screen: persist contact info + claim invite
   const hasSubmittedRef = useRef(false);
 
@@ -424,10 +509,13 @@ export default function SellerOnboarding() {
   const visibleScreens = getVisibleScreens(data);
   const currentId = visibleScreens[screenIndex];
   const total = visibleScreens.length;
-  const progress = Math.min((screenIndex / (total - 1)) * 100, 100);
+  const progress = editMode ? 100 : Math.min((screenIndex / (total - 1)) * 100, 100);
 
   useEffect(() => {
-    if (currentId !== 'confirmation' || hasSubmittedRef.current) return;
+    // Edit mode never reaches the confirmation screen (the review saves and
+    // leaves), but the guard is explicit: re-running the first-submission side
+    // effects would re-mark onboarding complete and re-POST the invite claim.
+    if (editMode || currentId !== 'confirmation' || hasSubmittedRef.current) return;
     hasSubmittedRef.current = true;
 
     const name = data.contactName || activeUser?.name || '';
@@ -463,32 +551,89 @@ export default function SellerOnboarding() {
 
   // Reset local input state when screen changes. React 19 pattern: compare
   // to previous value during render rather than syncing in useEffect.
+  //
+  // #427 — "reset" now means "seed from the answer already on file", not
+  // "blank". A seller reopening a screen from the review has to see what they
+  // said in order to change it, and the contact screen in particular disables
+  // its Continue button until all three fields are non-empty, so a blank reset
+  // would strand them on a screen they only came back to correct.
   const [prevScreenIndex, setPrevScreenIndex] = useState(screenIndex);
   if (screenIndex !== prevScreenIndex) {
     setPrevScreenIndex(screenIndex);
-    setLocalText('');
-    setLocalText2('');
-    setLocalAnswer('');
+    const [t1, t2, t3] = seedLocalInputs(visibleScreens[screenIndex], data);
+    setLocalText(t1);
+    setLocalText2(t2);
+    setLocalAnswer(t3);
   }
 
   function set<K extends keyof SellerData>(key: K, val: SellerData[K]) {
     setData((d) => ({ ...d, [key]: val }));
   }
 
-  function advance() { setScreenIndex((i) => Math.min(i + 1, total - 1)); }
-  function back()    { setScreenIndex((i) => Math.max(i - 1, 0)); }
+  /**
+   * #427 — after an edit made FROM the review, "next" means "back to the
+   * review". `visible` is passed in because an answer that changes the branch
+   * structure (hasMortgage, alsoLookingToBuy) also changes where the review
+   * sits in the list.
+   */
+  function goNext(visible: ScreenId[]) {
+    if (reviewReturn) {
+      setReviewReturn(false);
+      setScreenIndex(Math.max(visible.indexOf('review'), 0));
+      return;
+    }
+    setScreenIndex((i) => Math.min(i + 1, visible.length - 1));
+  }
+
+  function advance() { goNext(visibleScreens); }
+
+  function back() {
+    // Backing out of an edit is a cancel: it returns to the review rather than
+    // dropping the seller into the middle of the questionnaire.
+    if (reviewReturn) {
+      setReviewReturn(false);
+      setScreenIndex(Math.max(visibleScreens.indexOf('review'), 0));
+      return;
+    }
+    setScreenIndex((i) => Math.max(i - 1, 0));
+  }
 
   function autoAdvance(key: keyof SellerData, val: string) {
     setData((d) => ({ ...d, [key]: val }));
-    setScreenIndex((i) => {
-      // recalculate visible screens with the new data to determine next index
-      const newData = { ...data, [key]: val };
-      const newVisible = getVisibleScreens(newData);
-      return Math.min(i + 1, newVisible.length - 1);
-    });
+    // recalculate visible screens with the new data to determine next index
+    goNext(getVisibleScreens({ ...data, [key]: val }));
   }
 
-  const showBack = screenIndex > 0 && currentId !== 'confirmation';
+  /** Review row -> the screen that asked for that answer. */
+  function editAnswer(target: number | string) {
+    const idx = visibleScreens.indexOf(String(target) as ScreenId);
+    if (idx < 0) return;
+    setReviewReturn(true);
+    setScreenIndex(idx);
+  }
+
+  const portalHref = activeUser?.id ? `/seller/${activeUser.id}` : '/';
+
+  /** Edit mode's submit: overwrite the saved intake, then back to the portal. */
+  async function saveEdits() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.post('/me/intake', {
+        role: 'seller',
+        ...(dealId ? { deal_id: dealId } : {}),
+        answers: { ...data },
+      });
+      router.push(portalHref);
+    } catch {
+      setSaveError("We couldn't save your changes. Please try again.");
+      setSaving(false);
+    }
+  }
+
+  // In edit mode the review IS the top of the stack - behind it is only the
+  // portal, which the review's own Cancel handles.
+  const showBack = !editMode && screenIndex > 0 && currentId !== 'confirmation';
 
   // ── Screen renderers ─────────────────────────────────────────────────────
 
@@ -774,6 +919,38 @@ export default function SellerOnboarding() {
               />
             </div>
           </div>
+        );
+      }
+
+      case 'review': {
+        if (!editLoaded) {
+          return (
+            <div key={key} className="screen-enter flex flex-col items-center py-10 text-center">
+              <p className="text-sm text-gray-400">
+                {activeUser
+                  ? 'Loading your answers…'
+                  : 'Sign in to review your preferences.'}
+              </p>
+            </div>
+          );
+        }
+        return (
+          <IntakeReviewScreen
+            key={key}
+            rows={buildSellerReview(data, visibleScreens)}
+            onEdit={editAnswer}
+            onSubmit={editMode ? saveEdits : advance}
+            submitLabel={editMode ? 'Save changes' : 'Looks good — send to my agent'}
+            title={editMode ? 'Your preferences' : "Here's what you told us"}
+            blurb={
+              editMode
+                ? 'Tap anything to change it, then save.'
+                : 'Tap anything to change it before we send this to your agent.'
+            }
+            saving={saving}
+            error={saveError}
+            onCancel={editMode ? () => router.push(portalHref) : undefined}
+          />
         );
       }
 

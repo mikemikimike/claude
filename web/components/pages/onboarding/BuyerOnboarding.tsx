@@ -8,6 +8,8 @@ import { api } from "@/lib/api-client";
 import { CheckCircle2, ChevronRight, ArrowRight } from 'lucide-react';
 import OnboardingLayout from './OnboardingLayout';
 import PitchPage, { LenderChoice } from './PitchPage';
+import IntakeReviewScreen from './IntakeReviewScreen';
+import { CASH_SKIP, buildBuyerReview } from '@/lib/intake-review';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,7 +61,15 @@ type ScreenDef = {
   note?: string;
 };
 
-const SCREENS: ScreenDef[] = [
+/**
+ * Screens 1–15, in order: screen `n` renders `SCREENS[n - 1]`.
+ *
+ * Exported for `tests/components/buyer-onboarding.test.tsx`, which pins that
+ * mapping against `BUYER_REVIEW_FIELDS` (#427) — a reordered question then
+ * breaks a test instead of silently pointing a review row's "Change" button at
+ * the wrong screen.
+ */
+export const SCREENS: ScreenDef[] = [
   { field: 'firstTimeBuyer', question: 'Is this your first time buying a home?', type: 'yes_no' },
   { field: 'bedrooms', question: 'How many bedrooms do you need?', type: 'options', options: ['1', '2', '3', '4+'] },
   { field: 'bathrooms', question: 'How many bathrooms?', type: 'options', options: ['1', '2', '3+'] },
@@ -77,10 +87,17 @@ const SCREENS: ScreenDef[] = [
   { field: 'monthlyIncome', question: 'What is your gross monthly income?', type: 'number', placeholder: '6,000', note: 'Before taxes · used to estimate your buying power' },
 ];
 
-// 0 = cash/loan, 1–15 = questions, 16 = budget, 17 = buying power, 18 = pitch, 19 = address, 20 = mtn CTA, 21 = contact info, 22 = done
-const TOTAL = 23;
-// screens that are loan-only — skipped for cash buyers
-const CASH_SKIP = new Set([11, 12, 14, 15, 17, 18]);
+// 0 = cash/loan, 1–15 = questions, 16 = budget, 17 = buying power, 18 = pitch,
+// 19 = address, 20 = mtn CTA, 21 = contact info, 22 = review (#427), 23 = done
+const TOTAL = 24;
+/**
+ * "Here's what you told us" (#427) — the last step before the questionnaire is
+ * sent, and the screen the portal's *Your preferences* link reopens.
+ */
+export const REVIEW_SCREEN = 22;
+// The loan-only screen set now lives in lib/intake-review, because the review
+// has to skip exactly the questions this navigation skipped. Two copies would
+// let a cash buyer's review list a question they were never asked.
 // screen 20 (MTN CTA) is shown only when lenderChoice is 'mountain' or 'fastpass'
 const MM_URL = 'https://mountainmortgage-paul.my1003app.com/2233772/register?time=1755484352205';
 
@@ -517,12 +534,14 @@ function WelcomeScreen({ agentName, agentAvatar, onStart }: {
   );
 }
 
-function ContactInfoScreen({ onContinue }: {
+function ContactInfoScreen({ initial, onContinue }: {
+  /** #427 — reopened from the review, the form starts on what they already gave. */
+  initial?: { name: string; phone: string; email: string };
   onContinue: (name: string, phone: string, email: string) => void;
 }) {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
+  const [name, setName] = useState(initial?.name ?? '');
+  const [phone, setPhone] = useState(initial?.phone ?? '');
+  const [email, setEmail] = useState(initial?.email ?? '');
   const valid = name.trim() && phone.trim() && email.trim();
   const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800 outline-none focus:border-brand-navy/30 focus:ring-2 focus:ring-brand-navy/10';
 
@@ -613,10 +632,30 @@ export default function BuyerOnboarding() {
     }
   });
 
-  const [screen, setScreen] = useState(() => (resumeState ? 20 : -1));
+  /**
+   * #427 — `?review=true` reopens the finished questionnaire from the portal's
+   * *Your preferences* link. It is an OPT-IN entry point: nothing routes a
+   * client here on its own, and nothing in the portal prompts for it (#407).
+   * In this mode the wizard boots straight onto the review screen with the
+   * saved answers loaded, and "Save changes" posts and returns to the portal —
+   * the welcome, pitch, Fast Pass and done screens are never reached.
+   */
+  const editMode = searchParams.get('review') === 'true';
+
+  const [screen, setScreen] = useState(() =>
+    editMode ? REVIEW_SCREEN : resumeState ? 20 : -1,
+  );
   const [data, setData] = useState<BuyerData>(() =>
     resumeState?.lenderChoice ? { ...EMPTY, lenderChoice: resumeState.lenderChoice } : EMPTY,
   );
+
+  // Review-screen navigation: an edit made FROM the review returns to it rather
+  // than continuing forward through the questionnaire.
+  const [reviewReturn, setReviewReturn] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editLoaded, setEditLoaded] = useState(!editMode);
+  const [editDealId, setEditDealId] = useState<string | null>(null);
 
   // Fetch invite details from token to get real agentName (+ the deal the
   // intake should land on, threaded into the /me/intake fallback below).
@@ -651,11 +690,37 @@ export default function BuyerOnboarding() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, activeUser]);
 
+  // #427 edit mode: pull the submitted questionnaire back so the review shows
+  // what they actually answered. Loads exactly once — a re-run after the user
+  // has started editing would silently revert their changes.
+  const editLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!editMode || !activeUser || editLoadedRef.current) return;
+    editLoadedRef.current = true;
+    api
+      .get<{ deal_id: string | null; intake: { answers?: Record<string, unknown> } | null }>(
+        '/me/intake?role=buyer',
+      )
+      .then((res) => {
+        setEditDealId(res.deal_id ?? null);
+        const saved = res.intake?.answers;
+        if (saved) setData((d) => ({ ...d, ...(saved as Partial<BuyerData>) }));
+        setEditLoaded(true);
+      })
+      .catch(() => {
+        setEditLoaded(true);
+        setSaveError("We couldn't load your saved answers. Try again in a moment.");
+      });
+  }, [editMode, activeUser]);
+
   // On done screen: persist contact info + the full questionnaire (#175) +
   // claim invite (which advances stage + creates task + notifies agent)
   const hasSubmittedRef = useRef(false);
   useEffect(() => {
-    if (screen !== TOTAL - 1 || hasSubmittedRef.current) return;
+    // Edit mode never reaches the done screen (the review saves and leaves), but
+    // the guard is explicit: re-running the first-submission side effects would
+    // re-mark onboarding complete and re-POST the invite claim.
+    if (editMode || screen !== TOTAL - 1 || hasSubmittedRef.current) return;
     hasSubmittedRef.current = true;
 
     const name = data.contactName || activeUser?.name || '';
@@ -701,7 +766,13 @@ export default function BuyerOnboarding() {
 
   const isCash = data.cashOrLoan === 'cash';
 
-  const progress = screen < 0 ? 3 : screen >= TOTAL - 1 ? 100 : Math.round(((screen + 1) / TOTAL) * 100);
+  const progress = editMode
+    ? 100
+    : screen < 0
+      ? 3
+      : screen >= TOTAL - 1
+        ? 100
+        : Math.round(((screen + 1) / TOTAL) * 100);
 
   function set<K extends keyof BuyerData>(key: K, val: BuyerData[K]) {
     setData((d) => ({ ...d, [key]: val }));
@@ -712,6 +783,13 @@ export default function BuyerOnboarding() {
   // "the latest state" across renders — these closures already see the
   // current values, and setScreen's updater receives the latest screen.
   function advance(currentIsCash?: boolean) {
+    // #427 — an answer being CHANGED from the review goes straight back to the
+    // review; only a first pass walks on through the questionnaire.
+    if (reviewReturn) {
+      setReviewReturn(false);
+      setScreen(REVIEW_SCREEN);
+      return;
+    }
     const useCash = typeof currentIsCash === 'boolean' ? currentIsCash : isCash;
     const lc = data.lenderChoice;
     setScreen((s) => {
@@ -722,6 +800,13 @@ export default function BuyerOnboarding() {
   }
 
   function back() {
+    // Backing out of an edit is a cancel: it returns to the review, unchanged
+    // answer and all, rather than dropping them into the middle of the wizard.
+    if (reviewReturn) {
+      setReviewReturn(false);
+      setScreen(REVIEW_SCREEN);
+      return;
+    }
     const useCash = isCash;
     const lc = data.lenderChoice;
     setScreen((s) => {
@@ -731,14 +816,76 @@ export default function BuyerOnboarding() {
     });
   }
 
+  /** Review row → the screen that asked for that answer. */
+  function editAnswer(target: number | string) {
+    const next = typeof target === 'number' ? target : Number(target);
+    if (!Number.isFinite(next)) return;
+    setReviewReturn(true);
+    setScreen(next);
+  }
+
+  const portalHref = activeUser?.id ? `/buyer/${activeUser.id}` : '/';
+
+  /** Edit mode's submit: overwrite the saved intake, then back to the portal. */
+  async function saveEdits() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.post('/me/intake', {
+        role: 'buyer',
+        ...(editDealId ? { deal_id: editDealId } : {}),
+        answers: { ...data },
+      });
+      router.push(portalHref);
+    } catch {
+      setSaveError("We couldn't save your changes. Please try again.");
+      setSaving(false);
+    }
+  }
+
   function handleSelect(field: keyof BuyerData, val: string) {
     set(field, val as BuyerData[keyof BuyerData]);
     advance();
   }
 
-  const showBack = screen >= 1 && screen < TOTAL - 1;
+  // In edit mode the review IS the top of the stack — there is nothing behind it
+  // but the portal, which the review's own Cancel handles.
+  const showBack = !editMode && screen >= 1 && screen < TOTAL - 1;
 
   function renderScreen() {
+    // Screen 22: review — "here's what you told us", every row editable (#427).
+    if (screen === REVIEW_SCREEN) {
+      if (!editLoaded) {
+        return (
+          <div className="screen-enter flex flex-col items-center py-10 text-center">
+            <p className="text-sm text-gray-400">
+              {activeUser
+                ? 'Loading your answers…'
+                : 'Sign in to review your preferences.'}
+            </p>
+          </div>
+        );
+      }
+      return (
+        <IntakeReviewScreen
+          key={REVIEW_SCREEN}
+          rows={buildBuyerReview(data, isCash)}
+          onEdit={editAnswer}
+          onSubmit={editMode ? saveEdits : () => advance()}
+          submitLabel={editMode ? 'Save changes' : 'Looks good — send to my agent'}
+          title={editMode ? 'Your preferences' : "Here's what you told us"}
+          blurb={
+            editMode
+              ? 'Tap anything to change it, then save.'
+              : 'Tap anything to change it before we send this to your agent.'
+          }
+          saving={saving}
+          error={saveError}
+          onCancel={editMode ? () => router.push(portalHref) : undefined}
+        />
+      );
+    }
+
     // Welcome
     if (screen < 0) {
       return <WelcomeScreen agentName={agentName} onStart={advance} />;
@@ -841,7 +988,9 @@ export default function BuyerOnboarding() {
           value={data.trackingAddress}
           onChange={(v) => set('trackingAddress', v)}
           onContinue={() => {
-            if (data.lenderChoice === 'fastpass') {
+            // #427 — a buyer editing this from the review is not re-running
+            // enrollment; only a first pass detours into the Fast Pass survey.
+            if (!reviewReturn && data.lenderChoice === 'fastpass') {
               sessionStorage.setItem('rtf_onboarding_resume', JSON.stringify({ lenderChoice: 'fastpass' }));
               router.push('/fast-pass?fromOnboarding=true');
             } else {
@@ -868,6 +1017,11 @@ export default function BuyerOnboarding() {
       return (
         <ContactInfoScreen
           key={21}
+          initial={{
+            name: data.contactName,
+            phone: data.contactPhone,
+            email: data.contactEmail,
+          }}
           onContinue={(name, phone, email) => {
             set('contactName', name);
             set('contactPhone', phone);
@@ -878,8 +1032,8 @@ export default function BuyerOnboarding() {
       );
     }
 
-    // Screen 22: done
-    return <DoneScreen key={22} agentName={agentName} />;
+    // Screen 23: done
+    return <DoneScreen key={23} agentName={agentName} />;
   }
 
   return (

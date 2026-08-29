@@ -778,6 +778,36 @@ describe("SellerView — portal orientation (#422)", () => {
     expect(screen.getByRole("button", { name: /begin my onboarding/i })).toBeTruthy();
   });
 
+  /**
+   * #427 — the seller half of the same rule: an opt-in door back into the
+   * questionnaire, shown ONLY where the onboarding CTA is gone. If this ever
+   * renders for a seller with no intake, that is #407 coming back.
+   */
+  it("offers an opt-in way back into the answers once an intake is on file", () => {
+    dealOverrides = { stage: "active_search", intakeSubmitted: true };
+    renderSeller(<SellerView />);
+
+    const card = screen.getByTestId("client-preferences");
+    expect(card.textContent).toMatch(/your preferences/i);
+    expect(card.textContent).toMatch(/change it any time/i);
+  });
+
+  it("shows NO preferences card to a seller who has not submitted an intake", () => {
+    dealOverrides = { stage: "intake", intakeSubmitted: false };
+    renderSeller(<SellerView />);
+
+    expect(screen.queryByTestId("client-preferences")).toBeNull();
+  });
+
+  it("keeps the preferences card in the reference rail, never in the actions region", () => {
+    dealOverrides = { stage: "active_search", intakeSubmitted: true };
+    renderSeller(<SellerView />);
+
+    const card = screen.getByTestId("client-preferences");
+    expect(screen.getByTestId("portal-secondary").contains(card)).toBe(true);
+    expect(screen.getByTestId("portal-actions").contains(card)).toBe(false);
+  });
+
   it("keeps the journey rail and the agent card in the secondary column", () => {
     dealOverrides = { stage: "active_search" };
     renderSeller(<SellerView />);

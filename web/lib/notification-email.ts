@@ -326,6 +326,52 @@ export async function emailOfferRequested(input: {
 }
 
 /**
+ * Intake UPDATED (#427): the client edited an already-submitted questionnaire
+ * from the portal's *Your preferences* screen. Email the deal's agent.
+ *
+ * Only UPDATES reach here — a first submission is already announced by the
+ * invite claim, and sending both would double up on the same event. The body
+ * carries the same one-line highlights the claim email uses, so a changed
+ * budget or must-have is visible without opening the app; the full answers are
+ * on the deal's Client Intake panel, which the link points at.
+ *
+ * Never emails the client who made the edit (they know), and never the deal's
+ * other participants — this is agent-facing news. Best-effort: the route wraps
+ * the call so a send failure cannot fail the client's save.
+ */
+export async function emailIntakeUpdated(input: {
+  req: Request;
+  dealId: string;
+  role: "buyer" | "seller";
+  answers: Record<string, unknown>;
+  /** The client who made the edit — never emailed. */
+  updatedBy: string;
+}): Promise<void> {
+  const { req, dealId, role, answers, updatedBy } = input;
+  const agent = await dealAgent(dealId);
+  if (!agent || agent.id === updatedBy) return;
+
+  const origin = originFromRequest(req);
+  const who = role === "buyer" ? "buyer" : "seller";
+  await fanOut(
+    [
+      {
+        userId: agent.id,
+        email: agent.email,
+        url: recipientUrl(origin, "agent", agent.id, dealId),
+      },
+    ],
+    {
+      subject: `Your ${who} updated their intake answers`,
+      heading: "Updated intake answers",
+      body:
+        `Your ${who} changed what they told you in onboarding.` +
+        `${formatIntakeHighlights(role, answers)} Open the deal to see the full intake.`,
+    }
+  );
+}
+
+/**
  * Form reviewed (#295): an admin approved or rejected an agent-uploaded form.
  * Email the OWNING AGENT so they learn the outcome without having to reopen
  * Settings → My Forms and notice a status chip changed. A rejection carries the

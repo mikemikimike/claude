@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactElement } from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MyDeal } from "@/hooks/useMyDeals";
 import type { AppNotification } from "@/hooks/useNotifications";
@@ -966,6 +966,42 @@ describe("BuyerView — portal orientation (#422)", () => {
     renderView(<BuyerView />);
 
     expect(screen.getByRole("button", { name: /begin my onboarding/i })).toBeTruthy();
+  });
+
+  /**
+   * #427 — the client can now reopen their answers. The card that does it is
+   * the mirror image of the #407 rule above and has to stay that way: it
+   * appears only where the onboarding CTA is GONE, it is reference rather than
+   * an action, and its copy never implies anything is outstanding.
+   */
+  it("offers an opt-in way back into the answers once an intake is on file", () => {
+    atStage("active_search", { intakeSubmitted: true });
+    renderView(<BuyerView />);
+
+    const card = screen.getByTestId("client-preferences");
+    expect(card.textContent).toMatch(/your preferences/i);
+    expect(
+      within(card).getByRole("button", { name: /review my answers/i })
+    ).toBeTruthy();
+  });
+
+  it("shows NO preferences card to a buyer who has not submitted an intake", () => {
+    // Otherwise this becomes a second onboarding prompt by another name (#407).
+    atStage("intake", { intakeSubmitted: false });
+    renderView(<BuyerView />);
+
+    expect(screen.queryByTestId("client-preferences")).toBeNull();
+  });
+
+  it("keeps the preferences card in the reference rail, never in the actions region", () => {
+    atStage("active_search", { intakeSubmitted: true });
+    renderView(<BuyerView />);
+
+    const card = screen.getByTestId("client-preferences");
+    expect(screen.getByTestId("portal-secondary").contains(card)).toBe(true);
+    expect(screen.getByTestId("portal-actions").contains(card)).toBe(false);
+    // And it never reads as outstanding work.
+    expect(card.textContent).not.toMatch(/begin|start|finish|complete your|needs?\s/i);
   });
 
   it("moves the journey rail and the agent card into the secondary column", () => {

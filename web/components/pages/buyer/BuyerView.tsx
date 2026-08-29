@@ -25,6 +25,7 @@ import { useProperties, TrackedProperty, PropertyStatus } from "@/hooks/usePrope
 import { useMLSListings, MLSListing } from "@/hooks/useMLS";
 import PortalDealDocuments from "@/components/portal/PortalDealDocuments";
 import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
+import ClientPreferencesCard from "@/components/portal/ClientPreferencesCard";
 // #422 — the orienting frame. The stage header answers "where am I" and "who
 // moves this on"; PortalSection groups the cards under a heading that says
 // whose job they are.
@@ -2659,6 +2660,16 @@ export default function BuyerView() {
           <VendorDirectory dealId={deal.id} />
           <AgentCard agentName={deal.agentName} agentEmail={deal.agentEmail} agentPhone={deal.agentPhone} />
         </PortalSection>
+
+        {/* #427 — the opt-in way back into the questionnaire. Renders ONLY once
+            an intake is on file, and lives in the reference rail rather than
+            the actions region: it is something the buyer can look at, never
+            something they are being asked to do (#407). */}
+        <ClientPreferencesCard
+          role="buyer"
+          intakeSubmitted={deal.intakeSubmitted}
+          reviewHref="/onboard/buyer?review=true"
+        />
       </div>
     </div>
   );
