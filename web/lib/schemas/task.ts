@@ -12,10 +12,10 @@ import { z } from "zod";
 export const createTaskBodySchema = z.object({
   title: z.string().nullish(),
   description: z.string().nullish(),
-  priority: z.string().nullish(),
-  source: z.string().nullish(),
+  priority: z.enum(["high", "medium", "low"]).nullish(),
+  source: z.enum(["ai", "manual"]).nullish(),
   stage_context: z.string().nullish(),
-  role: z.string().nullish(),
+  role: z.enum(["agent", "buyer", "seller", "tc", "admin", "third_party"]).nullish(),
   due_date: z.string().nullish(),
   assigned_to: z.string().nullish(),
 });

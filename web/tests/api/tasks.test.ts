@@ -190,6 +190,33 @@ describe("POST /api/deals/[id]/tasks", () => {
     expect(body.status).toBe("pending");
   });
 
+  it("rejects invalid task unions and server-owned preapproval source", async () => {
+    const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
+    const deal = await createDeal({ agent_id: agent.id });
+    for (const field of ["source", "priority", "role"] as const) {
+      const req = new Request(`http://localhost/api/deals/${deal.id}/tasks`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: await authHeader("auth0|a", ["agent"]),
+        },
+        body: JSON.stringify({ title: "Invalid task", [field]: "nonsense" }),
+      });
+      const res = await createTaskRoute(req, ctx(deal.id));
+      expect(res.status).toBe(400);
+    }
+    const preapproval = new Request(`http://localhost/api/deals/${deal.id}/tasks`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await authHeader("auth0|a", ["agent"]),
+      },
+      body: JSON.stringify({ title: "Shadow gate", source: "preapproval" }),
+    });
+    expect((await createTaskRoute(preapproval, ctx(deal.id))).status).toBe(400);
+    expect(await prisma.tasks.count({ where: { deal_id: deal.id } })).toBe(0);
+  });
+
   it("400 when title is missing", async () => {
     const agent = await createUser({ role: "agent", auth0_id: "auth0|a" });
     const deal = await createDeal({ agent_id: agent.id });
