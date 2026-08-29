@@ -24,12 +24,16 @@ import { useOffers } from "@/hooks/useOffers";
 import { useNetSheet, recalcLines, calcNetProceeds } from "@/hooks/useNetSheet";
 import { useChecklist } from "@/hooks/useChecklist";
 import {
-  CheckCircle2, Circle, AlertCircle, Loader2, XCircle,
+  CheckCircle2, ChevronRight, Circle, AlertCircle, Loader2, XCircle,
   MapPin, Calendar, MessageSquare, FileText,
   Phone, Mail, Home, Star,
   TrendingUp, Clock, DollarSign, Wrench, Send,
 } from 'lucide-react';
 import VendorDirectory from "@/components/VendorDirectory";
+// #423 — inside the list: whose task is this, and when does it belong to.
+// Shared with the buyer portal so the two never drift apart again.
+import PortalHandledForYou from "@/components/portal/PortalHandledForYou";
+import { groupTasksByStage, sortTasksByUrgency, stageGroupHeading } from "@/lib/portal-tasks";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -109,42 +113,101 @@ const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
 // ─── Shared: Task card ────────────────────────────────────────────────────────
 
 // `done` (#408) mirrors BuyerView: the caller overrides the server status while
-// an optimistic completion is still in flight. A completed card is clickable —
-// tapping it re-opens the task, so a mis-tap is no longer permanent.
+// an optimistic completion is still in flight.
+//
+// #423 — both directions now expand to a confirmation, the way the buyer
+// portal's card already did for completing. This card used to fire on a single
+// tap of the whole row in EITHER direction: a stray thumb on a phone could mark
+// work done that wasn't, or re-open work that was. The second is the worse of
+// the two, because an open high-priority task blocks the agent's forward
+// advance — so a mis-tap could re-block a deal they had already moved on from.
 function TaskCard({ task, done = false, onComplete, onUncomplete }: { task: Task; done?: boolean; onComplete?: (id: string) => void; onUncomplete?: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
   const isOverdue = task.status === 'overdue';
   const isDone    = done || task.status === 'completed';
+  // Nothing to confirm means nothing to open — a row that expands onto a dead
+  // control is exactly the click target this ticket removes. Kept
+  // character-for-character identical to BuyerView's TaskCard.
+  const canExpand = isDone ? !!onUncomplete : !!onComplete;
+
   return (
-    <button
-      onClick={() => (isDone ? onUncomplete?.(task.id) : onComplete?.(task.id))}
-      className={`w-full text-left flex items-start gap-3 rounded-xl p-4 transition-all ${
-        isOverdue ? 'bg-red-50 border border-red-100' :
-        isDone    ? 'bg-gray-50 opacity-60' :
-        'bg-white border border-gray-100 hover:border-green-200 hover:bg-green-50/40 active:scale-[0.99]'
-      }`}
-    >
-      {isDone
-        ? <CheckCircle2 size={18} className="text-green-500 flex-shrink-0" />
-        : TASK_STATUS_ICON[task.status]}
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold ${isDone ? 'line-through text-gray-400' : 'text-brand-navy'}`}>
-          {task.title}
-        </p>
-        {task.description && !isDone && (
-          <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">{task.description}</p>
-        )}
-        {task.dueDate && !isDone && (
-          <p className={`mt-1 text-[11px] font-medium ${isOverdue ? 'text-red-500' : 'text-gray-400'}`}>
-            {isOverdue ? 'Overdue — ' : 'Due '}{task.dueDate}
+    <div className={`rounded-xl overflow-hidden transition-all ${
+      isOverdue ? 'bg-red-50 border border-red-100' :
+      isDone    ? 'bg-gray-50 border border-gray-100 opacity-60' :
+      'bg-white border border-gray-100'
+    }`}>
+      <button
+        onClick={() => { if (canExpand) setExpanded((p) => !p); }}
+        className="w-full text-left flex items-start gap-3 p-4 hover:bg-black/[0.02] transition-colors active:scale-[0.99]"
+      >
+        {isDone
+          ? <CheckCircle2 size={18} className="text-green-500 flex-shrink-0" />
+          : TASK_STATUS_ICON[task.status]}
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-semibold ${isDone ? 'line-through text-gray-400' : 'text-brand-navy'}`}>
+            {task.title}
           </p>
+          {task.description && !isDone && (
+            <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">{task.description}</p>
+          )}
+          {task.dueDate && !isDone && (
+            <p className={`mt-1 text-[11px] font-medium ${isOverdue ? 'text-red-500' : 'text-gray-400'}`}>
+              {isOverdue ? 'Overdue — ' : 'Due '}{task.dueDate}
+            </p>
+          )}
+          {isDone && (
+            <p className="mt-0.5 text-[11px] text-green-600">
+              Marked complete{onUncomplete ? ' — tap to re-open' : ''}
+            </p>
+          )}
+        </div>
+        {canExpand && (
+          <ChevronRight size={14} className={`flex-shrink-0 text-gray-300 mt-0.5 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />
         )}
-        {isDone && (
-          <p className="mt-0.5 text-[11px] text-green-600">
-            Marked complete{onUncomplete ? ' — tap to undo' : ''}
+      </button>
+
+      {expanded && !isDone && (
+        <div className={`border-t px-4 py-3 space-y-2 ${isOverdue ? 'border-red-100 bg-red-50/40' : 'border-gray-100 bg-gray-50/60'}`}>
+          <p className="text-xs text-gray-500 leading-relaxed">Did you complete this outside the app?</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { onComplete?.(task.id); setExpanded(false); }}
+              className="flex-1 rounded-lg bg-green-500 py-2.5 text-xs font-bold text-white hover:bg-green-600 transition-colors"
+            >
+              Yes, I&apos;m done ✓
+            </button>
+            <button
+              onClick={() => setExpanded(false)}
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-500 hover:bg-gray-50 transition-colors"
+            >
+              Not yet
+            </button>
+          </div>
+        </div>
+      )}
+
+      {expanded && isDone && (
+        <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-3 space-y-2">
+          <p className="text-xs text-gray-500 leading-relaxed">
+            Re-open this task? Your agent will see it as not done again.
           </p>
-        )}
-      </div>
-    </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { onUncomplete?.(task.id); setExpanded(false); }}
+              className="flex-1 rounded-lg border border-gray-200 bg-white py-2.5 text-xs font-bold text-brand-navy hover:bg-gray-50 transition-colors"
+            >
+              Yes, re-open
+            </button>
+            <button
+              onClick={() => setExpanded(false)}
+              className="rounded-lg bg-green-500 px-4 py-2.5 text-xs font-semibold text-white hover:bg-green-600 transition-colors"
+            >
+              Keep it done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1134,6 +1197,10 @@ export default function SellerView() {
   // #408: completed tasks are RENDERED, not just counted.
   const doneTasks = sellerTasks.filter(isTaskDone);
   const completedCount = doneTasks.length;
+  // #423 — everything on the deal that is NOT the seller's and is still open,
+  // shown read-only so "what is happening?" has an answer that isn't a row
+  // they can't act on.
+  const handledForYou = tasks.filter((t) => t.assignedTo !== 'seller' && !isTaskDone(t));
   const { slots: availability } = useShowingAvailability(deal?.id);
   const [showingModalDismissed, setShowingModalDismissed] = useState(
     () => !!sessionStorage.getItem(`showing_avail_prompted_${deal?.id ?? ''}`)
@@ -1193,6 +1260,12 @@ export default function SellerView() {
   const actionsFirst = hasOverdue || openTasks.length > 0;
   const stageFocus = SELLER_STAGE_FOCUS[deal.stage];
 
+  // ── #423: the shape of the task list itself ────────────────────────────────
+  // Open work leads with the stage the deal is in; completed work runs
+  // chronologically, as a history of what the seller has already done.
+  const openTaskGroups = groupTasksByStage(sortTasksByUrgency(openTasks), deal.stage);
+  const doneTaskGroups = groupTasksByStage(doneTasks, deal.stage, 'chronological');
+
   const actionsSection = showActions ? (
     <PortalSection
       key="actions"
@@ -1240,15 +1313,51 @@ export default function SellerView() {
                   </p>
                 </div>
               )}
-              {openTasks.filter((t) => t.status === 'overdue').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
-              {openTasks.filter((t) => t.status === 'in_progress').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
-              {openTasks.filter((t) => t.status === 'pending').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
-              {completedCount > 0 && (
-                <p className="text-center text-xs text-gray-300 pt-1">
-                  {completedCount} task{completedCount !== 1 ? 's' : ''} completed
-                </p>
+              {/* The seller's OWN open work, grouped by stage (#423). */}
+              {openTaskGroups.length > 0 && (
+                <div data-testid="portal-tasks-yours" className="space-y-3">
+                  <p className="px-0.5 text-xs font-black uppercase tracking-wide text-brand-navy">
+                    Your tasks
+                  </p>
+                  {openTaskGroups.map((group) => (
+                    <div key={group.stage} data-testid={`task-group-${group.stage}`} className="space-y-2">
+                      <p className="px-0.5 text-[11px] font-semibold text-gray-400">
+                        {stageGroupHeading(group.when, SELLER_STAGE_LABELS[group.stage])}
+                      </p>
+                      {group.tasks.map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} />)}
+                    </div>
+                  ))}
+                </div>
               )}
-              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} />)}
+
+              {/* History — still re-openable (#408), now behind a confirmation. */}
+              {doneTaskGroups.length > 0 && (
+                <div data-testid="portal-tasks-done" className="space-y-3 pt-2">
+                  {/* gray-400, not gray-300 — see the note in BuyerView: a 300
+                      heading is invisible on the portal's off-white background. */}
+                  <div className="px-0.5">
+                    <p className="text-xs font-black uppercase tracking-wide text-gray-400">Already done</p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {completedCount} task{completedCount !== 1 ? 's' : ''} completed
+                    </p>
+                  </div>
+                  {doneTaskGroups.map((group) => (
+                    <div key={group.stage} data-testid={`task-history-${group.stage}`} className="space-y-2">
+                      <p className="px-0.5 text-[11px] font-semibold text-gray-400">
+                        {SELLER_STAGE_LABELS[group.stage]}
+                      </p>
+                      {group.tasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} />)}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Everything else on the deal — read-only, collapsed, attributed. */}
+              {handledForYou.length > 0 && (
+                <div className="pt-2">
+                  <PortalHandledForYou tasks={handledForYou} />
+                </div>
+              )}
             </div>
           )}
           {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}

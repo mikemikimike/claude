@@ -52,13 +52,21 @@ vi.mock("@/hooks/useTasks", () => ({
   useTasks: () => ({ tasks: mockTasks, loading: false, error: null, refresh: vi.fn() }),
 }));
 
+// #423 — module-level spies so a case can assert that a click did (or, for the
+// undo confirmation, did NOT yet) reach the hook. Referenced through wrapper
+// arrows: the vi.mock factory runs during the import phase, before these
+// initialisers, so naming them directly in the returned object would be a TDZ
+// error.
+const mockComplete = vi.fn();
+const mockUncomplete = vi.fn();
+
 vi.mock("@/hooks/useTaskCompletion", () => ({
   useTaskCompletion: () => ({
     completedIds: mockCompletedIds,
     error: null,
     clearError: vi.fn(),
-    complete: vi.fn(),
-    uncomplete: vi.fn(),
+    complete: (id: string) => mockComplete(id),
+    uncomplete: (id: string) => mockUncomplete(id),
   }),
 }));
 
@@ -967,5 +975,336 @@ describe("BuyerView — portal orientation (#422)", () => {
     const secondary = screen.getByTestId("portal-secondary");
     expect(secondary.contains(screen.getByTestId("stage-row-active_search"))).toBe(true);
     expect(secondary.textContent).toMatch(/alice agent/i);
+  });
+});
+
+/**
+ * #423 — the buyer portal's task list has to explain itself.
+ *
+ * A tester on a `pre_close` deal: "I don't know what this is… do I need to be
+ * doing these? Why can't I click them?" Three separate causes, all inside this
+ * one list: nothing said which rows were the buyer's, nothing said which stage
+ * a row belonged to, and — after #408 made completed rows re-openable — a
+ * single stray tap on a completed card silently re-opened it, which re-blocks
+ * the agent's forward advance.
+ *
+ * #422 owns where this region sits on the page; these cases are about what is
+ * inside it.
+ */
+describe("BuyerView — task ownership, stage grouping and a symmetric undo (#423)", () => {
+  function task(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-1",
+      dealId: DEAL_ID,
+      title: "Tour three homes",
+      assignedTo: "buyer",
+      assignedToId: "u-buyer",
+      status: "pending",
+      priority: "medium",
+      source: "ai",
+      stageContext: "active_search",
+      ...overrides,
+    } as Task;
+  }
+
+  function atStage(stage: MyDeal["stage"], extra: Partial<MyDeal> = {}) {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [{ ...DEAL, stage, ...extra }],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+  }
+
+  // ── Case 1: whose task is this? ────────────────────────────────────────────
+
+  describe("ownership", () => {
+    it("puts the buyer's own tasks under a heading that says they are theirs", () => {
+      atStage("under_contract");
+      mockTasks = [task({ title: "Wire your earnest money", stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      const yours = screen.getByTestId("portal-tasks-yours");
+      expect(yours.textContent).toMatch(/your tasks/i);
+      expect(yours.contains(screen.getByText("Wire your earnest money"))).toBe(true);
+    });
+
+    it("never renders someone else's task as a bare row in the buyer's own list", () => {
+      atStage("under_contract");
+      mockTasks = [
+        task({ id: "mine", title: "Wire your earnest money", stageContext: "under_contract" }),
+        task({
+          id: "theirs",
+          title: "Order the appraisal",
+          assignedTo: "agent",
+          stageContext: "under_contract",
+        }),
+      ];
+      renderView(<BuyerView />);
+
+      const yours = screen.getByTestId("portal-tasks-yours");
+      expect(yours.textContent).not.toMatch(/order the appraisal/i);
+    });
+
+    it("explains what is being handled for them, with a name on every row", () => {
+      atStage("under_contract");
+      mockTasks = [
+        task({
+          id: "a",
+          title: "Order the appraisal",
+          assignedTo: "agent",
+          stageContext: "under_contract",
+        }),
+        task({
+          id: "b",
+          title: "Chase the title commitment",
+          assignedTo: "tc",
+          stageContext: "under_contract",
+        }),
+      ];
+      renderView(<BuyerView />);
+
+      const handled = screen.getByTestId("portal-tasks-handled");
+      expect(handled.textContent).toMatch(/order the appraisal/i);
+      expect(handled.textContent).toMatch(/your agent/i);
+      expect(handled.textContent).toMatch(/chase the title commitment/i);
+      expect(handled.textContent).toMatch(/coordinator/i);
+      // The whole point: it says out loud that none of it is the buyer's job.
+      expect(handled.textContent).toMatch(/nothing here needs you/i);
+    });
+
+    it("gives the handled-for-you list no click targets at all", () => {
+      atStage("under_contract");
+      mockTasks = [
+        task({
+          id: "a",
+          title: "Order the appraisal",
+          assignedTo: "agent",
+          stageContext: "under_contract",
+        }),
+      ];
+      renderView(<BuyerView />);
+
+      // Only the <summary> that opens the disclosure is interactive; the rows
+      // themselves are not buttons, so nothing reads as a dead click target.
+      const handled = screen.getByTestId("portal-tasks-handled");
+      expect(handled.querySelectorAll("button")).toHaveLength(0);
+      expect(handled.querySelector("summary")).toBeTruthy();
+    });
+
+    it("shows no handled-for-you region when everything on the deal is the buyer's", () => {
+      atStage("under_contract");
+      mockTasks = [task({ stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      expect(screen.queryByTestId("portal-tasks-handled")).toBeNull();
+    });
+
+    it("does not advertise other people's finished work", () => {
+      atStage("under_contract");
+      mockTasks = [
+        task({ id: "mine", stageContext: "under_contract" }),
+        task({
+          id: "theirs",
+          title: "Order the appraisal",
+          assignedTo: "agent",
+          status: "completed",
+          stageContext: "under_contract",
+        }),
+      ];
+      renderView(<BuyerView />);
+
+      expect(screen.queryByTestId("portal-tasks-handled")).toBeNull();
+    });
+
+    // The rail's per-stage count is #420's visible proof. Work being done FOR
+    // the buyer must never inflate a number they cannot move.
+    it("keeps other people's tasks out of the journey rail's open counts (#420)", () => {
+      atStage("offer_active");
+      mockTasks = [task({ id: "theirs", assignedTo: "agent", stageContext: "active_search" })];
+      renderView(<BuyerView />);
+
+      expect(
+        screen.getByTestId("stage-row-active_search").getAttribute("data-stage-state"),
+      ).toBe("complete");
+    });
+  });
+
+  // ── Case 2: when does this task belong to? ─────────────────────────────────
+
+  describe("stage grouping", () => {
+    it("groups open tasks by stage and leads with the stage the deal is in", () => {
+      atStage("under_contract");
+      mockTasks = [
+        task({ id: "old", title: "Tour three homes", stageContext: "active_search" }),
+        task({ id: "new", title: "Wire your earnest money", stageContext: "under_contract" }),
+      ];
+      renderView(<BuyerView />);
+
+      const now = screen.getByTestId("task-group-under_contract");
+      const earlier = screen.getByTestId("task-group-active_search");
+      expect(
+        now.compareDocumentPosition(earlier) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it("frames a walked-past stage's leftovers as history, not as the job in hand", () => {
+      atStage("under_contract");
+      mockTasks = [task({ stageContext: "active_search" })];
+      renderView(<BuyerView />);
+
+      const earlier = screen.getByTestId("task-group-active_search");
+      // The buyer's own stage vocabulary — "Home Search", not "active_search".
+      expect(earlier.textContent).toMatch(/still open from home search/i);
+    });
+
+    it("names the current stage on its own group", () => {
+      atStage("under_contract");
+      mockTasks = [task({ stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      expect(screen.getByTestId("task-group-under_contract").textContent).toMatch(
+        /right now — under contract/i,
+      );
+    });
+
+    it("marks a later stage's task as not yet due", () => {
+      atStage("under_contract");
+      mockTasks = [task({ title: "Bring your ID to closing", stageContext: "closing" })];
+      renderView(<BuyerView />);
+
+      expect(screen.getByTestId("task-group-closing").textContent).toMatch(
+        /coming up — closing day/i,
+      );
+    });
+
+    it("shows completed tasks as a history, oldest stage first", () => {
+      atStage("under_contract");
+      mockTasks = [
+        task({
+          id: "b",
+          title: "Wire your earnest money",
+          status: "completed",
+          stageContext: "under_contract",
+        }),
+        task({
+          id: "a",
+          title: "Sign the buyer agency agreement",
+          status: "completed",
+          stageContext: "intake",
+        }),
+      ];
+      renderView(<BuyerView />);
+
+      const done = screen.getByTestId("portal-tasks-done");
+      expect(done.textContent).toMatch(/already done/i);
+      const first = screen.getByTestId("task-history-intake");
+      const second = screen.getByTestId("task-history-under_contract");
+      expect(
+        first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      // …and completed work never sits in the "your tasks" list.
+      expect(screen.queryByTestId("portal-tasks-yours")).toBeNull();
+    });
+
+    it("renders a task with no stage_context rather than dropping it", () => {
+      atStage("pre_close");
+      mockTasks = [task({ title: "Set up your utilities", stageContext: undefined as never })];
+      renderView(<BuyerView />);
+
+      expect(screen.getByText("Set up your utilities")).toBeTruthy();
+    });
+
+    it("keeps the empty state when the buyer genuinely has nothing open", () => {
+      atStage("active_search");
+      mockTasks = [];
+      renderView(<BuyerView />);
+
+      expect(screen.getByText(/all caught up/i)).toBeTruthy();
+      expect(screen.queryByTestId("portal-tasks-yours")).toBeNull();
+    });
+
+    // The state the ticket is really aimed at: the buyer owes nothing, but the
+    // deal is plainly busy. "All caught up" on its own reads as "nothing is
+    // happening"; the disclosure is what makes it read as "nothing is waiting
+    // on YOU".
+    it("still explains the deal's other work when the buyer's own list is empty", () => {
+      atStage("under_contract");
+      mockTasks = [
+        task({
+          id: "theirs",
+          title: "Order the appraisal",
+          assignedTo: "agent",
+          stageContext: "under_contract",
+        }),
+      ];
+      renderView(<BuyerView />);
+
+      expect(screen.getByText(/all caught up/i)).toBeTruthy();
+      expect(screen.getByTestId("portal-tasks-handled").textContent).toMatch(
+        /order the appraisal/i,
+      );
+    });
+  });
+
+  // ── Case 3: the undo asymmetry #408 left behind ────────────────────────────
+
+  describe("undo is as deliberate as completing", () => {
+    it("does not re-open a completed task on a single tap", () => {
+      atStage("under_contract");
+      mockTasks = [task({ status: "completed", stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      fireEvent.click(screen.getByText("Tour three homes"));
+
+      // A stray tap on a phone must not silently re-block the agent's advance.
+      expect(mockUncomplete).not.toHaveBeenCalled();
+    });
+
+    it("asks first, then re-opens — the same expand-and-confirm completing uses", () => {
+      atStage("under_contract");
+      mockTasks = [task({ status: "completed", stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      fireEvent.click(screen.getByText("Tour three homes"));
+      const confirm = screen.getByRole("button", { name: /yes, re-?open/i });
+      expect(confirm).toBeTruthy();
+      fireEvent.click(confirm);
+
+      expect(mockUncomplete).toHaveBeenCalledWith("task-1");
+    });
+
+    it("says what re-opening costs, so it is a decision and not a slip", () => {
+      atStage("under_contract");
+      mockTasks = [task({ status: "completed", stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      fireEvent.click(screen.getByText("Tour three homes"));
+      expect(screen.getByText(/agent will see it as not done/i)).toBeTruthy();
+    });
+
+    it("backs out of the confirmation without touching the task", () => {
+      atStage("under_contract");
+      mockTasks = [task({ status: "completed", stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      fireEvent.click(screen.getByText("Tour three homes"));
+      fireEvent.click(screen.getByRole("button", { name: /keep it done/i }));
+
+      expect(mockUncomplete).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: /yes, re-?open/i })).toBeNull();
+    });
+
+    // Case 4 from the ticket — the existing behaviour must not regress.
+    it("still expands an open task to its confirm panel", () => {
+      atStage("under_contract");
+      mockTasks = [task({ stageContext: "under_contract" })];
+      renderView(<BuyerView />);
+
+      fireEvent.click(screen.getByText("Tour three homes"));
+      fireEvent.click(screen.getByRole("button", { name: /yes, i.?m done/i }));
+
+      expect(mockComplete).toHaveBeenCalledWith("task-1");
+    });
   });
 });

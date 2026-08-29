@@ -30,6 +30,11 @@ import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
 // whose job they are.
 import PortalStageHeader from "@/components/portal/PortalStageHeader";
 import PortalSection from "@/components/portal/PortalSection";
+// #423 — inside the list: whose task is this, and when does it belong to. The
+// decisions are pure functions in lib/portal-tasks; the read-only "handled for
+// you" disclosure is shared with the seller portal.
+import PortalHandledForYou from "@/components/portal/PortalHandledForYou";
+import { groupTasksByStage, sortTasksByUrgency, stageGroupHeading } from "@/lib/portal-tasks";
 import { useDocuments, getSigningUrl, requestUploadUrl, confirmUpload } from "@/hooks/useDocuments";
 import { uploadFileToStorage } from "@/lib/direct-upload";
 import ClientNotifications from "@/components/ClientNotifications";
@@ -97,9 +102,21 @@ function TaskCard({ task, done = false, onComplete, onUncomplete, onUploaded }: 
   const isOverdue = task.status === 'overdue';
   const isDone = done || task.status === 'completed';
   const actionType = task.actionType ?? 'confirm';
+  // #423 — a card only opens when the panel behind it can actually do
+  // something: an undo for a done card, a completion for an open one. Without
+  // the handler it would expand onto a dead control, which is the same
+  // "unexplained row that does nothing" this ticket exists to remove. Kept
+  // character-for-character identical to SellerView's TaskCard so the rule
+  // can't drift between the two portals.
+  const canExpand = isDone ? !!onUncomplete : !!onComplete;
 
   function handleConfirm() {
     onComplete?.(task.id);
+    setExpanded(false);
+  }
+
+  function handleReopen() {
+    onUncomplete?.(task.id);
     setExpanded(false);
   }
 
@@ -148,11 +165,19 @@ function TaskCard({ task, done = false, onComplete, onUncomplete, onUploaded }: 
       'bg-white border border-gray-100'
     }`}>
       {/* Header row */}
-      {/* #408: a completed row is NOT disabled — tapping it re-opens the task.
+      {/* #408: a completed row is NOT disabled — it can be re-opened.
           `disabled={isDone}` made a mis-tapped "Yes, I'm done" permanent for
-          the client, with no undo anywhere in the portal. */}
+          the client, with no undo anywhere in the portal.
+
+          #423: but the tap no longer re-opens it outright. #408 wired the undo
+          to a single tap of the whole card while COMPLETING went through
+          expand → "Yes, I'm done ✓" — so on a phone a stray thumb silently
+          re-opened a task, and because open high-priority tasks gate the
+          agent's forward advance that re-blocked a deal they had moved on
+          from. Both directions now cost the same two deliberate taps; only the
+          panel underneath differs. */}
       <button
-        onClick={() => (isDone ? onUncomplete?.(task.id) : setExpanded((p) => !p))}
+        onClick={() => { if (canExpand) setExpanded((p) => !p); }}
         className="w-full text-left flex items-start gap-3 p-4 hover:bg-black/[0.02] transition-colors active:scale-[0.99]"
       >
         {isDone
@@ -173,14 +198,39 @@ function TaskCard({ task, done = false, onComplete, onUncomplete, onUploaded }: 
           )}
           {isDone && (
             <p className="mt-0.5 text-[11px] text-green-600">
-              Marked complete{onUncomplete ? ' — tap to undo' : ''}
+              Marked complete{onUncomplete ? ' — tap to re-open' : ''}
             </p>
           )}
         </div>
-        {!isDone && (
+        {canExpand && (
           <ChevronRight size={14} className={`flex-shrink-0 text-gray-300 mt-0.5 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />
         )}
       </button>
+
+      {/* Re-open panel (#423) — the mirror image of the confirm panel below.
+          It states the consequence, because re-opening is the destructive
+          direction: the agent's deal picks the task back up as outstanding. */}
+      {expanded && isDone && (
+        <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-3 space-y-2">
+          <p className="text-xs text-gray-500 leading-relaxed">
+            Re-open this task? Your agent will see it as not done again.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleReopen}
+              className="flex-1 rounded-lg border border-gray-200 bg-white py-2.5 text-xs font-bold text-brand-navy hover:bg-gray-50 transition-colors"
+            >
+              Yes, re-open
+            </button>
+            <button
+              onClick={() => setExpanded(false)}
+              className="rounded-lg bg-green-500 px-4 py-2.5 text-xs font-semibold text-white hover:bg-green-600 transition-colors"
+            >
+              Keep it done
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Action panel */}
       {expanded && !isDone && (
@@ -2297,6 +2347,11 @@ export default function BuyerView() {
   // one-way door (the row disappeared and nothing could bring it back).
   const doneTasks = buyerTasks.filter(isTaskDone);
   const completedCount = doneTasks.length;
+  // #423 — everything on the deal that is NOT the buyer's and is still open.
+  // Shown read-only, collapsed, so "what is happening?" has an answer that
+  // isn't a row they can't act on. A finished agent task is left out: it is
+  // neither news nor something they can move.
+  const handledForYou = tasks.filter((t) => t.assignedTo !== 'buyer' && !isTaskDone(t));
   // #435 — the open pre-approval ask, if there is one. Keyed on the task's
   // source, so a cash buyer (never seeded one) and a buyer who has closed it
   // both get nothing. `openTasks` already accounts for the optimistic tick, so
@@ -2363,6 +2418,14 @@ export default function BuyerView() {
   const actionsFirst =
     hasOverdue || openTasks.length > 0 || !!preApprovalTask || fastPassNeedsPayment;
 
+  // ── #423: the shape of the task list itself ────────────────────────────────
+  // Open work leads with the stage the deal is in, so leftovers from a stage
+  // the buyer has walked past read as catch-up rather than as today's job.
+  // Completed work runs the other way — chronologically, as a history of what
+  // they have already done.
+  const openTaskGroups = groupTasksByStage(sortTasksByUrgency(openTasks), deal.stage);
+  const doneTaskGroups = groupTasksByStage(doneTasks, deal.stage, 'chronological');
+
   const actionsSection = showActions ? (
     <PortalSection
       key="actions"
@@ -2422,15 +2485,57 @@ export default function BuyerView() {
                   </p>
                 </div>
               )}
-              {openTasks.filter((t) => t.status === 'overdue').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
-              {openTasks.filter((t) => t.status === 'in_progress').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
-              {openTasks.filter((t) => t.status === 'pending').map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
-              {completedCount > 0 && (
-                <p className="text-center text-xs text-gray-300 pt-1">
-                  {completedCount} task{completedCount !== 1 ? 's' : ''} completed
-                </p>
+              {/* The buyer's OWN open work, grouped by stage (#423). This used
+                  to be three flat `filter(status === …)` passes, which both
+                  lost the sense of when a task belonged to and silently drew
+                  nothing for any status outside those three. */}
+              {openTaskGroups.length > 0 && (
+                <div data-testid="portal-tasks-yours" className="space-y-3">
+                  <p className="px-0.5 text-xs font-black uppercase tracking-wide text-brand-navy">
+                    Your tasks
+                  </p>
+                  {openTaskGroups.map((group) => (
+                    <div key={group.stage} data-testid={`task-group-${group.stage}`} className="space-y-2">
+                      <p className="px-0.5 text-[11px] font-semibold text-gray-400">
+                        {stageGroupHeading(group.when, BUYER_STAGE_LABELS[group.stage])}
+                      </p>
+                      {group.tasks.map((t) => <TaskCard key={t.id} task={t} onComplete={handleComplete} onUploaded={invalidateDocuments} />)}
+                    </div>
+                  ))}
+                </div>
               )}
-              {doneTasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} onUploaded={invalidateDocuments} />)}
+
+              {/* History. Still re-openable (#408) — now behind a confirmation
+                  (#423) — but framed as things already behind them. */}
+              {doneTaskGroups.length > 0 && (
+                <div data-testid="portal-tasks-done" className="space-y-3 pt-2">
+                  {/* gray-400, not gray-300: on the portal's off-white
+                      background a 300 heading is effectively invisible, and
+                      "history" must still be readable history. The rows below
+                      carry the muting (opacity, strikethrough), not the labels. */}
+                  <div className="px-0.5">
+                    <p className="text-xs font-black uppercase tracking-wide text-gray-400">Already done</p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {completedCount} task{completedCount !== 1 ? 's' : ''} completed
+                    </p>
+                  </div>
+                  {doneTaskGroups.map((group) => (
+                    <div key={group.stage} data-testid={`task-history-${group.stage}`} className="space-y-2">
+                      <p className="px-0.5 text-[11px] font-semibold text-gray-400">
+                        {BUYER_STAGE_LABELS[group.stage]}
+                      </p>
+                      {group.tasks.map((t) => <TaskCard key={t.id} task={t} done onUncomplete={handleUncomplete} onUploaded={invalidateDocuments} />)}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Everything else on the deal — read-only, collapsed, attributed. */}
+              {handledForYou.length > 0 && (
+                <div className="pt-2">
+                  <PortalHandledForYou tasks={handledForYou} />
+                </div>
+              )}
             </div>
           )}
           {activeTab === 'messages' && <MessagesTab dealId={deal.id} />}

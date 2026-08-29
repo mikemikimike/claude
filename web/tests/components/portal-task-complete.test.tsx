@@ -148,6 +148,18 @@ function confirmTask() {
   fireEvent.click(screen.getByText(/Yes, I.?m done/));
 }
 
+/**
+ * Expand a COMPLETED task row, then click "Yes, re-open".
+ *
+ * #408 wired undo to a single tap of the whole card while completing went
+ * through expand → confirm; #423 made the two symmetric, because a stray tap on
+ * a phone re-opening a task re-blocks the agent's forward advance.
+ */
+function reopenTask() {
+  fireEvent.click(screen.getByText("Send your bank statements"));
+  fireEvent.click(screen.getByRole("button", { name: /yes, re-?open/i }));
+}
+
 beforeEach(() => {
   mockPatch.mockReset();
   mockRefreshTasks.mockReset();
@@ -228,21 +240,31 @@ describe("Buyer portal task un-completion (#408)", () => {
   });
 
   // Case 2 — fails against the old code: the row was `disabled`.
-  it("PATCHes a completed task back to 'pending' when the buyer taps it", async () => {
+  it("PATCHes a completed task back to 'pending' when the buyer confirms the re-open", async () => {
+    mockPatch.mockResolvedValue(undefined);
+    renderBuyer(<BuyerView />);
+
+    reopenTask();
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(1));
+    expect(mockPatch).toHaveBeenCalledWith(TASK_ID, "pending");
+  });
+
+  // #423 — the half #408 left behind. Expanding the row is not consent.
+  it("does not PATCH anything on the tap that only opens the row", () => {
     mockPatch.mockResolvedValue(undefined);
     renderBuyer(<BuyerView />);
 
     fireEvent.click(screen.getByText("Send your bank statements"));
 
-    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(1));
-    expect(mockPatch).toHaveBeenCalledWith(TASK_ID, "pending");
+    expect(mockPatch).not.toHaveBeenCalled();
   });
 
   it("refetches after a successful un-complete so the server is the source of truth", async () => {
     mockPatch.mockResolvedValue(undefined);
     renderBuyer(<BuyerView />);
 
-    fireEvent.click(screen.getByText("Send your bank statements"));
+    reopenTask();
 
     await waitFor(() => expect(mockRefreshTasks).toHaveBeenCalled());
   });
@@ -251,7 +273,7 @@ describe("Buyer portal task un-completion (#408)", () => {
     mockPatch.mockRejectedValue(new Error("500 — boom"));
     renderBuyer(<BuyerView />);
 
-    fireEvent.click(screen.getByText("Send your bank statements"));
+    reopenTask();
 
     await screen.findByText(/couldn[’']t|could not|try again|failed/i);
     // Still shown as done — an un-complete that never landed must not look done.
@@ -266,8 +288,8 @@ describe("Buyer portal task un-completion (#408)", () => {
     confirmTask();
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(TASK_ID, "completed"));
 
-    // The optimistic check moved it into the completed list — tap it to undo.
-    fireEvent.click(screen.getByText("Send your bank statements"));
+    // The optimistic check moved it into the completed list — re-open it there.
+    reopenTask();
 
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(TASK_ID, "pending"));
     // Back in the open list right away (it was never completed server-side).

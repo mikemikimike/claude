@@ -574,11 +574,13 @@ describe("SellerView — completed tasks stay visible and re-openable (#408)", (
     expect(screen.getByText(/1 task completed/)).toBeTruthy();
   });
 
-  it("PATCHes a completed task back to 'pending' when the seller taps it", async () => {
+  // #423 moved the actual PATCH behind a confirmation — see the block below.
+  it("PATCHes a completed task back to 'pending' when the seller confirms the re-open", async () => {
     mockTasks = [completedSellerTask()];
     renderSeller(<SellerView />);
 
     fireEvent.click(screen.getByText("Clear the driveway for photos"));
+    fireEvent.click(screen.getByRole("button", { name: /yes, re-?open/i }));
 
     await waitFor(() => expect(patchTaskStatus).toHaveBeenCalledWith(TASK_ID, "pending"));
     await waitFor(() => expect(mockRefreshTasks).toHaveBeenCalled());
@@ -783,5 +785,133 @@ describe("SellerView — portal orientation (#422)", () => {
     const secondary = screen.getByTestId("portal-secondary");
     expect(secondary.contains(screen.getByTestId("stage-row-active_search"))).toBe(true);
     expect(secondary.textContent).toMatch(/sarah johnson/i);
+  });
+});
+
+/**
+ * #423 — the seller half of "the client portal's task list has to explain
+ * itself": whose task is this, when does it belong to, and is a tap on a
+ * completed row really consent to re-open it.
+ *
+ * The seller card was the worse of the two: BOTH directions fired on a single
+ * tap of the whole card, so a stray thumb could mark work done that wasn't, or
+ * re-open work that was — and an open high-priority task blocks the agent's
+ * forward advance.
+ */
+describe("SellerView — task ownership, stage grouping and a symmetric undo (#423)", () => {
+  function task(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-seller-1",
+      dealId: DEAL_ID,
+      title: "Declutter the living room",
+      assignedTo: "seller",
+      assignedToId: "u-seller",
+      status: "pending",
+      priority: "medium",
+      source: "ai",
+      stageContext: "active_search",
+      ...overrides,
+    } as Task;
+  }
+
+  it("puts the seller's own tasks under a heading that says they are theirs", () => {
+    dealOverrides = { stage: "active_search" };
+    mockTasks = [task()];
+    renderSeller(<SellerView />);
+
+    const yours = screen.getByTestId("portal-tasks-yours");
+    expect(yours.textContent).toMatch(/your tasks/i);
+    expect(yours.contains(screen.getByText("Declutter the living room"))).toBe(true);
+  });
+
+  it("explains what is being handled for them instead of dropping it silently", () => {
+    dealOverrides = { stage: "offer_active" };
+    mockTasks = [
+      task({ id: "mine", stageContext: "offer_active" }),
+      task({
+        id: "theirs",
+        title: "Publish the listing to the MLS",
+        assignedTo: "agent",
+        stageContext: "offer_active",
+      }),
+    ];
+    renderSeller(<SellerView />);
+
+    expect(screen.getByTestId("portal-tasks-yours").textContent).not.toMatch(/publish the listing/i);
+    const handled = screen.getByTestId("portal-tasks-handled");
+    expect(handled.textContent).toMatch(/publish the listing to the mls/i);
+    expect(handled.textContent).toMatch(/your agent/i);
+    // Read-only: nothing in there is a click target that does nothing.
+    expect(handled.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("groups open tasks by stage, in the seller's own stage vocabulary", () => {
+    dealOverrides = { stage: "offer_active" };
+    mockTasks = [
+      task({ id: "old", stageContext: "active_search" }),
+      task({ id: "new", title: "Keep the house showing-ready", stageContext: "offer_active" }),
+    ];
+    renderSeller(<SellerView />);
+
+    const now = screen.getByTestId("task-group-offer_active");
+    const earlier = screen.getByTestId("task-group-active_search");
+    expect(now.textContent).toMatch(/right now — listed & active/i);
+    expect(earlier.textContent).toMatch(/still open from listing prep/i);
+    expect(now.compareDocumentPosition(earlier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows completed tasks as history rather than as current work", () => {
+    dealOverrides = { stage: "offer_active" };
+    mockTasks = [task({ status: "completed", stageContext: "active_search" })];
+    renderSeller(<SellerView />);
+
+    const done = screen.getByTestId("portal-tasks-done");
+    expect(done.textContent).toMatch(/already done/i);
+    expect(screen.getByTestId("task-history-active_search")).toBeTruthy();
+  });
+
+  it("does not complete a task on a single tap — it asks first", () => {
+    dealOverrides = { stage: "active_search" };
+    mockTasks = [task()];
+    renderSeller(<SellerView />);
+
+    fireEvent.click(screen.getByText("Declutter the living room"));
+
+    expect(patchTaskStatus).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /yes, i.?m done/i }));
+    expect(patchTaskStatus).toHaveBeenCalledWith("task-seller-1", "completed");
+  });
+
+  it("does not re-open a completed task on a single tap", () => {
+    dealOverrides = { stage: "active_search" };
+    mockTasks = [task({ status: "completed" })];
+    renderSeller(<SellerView />);
+
+    fireEvent.click(screen.getByText("Declutter the living room"));
+
+    expect(patchTaskStatus).not.toHaveBeenCalled();
+    expect(screen.getByText(/agent will see it as not done/i)).toBeTruthy();
+  });
+
+  it("backs out of the re-open confirmation without touching the task", () => {
+    dealOverrides = { stage: "active_search" };
+    mockTasks = [task({ status: "completed" })];
+    renderSeller(<SellerView />);
+
+    fireEvent.click(screen.getByText("Declutter the living room"));
+    fireEvent.click(screen.getByRole("button", { name: /keep it done/i }));
+
+    expect(patchTaskStatus).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /yes, re-?open/i })).toBeNull();
+  });
+
+  it("keeps other people's tasks out of the journey rail's open counts (#420)", () => {
+    dealOverrides = { stage: "offer_active" };
+    mockTasks = [task({ id: "theirs", assignedTo: "agent", stageContext: "active_search" })];
+    renderSeller(<SellerView />);
+
+    expect(
+      screen.getByTestId("stage-row-active_search").getAttribute("data-stage-state"),
+    ).toBe("complete");
   });
 });
