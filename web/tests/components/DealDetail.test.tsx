@@ -15,14 +15,21 @@
  *    file", "Commission paperwork queued").
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import DealDetail, { UploadDocModal, StageAdvanceModal, SellerBuyerStatusCard } from "@/components/pages/agent/DealDetail";
-import { FastPassCard, SmoothExitCard } from "@/components/deal/OverviewTab";
+import {
+  FastPassCard,
+  SmoothExitCard,
+  LoanMilestonesCard,
+  PreApprovalStatusCard,
+} from "@/components/deal/OverviewTab";
+import { FLAG_LABELS } from "@/components/deal/shared";
+import { DealHeader } from "@/components/deal/DealHeader";
 import { api } from "@/lib/api-client";
 import { FAST_PASS_UPSELLS } from "@/lib/fast-pass-display";
 import { SMOOTH_EXIT_UPSELLS } from "@/lib/smooth-exit-display";
-import type { Deal } from "@/lib/types";
+import type { Deal, Task } from "@/lib/types";
 
 const requestUploadUrl = vi.fn();
 const confirmUpload = vi.fn();
@@ -881,5 +888,286 @@ describe("SmoothExitCard — what the seller bought (#426)", () => {
     expect(
       screen.getByRole("button", { name: /enroll in smooth exit/i })
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * ─── Pre-approval state, on the deal (#438) ──────────────────────────────────
+ *
+ * FF15. Once FF11–FF14 land the pre-approval state exists, but the agent could
+ * only infer it: a task row that says nothing about whether the buyer acted,
+ * plus a `pre_approved` toggle in the header that is only ever the LAST of the
+ * three states. Paul's ask was "I want it easily noticed by the agent."
+ *
+ * The three states:
+ *   not started  — a pre-approval task exists, nothing applied yet
+ *   applied      — `preApprovalAppliedAt` set, `preApproved` still false
+ *   pre-approved — `preApproved` true
+ *
+ * Keyed on the task's `source` (`'preapproval'`), NEVER on its title — #460
+ * deliberately removed the copy from every structural position so it stays
+ * rewordable. Matching on the sentence would put that trap straight back.
+ */
+describe("PreApprovalStatusCard — the three-way state (#438)", () => {
+  function preApprovalTask(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-preapproval-1",
+      dealId: DEAL_ID,
+      title: "Get pre-approved with Mountain Mortgage",
+      assignedTo: "buyer",
+      assignedToId: "",
+      status: "pending",
+      priority: "high",
+      source: "preapproval",
+      stageContext: "active_search",
+      ...overrides,
+    };
+  }
+
+  /** A non-pre-approval task, to prove the card keys on `source` alone. */
+  function otherTask(): Task {
+    return preApprovalTask({ id: "task-other", source: "ai" });
+  }
+
+  function stateEl(): HTMLElement {
+    return screen.getByTestId("pre-approval-state");
+  }
+
+  it("1. an open pre-approval task with no applied date renders 'not started'", () => {
+    render(
+      <PreApprovalStatusCard
+        deal={makeDeal({ flags: ["mountain_mortgage"], preApproved: false })}
+        tasks={[preApprovalTask()]}
+      />
+    );
+
+    expect(stateEl()).toHaveAttribute("data-state", "not_started");
+    expect(within(stateEl()).getByText(/not started/i)).toBeInTheDocument();
+    // The other two states must not also be claimed.
+    expect(within(stateEl()).queryByText(/applied/i)).not.toBeInTheDocument();
+    expect(within(stateEl()).queryByText(/^pre-approved$/i)).not.toBeInTheDocument();
+  });
+
+  it("2. an applied date with pre_approved false renders 'applied', with the date", () => {
+    render(
+      <PreApprovalStatusCard
+        deal={makeDeal({
+          flags: ["mountain_mortgage"],
+          preApproved: false,
+          preApprovalAppliedAt: "2026-08-12T12:00:00Z",
+        })}
+        tasks={[preApprovalTask()]}
+      />
+    );
+
+    expect(stateEl()).toHaveAttribute("data-state", "applied");
+    expect(within(stateEl()).getByText(/applied/i)).toBeInTheDocument();
+    // The date is the whole point of this state — an agent chasing a buyer
+    // needs to know whether "applied" was yesterday or five weeks ago.
+    expect(within(stateEl()).getByText(/Aug 12, 2026/)).toBeInTheDocument();
+    expect(within(stateEl()).queryByText(/not started/i)).not.toBeInTheDocument();
+  });
+
+  it("3. pre_approved true renders 'pre-approved', outranking a stale applied date", () => {
+    render(
+      <PreApprovalStatusCard
+        deal={makeDeal({
+          flags: ["mountain_mortgage"],
+          preApproved: true,
+          preApprovalAppliedAt: "2026-08-12T12:00:00Z",
+        })}
+        tasks={[preApprovalTask({ status: "completed" })]}
+      />
+    );
+
+    expect(stateEl()).toHaveAttribute("data-state", "pre_approved");
+    expect(within(stateEl()).getByText(/pre-approved/i)).toBeInTheDocument();
+    expect(within(stateEl()).queryByText(/not started/i)).not.toBeInTheDocument();
+  });
+
+  it("4. a cash buyer with no pre-approval task renders nothing and does not throw", () => {
+    const { container } = render(
+      <PreApprovalStatusCard
+        deal={makeDeal({ financingType: "cash", preApproved: false })}
+        tasks={[otherTask()]}
+      />
+    );
+
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId("pre-approval-state")).not.toBeInTheDocument();
+  });
+
+  it("4b. a financed deal with no pre-approval task and no state renders nothing", () => {
+    const { container } = render(
+      <PreApprovalStatusCard deal={makeDeal({ preApproved: false })} tasks={[otherTask()]} />
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("4c. a sell deal never shows a pre-approval card", () => {
+    const { container } = render(
+      <PreApprovalStatusCard
+        deal={makeDeal({ type: "sell", preApproved: true })}
+        tasks={[preApprovalTask()]}
+      />
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("4d. an empty task list is safe", () => {
+    const { container } = render(
+      <PreApprovalStatusCard deal={makeDeal()} tasks={[]} />
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("names the lender so the agent knows who is involved without digging", () => {
+    render(
+      <PreApprovalStatusCard
+        deal={makeDeal({ flags: ["mountain_mortgage"] })}
+        tasks={[preApprovalTask()]}
+      />
+    );
+
+    // Reuses FLAG_LABELS.mountain_mortgage rather than hand-typing a label.
+    expect(screen.getByText(FLAG_LABELS.mountain_mortgage)).toBeInTheDocument();
+  });
+});
+
+/**
+ * ─── The header pill and the Overview card must agree (#437 + #438) ──────────
+ *
+ * #437 put the buyer's "Applied {date}" on the deal header's pre-approval
+ * TOGGLE; #438 puts the same three-way state on the Overview tab. Both are on
+ * screen at once, so a disagreement is a bug the agent has to adjudicate — and
+ * there was one: an un-started pre-approval was amber in the header and red on
+ * the card. The header now takes its colour from the same shared palette.
+ *
+ * #437's invariant is the thing to protect: green — and ONLY green — means the
+ * offer gate is open, which only agent-set `preApproved` produces. A buyer's
+ * own "I applied" must never turn this pill green.
+ */
+describe("DealHeader — pre-approval colour matches the Overview card (#438)", () => {
+  function headerPill(): HTMLElement {
+    return screen.getByRole("button", {
+      name: /pre-approved|applied/i,
+    });
+  }
+
+  it("not started: red in the header, red on the card", () => {
+    render(<DealHeader deal={makeDeal({ preApproved: false })} />);
+    expect(headerPill().className).toContain("bg-red-100");
+    expect(headerPill().className).not.toContain("green");
+  });
+
+  it("applied: amber in the header, and NOT green — the gate is still shut", () => {
+    render(
+      <DealHeader
+        deal={makeDeal({ preApproved: false, preApprovalAppliedAt: "2026-08-12T12:00:00Z" })}
+      />
+    );
+
+    const pill = headerPill();
+    expect(pill.textContent).toMatch(/Applied/);
+    expect(pill.className).toContain("bg-amber-100");
+    // #437's invariant.
+    expect(pill.className).not.toContain("green");
+  });
+
+  it("pre-approved: green, the one state that opens the offer gate", () => {
+    render(<DealHeader deal={makeDeal({ preApproved: true })} />);
+    expect(headerPill().className).toContain("bg-green-100");
+  });
+
+  it("an unparseable applied date falls back to not-started, colour included", () => {
+    // The label already degraded to "Pre-approved?"; the colour must degrade
+    // with it, or the pill reads amber while saying it never started.
+    render(
+      <DealHeader deal={makeDeal({ preApproved: false, preApprovalAppliedAt: "not-a-date" })} />
+    );
+
+    const pill = headerPill();
+    expect(pill.textContent).toMatch(/Pre-approved\?/);
+    expect(pill.className).toContain("bg-red-100");
+  });
+
+  it("header and Overview card render the SAME state class for one deal", () => {
+    const deal = makeDeal({
+      preApproved: false,
+      preApprovalAppliedAt: "2026-08-12T12:00:00Z",
+      flags: ["mountain_mortgage"],
+    });
+    const task: Task = {
+      id: "t-agree", dealId: DEAL_ID, title: "x", assignedTo: "buyer", assignedToId: "",
+      status: "pending", priority: "high", source: "preapproval",
+      stageContext: "active_search",
+    };
+    render(
+      <>
+        <DealHeader deal={deal} />
+        <PreApprovalStatusCard deal={deal} tasks={[task]} />
+      </>
+    );
+
+    expect(screen.getByTestId("pre-approval-state")).toHaveAttribute("data-state", "applied");
+    expect(headerPill().className).toContain("bg-amber-100");
+  });
+});
+
+/**
+ * ─── #438 regression guard: `mountain_mortgage` is load-bearing ──────────────
+ *
+ * The flag drives `isLinked` inside LoanMilestonesCard, which decides whether
+ * the agent sees "ARIVE loan linked — milestones syncing" or the manual
+ * link-a-loan-ID form. FF15 READS that flag for its lender label; it must never
+ * repurpose or overload it. `apiDealToFrontend` sets the flag from
+ * `arive_linked`, so this is the ARIVE round trip in one assertion.
+ */
+describe("LoanMilestonesCard — mountain_mortgage still drives ARIVE linkage (#438)", () => {
+  it("a flagged buy deal reads as ARIVE-linked", () => {
+    render(<LoanMilestonesCard deal={makeDeal({ flags: ["mountain_mortgage"] })} />);
+
+    expect(screen.getByText(/arive loan linked/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sync/i })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/arive loan id/i)).not.toBeInTheDocument();
+  });
+
+  it("an unflagged buy deal still offers the manual ARIVE link form", () => {
+    render(<LoanMilestonesCard deal={makeDeal({ flags: [] })} />);
+
+    expect(screen.getByPlaceholderText(/arive loan id/i)).toBeInTheDocument();
+    expect(screen.queryByText(/arive loan linked/i)).not.toBeInTheDocument();
+  });
+
+  it("the pre-approval card does not change what the flag means to ARIVE", () => {
+    // Both cards rendered against ONE deal — the state the agent actually sees.
+    const deal = makeDeal({
+      flags: ["mountain_mortgage"],
+      preApproved: false,
+      preApprovalAppliedAt: "2026-08-12T12:00:00Z",
+    });
+    const task: Task = {
+      id: "t1",
+      dealId: DEAL_ID,
+      title: "x",
+      assignedTo: "buyer",
+      assignedToId: "",
+      status: "pending",
+      priority: "high",
+      source: "preapproval",
+      stageContext: "active_search",
+    };
+    render(
+      <>
+        <PreApprovalStatusCard deal={deal} tasks={[task]} />
+        <LoanMilestonesCard deal={deal} />
+      </>
+    );
+
+    expect(screen.getByTestId("pre-approval-state")).toHaveAttribute("data-state", "applied");
+    expect(screen.getByText(/arive loan linked/i)).toBeInTheDocument();
   });
 });

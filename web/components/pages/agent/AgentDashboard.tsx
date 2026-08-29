@@ -17,6 +17,15 @@ import {
   pipelinePrice,
   sumKnown,
 } from "@/lib/deal-money";
+// #438 — the buyer's pre-approval state, derived in exactly one place and
+// rendered through the same pill the deal's Overview tab uses.
+import {
+  isPreApprovalActionable,
+  isPreApprovalTask,
+  preApprovalState,
+  PRE_APPROVAL_STATE_HINTS,
+} from "@/lib/pre-approval";
+import { PreApprovalPill } from "@/components/deal/shared";
 import { TrendingUp, Layers, CheckSquare, ArrowRight, Clock, AlertCircle, CheckCircle2, DollarSign, Share2, X, Phone, Archive } from 'lucide-react';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -74,6 +83,12 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
 }
 
 function TaskRow({ task, deal }: { task: Task; deal?: Deal }) {
+  // #438 — a pre-approval row says WHICH of the three states it is in, in place
+  // of the generic status pill. That pill ("pending") was the whole problem:
+  // it looked identical whether the buyer had done nothing or had applied and
+  // was waiting on the agent. Keyed on `source`, never on the title (#460).
+  const paState = isPreApprovalTask(task, deal) ? preApprovalState(deal) : null;
+
   return (
     <Link
       href={deal ? `/agent/deals/${deal.id}` : '#'}
@@ -93,10 +108,19 @@ function TaskRow({ task, deal }: { task: Task; deal?: Deal }) {
       {/* Task title */}
       <div className="text-xs text-gray-600 leading-relaxed truncate">{task.title}</div>
       {/* Footer: status pill + due date */}
-      <div className="flex items-center gap-2 mt-2">
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${TASK_STATUS_COLORS[task.status]}`}>
-          {task.status.replace('_', ' ')}
-        </span>
+      <div className="flex flex-wrap items-center gap-2 mt-2">
+        {paState ? (
+          <>
+            <PreApprovalPill state={paState} appliedAt={deal?.preApprovalAppliedAt} />
+            <span className="text-[10px] text-gray-400">
+              {PRE_APPROVAL_STATE_HINTS[paState]}
+            </span>
+          </>
+        ) : (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${TASK_STATUS_COLORS[task.status]}`}>
+            {task.status.replace('_', ' ')}
+          </span>
+        )}
         {task.dueDate && (
           <span className="text-[10px] text-gray-300">Due {task.dueDate}</span>
         )}
@@ -366,19 +390,41 @@ export default function AgentDashboard() {
            (t.dueDate === today || t.status === 'overdue')
   ).length;
 
+  const getDealForTask = (task: Task) => agentDeals.find((d) => d.id === task.dealId);
+
+  // ── Pre-approval (#438) ─────────────────────────────────────────────────
+  // The pre-approval task carries `role: 'buyer'`, so it used to land in
+  // "Waiting on Client" — the panel an agent scans last, and one where it read
+  // as an ordinary "pending" client chore. But BOTH of its open states are the
+  // agent's move: chase a buyer who hasn't applied, or confirm one who says
+  // they have. So it is promoted into "Needs Your Action" (the panel the tester
+  // singled out) and removed from Waiting on Client rather than listed twice.
+  //
+  // Matched on `source`, never on the title (#460).
+  const preApprovalActionTasks = allTasks.filter((t) =>
+    isPreApprovalActionable(t, getDealForTask(t))
+  );
+  const promotedIds = new Set(preApprovalActionTasks.map((t) => t.id));
+
   // ── Needs Your Action ───────────────────────────────────────────────────
   // Tasks assigned to agent that are in_progress or overdue
-  const needsActionTasks = allTasks.filter(
+  const agentActionTasks = allTasks.filter(
     (t) =>
       t.assignedTo === 'agent' &&
       (t.status === 'in_progress' || t.status === 'overdue' ||
        (t.status === 'pending' && t.priority === 'high'))
   );
+  // Pre-approval first — it is the one that blocks the whole deal.
+  const needsActionTasks = [
+    ...preApprovalActionTasks,
+    ...agentActionTasks.filter((t) => !promotedIds.has(t.id)),
+  ];
 
   // ── Waiting on Client ───────────────────────────────────────────────────
   // Tasks assigned to buyer/seller that are overdue, in_progress, or high-priority pending
   const waitingTasks = allTasks.filter(
     (t) =>
+      !promotedIds.has(t.id) &&
       (t.assignedTo === 'buyer' || t.assignedTo === 'seller') &&
       (t.status === 'overdue' || t.status === 'in_progress' || (t.status === 'pending' && t.priority === 'high'))
   );
@@ -393,8 +439,6 @@ export default function AgentDashboard() {
     );
     return !hasUrgent;
   });
-
-  const getDealForTask = (task: Task) => agentDeals.find((d) => d.id === task.dealId);
 
   // Exactly the deals Pipeline Value counts, by construction (#459).
   const estCommission = sumKnown(agentDeals.map(pipelineCommission));

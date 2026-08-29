@@ -20,7 +20,15 @@ import IntakeCard from "@/components/intake/IntakeCard";
 import PropertyInsights from "@/components/deal/PropertyInsights";
 import DealInviteModal from "@/components/DealInviteModal";
 import { Calendar, CheckCircle2, Circle, AlertCircle, Loader2, MessageSquare, Zap, ChevronDown, Mail, RefreshCw, Pencil, Plus, X, Star, Users, ExternalLink, Home, Link as LinkIcon, Lock, DollarSign, LogOut, Shield, ShieldCheck, ShieldOff } from "lucide-react";
-import { STAGE_LABELS, FLAG_LABELS } from "@/components/deal/shared";
+import { STAGE_LABELS, FLAG_LABELS, PreApprovalPill } from "@/components/deal/shared";
+// #438 — the one derivation of the buyer's three-way pre-approval state, shared
+// with the agent dashboard so the two surfaces can't describe it differently.
+import {
+  findPreApprovalTask,
+  hasPreApprovalState,
+  preApprovalState,
+  PRE_APPROVAL_STATE_HINTS,
+} from "@/lib/pre-approval";
 // #426 — the agent's enrollment cards resolve add-on ids to names/prices through
 // these display modules, which derive their dollars from the shared catalogs.
 // Never hand-type a price here: that is exactly how displayed copy drifts from
@@ -773,7 +781,58 @@ function ConfettiCelebration({ onDismiss }: { onDismiss: () => void }) {
 
 // ─── Loan Milestones Card ────────────────────────────────────────────────────
 
-function LoanMilestonesCard({ deal, onRefresh }: { deal: Deal; onRefresh?: () => void }) {
+/**
+ * The buyer's pre-approval, at a glance (#438, FF15).
+ *
+ * Before this, the three-way state was only inferable from the deal: an open
+ * task that said nothing about whether the buyer had acted, plus a `pre_approved`
+ * toggle in the header that is only ever the LAST of the three. The agent had to
+ * read the Tasks tab and the header and join them mentally.
+ *
+ * Renders nothing at all unless there is something to say — see
+ * `hasPreApprovalState`. A card on every deal is a card nobody reads.
+ *
+ * Keyed on `source === 'preapproval'`, never on the task's title (#460).
+ * Exported so DealDetail.test.tsx can drive it without mounting the whole tab.
+ */
+export function PreApprovalStatusCard({ deal, tasks }: { deal: Deal; tasks: Task[] }) {
+  if (!hasPreApprovalState(deal, tasks)) return null;
+
+  const state = preApprovalState(deal);
+  const task = findPreApprovalTask(tasks);
+
+  return (
+    <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400">
+          Pre-Approval
+        </h3>
+        {/* Reuses FLAG_LABELS rather than hand-typing the lender's name. The
+            flag is READ here and nothing else — it stays load-bearing for
+            ARIVE in LoanMilestonesCard below, which is the one job it has. */}
+        {deal.flags.includes('mountain_mortgage') && (
+          <span className="rounded-full bg-brand-navy/10 px-2.5 py-0.5 text-xs font-medium text-brand-navy">
+            {FLAG_LABELS.mountain_mortgage}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <PreApprovalPill state={state} appliedAt={deal.preApprovalAppliedAt} />
+        <span className="text-sm text-gray-500">{PRE_APPROVAL_STATE_HINTS[state]}</span>
+      </div>
+      {/* The task's own status, when one exists — so a card reading "not
+          started" beside a task the agent already closed isn't a silent lie. */}
+      {task && state !== 'pre_approved' && (
+        <p className="mt-2 text-xs text-gray-400">
+          Task: {task.title} · {task.status.replace('_', ' ')}
+          {task.dueDate ? ` · due ${task.dueDate}` : ''}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function LoanMilestonesCard({ deal, onRefresh }: { deal: Deal; onRefresh?: () => void }) {
   const [milestones, setMilestones] = useState<LoanMilestones | null>(
     deal.loanMilestones ?? null
   );
@@ -1971,6 +2030,11 @@ export function OverviewTab({ deal, tasks, onRefresh }: { deal: Deal; tasks: Tas
 
   return (
     <div className="space-y-4">
+      {/* Pre-approval state (#438) — first, because on a buy deal in Property
+          Search it is the thing gating everything below it. Renders nothing
+          when there's nothing to say (sell deals, cash buyers, no task). */}
+      <PreApprovalStatusCard deal={deal} tasks={tasks} />
+
       {/* Loan Milestones + ARIVE Linker */}
       <LoanMilestonesCard deal={deal} onRefresh={onRefresh} />
 

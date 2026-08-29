@@ -256,6 +256,11 @@ export type Deal = {
    * unlocks nothing. Never fold it into the offer gate — `canOffer` is
    * `preApproved || financingType === 'cash'` and this field is not part of
    * that expression by design.
+   *
+   * It IS the middle of the three states the agent's surfaces render (#438):
+   * `preApproved` is the agent's later confirmation and always outranks it, so
+   * a deal can legitimately carry both. Undefined — an older cached response —
+   * must read as "not started", never as applied. See `lib/pre-approval.ts`.
    */
   preApprovalAppliedAt?: string | null;
   baaSigned?: boolean;

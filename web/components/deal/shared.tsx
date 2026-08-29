@@ -10,8 +10,14 @@
  */
 
 import { useState } from "react";
-import { CheckCircle2, Loader2, AlertCircle, Circle } from "lucide-react";
+import { CheckCircle2, Loader2, AlertCircle, Circle, Clock } from "lucide-react";
 import { Deal, DealStage } from "@/lib/types";
+import {
+  formatAppliedDate,
+  PRE_APPROVAL_STATE_BADGE,
+  PRE_APPROVAL_STATE_LABELS,
+  type PreApprovalState,
+} from "@/lib/pre-approval";
 
 // Stage constants live in lib/stages.ts (#89); re-exported here for the
 // deal tab/modal modules that already import them from this file.
@@ -81,6 +87,49 @@ export const FLAG_LABELS: Record<string, string> = {
   mountain_mortgage: 'Mtn Mortgage',
   asap_timeline: 'ASAP Timeline',
   also_buying: 'Also Buying',
+};
+
+/**
+ * The pre-approval state, as one pill (#438, FF15).
+ *
+ * The single visual for the three-way state, shared by the agent dashboard's
+ * "Needs Your Action" panel and the deal's Overview tab so the two surfaces can
+ * never drift into describing the same buyer differently. The derivation lives
+ * in `lib/pre-approval.ts`; this is only how it looks.
+ *
+ * `data-state` carries the machine-readable state so tests (and any future
+ * surface) can assert on the state rather than on the copy.
+ */
+export function PreApprovalPill({
+  state,
+  appliedAt,
+  className = '',
+}: {
+  state: PreApprovalState;
+  /** ISO `pre_approval_applied_at`; the date is shown on `applied` only. */
+  appliedAt?: string | null;
+  className?: string;
+}) {
+  const applied = state === 'applied' ? formatAppliedDate(appliedAt) : null;
+  return (
+    <span
+      data-testid="pre-approval-state"
+      data-state={state}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold ${PRE_APPROVAL_STATE_BADGE[state]} ${className}`}
+    >
+      {PRE_APPROVAL_STATE_ICON[state]}
+      <span>{PRE_APPROVAL_STATE_LABELS[state]}</span>
+      {/* The date is the point of "applied" — an agent chasing a buyer needs to
+          know whether it was yesterday or five weeks ago. */}
+      {applied && <span className="font-semibold opacity-80">{applied}</span>}
+    </span>
+  );
+}
+
+const PRE_APPROVAL_STATE_ICON: Record<PreApprovalState, React.ReactNode> = {
+  not_started: <Circle size={12} className="flex-shrink-0" />,
+  applied: <Clock size={12} className="flex-shrink-0" />,
+  pre_approved: <CheckCircle2 size={12} className="flex-shrink-0" />,
 };
 
 export function formatTimestamp(ts: string) {

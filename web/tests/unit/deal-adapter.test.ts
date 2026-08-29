@@ -20,6 +20,7 @@ import {
   pipelinePrice,
   sumKnown,
 } from "@/lib/deal-money";
+import { preApprovalState } from "@/lib/pre-approval";
 
 function wireDeal(overrides: Partial<ApiDeal> = {}): ApiDeal {
   return {
@@ -330,5 +331,50 @@ describe("pipeline contribution by stage (#459)", () => {
     const total = sumKnown(deals.map(pipelinePrice));
     expect(typeof total).toBe("number");
     expect(total).toBe(1_000_000);
+  });
+});
+
+/**
+ * The pre-approval wire→state path (#437 + #438).
+ *
+ * The agent's three-way display (#438) reads `deal.preApprovalAppliedAt`, which
+ * exists only because `apiDealToFrontend` maps `pre_approval_applied_at` across
+ * — ONE line. The component tests inject the view-model field directly, so they
+ * cannot see that line disappear: drop it and every agent surface silently
+ * reverts to "not started" for a buyer who applied, with a fully green suite.
+ *
+ * This is that missing link, tested through the real adapter on a real wire
+ * shape. DB-free.
+ */
+describe("apiDealToFrontend → pre-approval state (#437/#438)", () => {
+  it("carries pre_approval_applied_at across to the view model", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({ pre_approval_applied_at: "2026-08-12T12:00:00.000Z" })
+    );
+    expect(deal.preApprovalAppliedAt).toBe("2026-08-12T12:00:00.000Z");
+    expect(preApprovalState(deal)).toBe("applied");
+  });
+
+  it("a payload without the column reads as not-started, never as applied", () => {
+    // An older cached response, or any route that doesn't SELECT the column.
+    const deal = apiDealToFrontend(wireDeal());
+    expect(deal.preApprovalAppliedAt).toBeNull();
+    expect(preApprovalState(deal)).toBe("not_started");
+  });
+
+  it("agent-set pre_approved outranks the buyer's applied date", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({ pre_approved: true, pre_approval_applied_at: "2026-08-12T12:00:00.000Z" })
+    );
+    expect(preApprovalState(deal)).toBe("pre_approved");
+  });
+
+  it("the buyer's applied date alone never reaches the pre-approved state", () => {
+    // The #437 invariant, restated from the display side: only the agent opens
+    // the offer gate, so `applied` must never resolve to `pre_approved`.
+    const deal = apiDealToFrontend(
+      wireDeal({ pre_approved: false, pre_approval_applied_at: "2026-08-12T12:00:00.000Z" })
+    );
+    expect(preApprovalState(deal)).not.toBe("pre_approved");
   });
 });

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Deal, DealStatus } from "@/lib/types";
 import { MapPin, Calendar, Clock, CheckCircle2, Circle, Zap, Pencil, Archive, RotateCcw, Banknote } from "lucide-react";
 import { STAGE_LABELS, HEALTH_BORDER, HEALTH_BADGE, ClosingDaysBadge } from "@/components/deal/shared";
+import { PRE_APPROVAL_STATE_BADGE, type PreApprovalState } from "@/lib/pre-approval";
 
 /** The editable core-identity patch (#254). */
 export type DealEdit = { title?: string; address?: string; price?: number; status?: DealStatus };
@@ -44,6 +45,20 @@ export function DealHeader({
   const appliedLabel = Number.isFinite(appliedMs)
     ? new Date(appliedMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : null;
+  /**
+   * The SAME three-way state the Overview card and the agent dashboard render
+   * (#438), so this pill can't contradict them on the deal the agent is looking
+   * at. Before this, an un-started pre-approval was amber here and red there.
+   *
+   * Note the label falls back to "Pre-approved?" on an unparseable date, so
+   * `paState` is derived from `appliedLabel` rather than the raw field — the
+   * colour and the words always describe the same state.
+   */
+  const paState: PreApprovalState = preApproved
+    ? 'pre_approved'
+    : appliedLabel
+      ? 'applied'
+      : 'not_started';
   const [editing, setEditing] = useState(false);
 
   async function archive() {
@@ -137,11 +152,11 @@ export function DealHeader({
                     ? `The buyer marked their application as submitted on ${appliedLabel}. Confirm pre-approval once you have the letter.`
                     : undefined
                 }
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all border ${
-                  preApproved
-                    ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                }`}
+                // Colour comes from the shared palette (#438) so the header,
+                // the Overview card and the dashboard agree. #437's invariant
+                // is preserved exactly: green — and only green — means the
+                // offer gate is open, which only `preApproved` produces.
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all border hover:brightness-95 ${PRE_APPROVAL_STATE_BADGE[paState]}`}
               >
                 {preApproved ? <CheckCircle2 size={12} /> : <Circle size={12} />}
                 {preApproved
