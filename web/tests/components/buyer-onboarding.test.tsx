@@ -27,6 +27,10 @@ import type { Mock } from "vitest";
 import { render, screen, act, fireEvent, within } from "@testing-library/react";
 import BuyerOnboarding, { SCREENS } from "@/components/pages/onboarding/BuyerOnboarding";
 import { BUYER_REVIEW_FIELDS } from "@/lib/intake-review";
+import {
+  MOUNTAIN_MORTGAGE_PHONE_DISPLAY,
+  MOUNTAIN_MORTGAGE_PHONE_HREF,
+} from "@/lib/lender";
 import { api } from "@/lib/api-client";
 
 // Each case sets the URL before rendering — edit mode is `?review=true`.
@@ -58,6 +62,8 @@ const mockPatch = api.patch as Mock;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  sessionStorage.clear();
   mockParams = new URLSearchParams();
   mockGet.mockResolvedValue([{ agent_name: "Agent Smith" }]);
   mockPost.mockResolvedValue({ ok: true });
@@ -88,7 +94,14 @@ function reviewText(): string {
  * would, so a change to the screen sequence surfaces here as a failure instead
  * of being absorbed by a helper that reaches in and sets state.
  */
-async function runWizard(opts: { cash: boolean }) {
+async function runWizard(opts: {
+  cash: boolean;
+  /** Which card to pick on the pitch page (screen 18). Ignored for cash. */
+  lender?: "other" | "mountain";
+  /** Stop on screen 20, the Mountain Mortgage hand-off, instead of walking on. */
+  stopAtMtn?: boolean;
+}) {
+  const lender = opts.lender ?? "other";
   await act(async () => {
     render(<BuyerOnboarding />);
   });
@@ -134,12 +147,17 @@ async function runWizard(opts: { cash: boolean }) {
   if (!opts.cash) {
     // 17 buying power, 18 pitch
     click(/see financing options/i);
-    click(/i have my own lender/i);
+    click(lender === "mountain" ? /mountain mortgage/i : /i have my own lender/i);
   }
   // 19 first tracking address
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "1 Main St" } });
   click(/start home shopping/i);
-  // 21 contact info (screen 20's Mountain CTA is skipped — own lender).
+
+  // 20 Mountain Mortgage hand-off — reached only by 'mountain' / 'fastpass'.
+  if (opts.stopAtMtn) return;
+  if (lender === "mountain") click(/continue/i);
+
+  // 21 contact info (screen 20's Mountain CTA is skipped for 'other').
   const inputs = screen.getAllByRole("textbox");
   fireEvent.change(inputs[0], { target: { value: "Bea Buyer" } });
   fireEvent.change(screen.getByPlaceholderText("(205) 555-0100"), {
@@ -381,6 +399,95 @@ describe("?review=true reopens a submitted questionnaire (#427)", () => {
 
     expect(screen.getByRole("alert").textContent).toMatch(/couldn't load/i);
     expect(screen.getByTestId("intake-review")).toBeTruthy();
+  });
+});
+
+// ─── #436 — the Mountain Mortgage screen stops linking out to the 1003 ───────
+
+/**
+ * Issue #436 (epic #441). Screen 20 used to open `my1003app.com` in a new tab.
+ * Onboarding answers live in React state and are never persisted per screen, so
+ * a buyer who followed that link lost everything they had typed. #435 put the
+ * application link on the dashboard as a real pre-approval task, so the screen's
+ * job here is now to set expectations — and the `tel:` link, which opens a
+ * dialer over the page rather than navigating it, is the one action left.
+ */
+describe("buyer onboarding never links out to the loan application (#436)", () => {
+  /** Boots straight onto screen 20 the way the Fast Pass return does. */
+  async function renderResumedFastPass() {
+    mockParams = new URLSearchParams("resume=true");
+    sessionStorage.setItem(
+      "rtf_onboarding_resume",
+      JSON.stringify({ lenderChoice: "fastpass" })
+    );
+    await act(async () => {
+      render(<BuyerOnboarding />);
+    });
+  }
+
+  it("renders no link to my1003app on the Mountain Mortgage screen", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    await runWizard({ cash: false, lender: "mountain", stopAtMtn: true });
+
+    // Grep-proof: no anchor points at the application…
+    const hrefs = Array.from(document.querySelectorAll("a")).map(
+      (a) => a.getAttribute("href") ?? ""
+    );
+    expect(hrefs.filter((h) => h.includes("my1003app"))).toHaveLength(0);
+    // …and the URL is not sitting in the markup in any other form either.
+    expect(document.body.innerHTML).not.toContain("my1003app");
+
+    // …and nothing on the screen opens it in a new window, which is how the
+    // link-out was actually implemented before this ticket.
+    for (const btn of screen.getAllByRole("button")) fireEvent.click(btn);
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("still shows the screen for a Mountain Mortgage buyer", async () => {
+    await runWizard({ cash: false, lender: "mountain", stopAtMtn: true });
+    expect(screen.getByTestId("mtn-handoff")).toBeTruthy();
+    expect(screen.queryByTestId("intake-review")).toBeNull();
+  });
+
+  it("still shows the screen for a Fast Pass buyer", async () => {
+    await renderResumedFastPass();
+    const handoff = screen.getByTestId("mtn-handoff");
+    expect(handoff).toBeTruthy();
+    // The Fast Pass acknowledgement is part of this screen and stays.
+    expect(handoff.textContent).toMatch(/fast pass/i);
+  });
+
+  it("is still skipped for a cash buyer", async () => {
+    await runWizard({ cash: true });
+    // A cash buyer walks straight from the address to contact info to review,
+    // never touching the lender hand-off.
+    expect(screen.queryByTestId("mtn-handoff")).toBeNull();
+    expect(screen.getByTestId("intake-review")).toBeTruthy();
+  });
+
+  it("offers a tel: link to the loan officer instead", async () => {
+    await runWizard({ cash: false, lender: "mountain", stopAtMtn: true });
+    const call = within(screen.getByTestId("mtn-handoff")).getByRole("link");
+    expect(call.getAttribute("href")).toBe(MOUNTAIN_MORTGAGE_PHONE_HREF);
+    expect(call.getAttribute("href")).toBe("tel:+12054019076");
+    expect(call.textContent).toContain(MOUNTAIN_MORTGAGE_PHONE_DISPLAY);
+  });
+
+  it("tells the buyer the application link will be on their dashboard", async () => {
+    await runWizard({ cash: false, lender: "mountain", stopAtMtn: true });
+    expect(screen.getByTestId("mtn-handoff").textContent).toMatch(/dashboard/i);
+  });
+
+  it("keeps every answer when the buyer continues past the screen", async () => {
+    await runWizard({ cash: false, lender: "mountain" });
+
+    // Straight through 20 → 21 → review with nothing lost on the way.
+    const text = reviewText();
+    expect(text).toContain("Hoover");
+    expect(text).toContain("Single Family");
+    expect(text).toContain("Actively searching now");
+    expect(text).toContain("1 Main St");
+    expect(text).toContain("Mountain Mortgage");
   });
 });
 

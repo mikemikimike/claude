@@ -10,6 +10,11 @@ import OnboardingLayout from './OnboardingLayout';
 import PitchPage, { LenderChoice } from './PitchPage';
 import IntakeReviewScreen from './IntakeReviewScreen';
 import { CASH_SKIP, buildBuyerReview } from '@/lib/intake-review';
+import {
+  MOUNTAIN_MORTGAGE_LOAN_OFFICER,
+  MOUNTAIN_MORTGAGE_PHONE_DISPLAY,
+  MOUNTAIN_MORTGAGE_PHONE_HREF,
+} from '@/lib/lender';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -98,8 +103,7 @@ export const REVIEW_SCREEN = 22;
 // The loan-only screen set now lives in lib/intake-review, because the review
 // has to skip exactly the questions this navigation skipped. Two copies would
 // let a cash buyer's review list a question they were never asked.
-// screen 20 (MTN CTA) is shown only when lenderChoice is 'mountain' or 'fastpass'
-const MM_URL = 'https://mountainmortgage-paul.my1003app.com/2233772/register?time=1755484352205';
+// screen 20 (MTN hand-off) is shown only when lenderChoice is 'mountain' or 'fastpass'
 
 function shouldSkipScreen(n: number, useCash: boolean, lc: string): boolean {
   if (useCash && CASH_SKIP.has(n)) return true;
@@ -389,14 +393,28 @@ function CashLoanScreen({ onSelect }: { onSelect: (v: 'cash' | 'loan') => void }
   );
 }
 
+/**
+ * Screen 20 — the Mountain Mortgage hand-off (#436, epic #441).
+ *
+ * This screen used to open the 1003 in a new tab. Onboarding answers are held
+ * in React state and are never persisted per screen, so following that link
+ * threw away everything the buyer had typed — and ignoring it meant they were
+ * never asked again. #435 moved the application link onto the buyer's dashboard
+ * as a real pre-approval task, so the link-out has no reason to exist here any
+ * more and this screen's job is now to say what happens next.
+ *
+ * The `tel:` link stays deliberately. A dialer opens *over* the page instead of
+ * navigating it, so it is the one action that cannot cost the buyer their
+ * answers. Tapping it no longer advances the wizard either: a buyer who calls
+ * and comes back should find the screen where they left it, not moved on.
+ */
 function MtnMortgageCTAScreen({ lenderChoice, onContinue }: {
   lenderChoice: string; onContinue: () => void;
 }) {
-  const [appStarted, setAppStarted] = useState(false);
   const isFastPass = lenderChoice === 'fastpass';
 
   return (
-    <div className="screen-enter flex flex-col items-center text-center">
+    <div data-testid="mtn-handoff" className="screen-enter flex flex-col items-center text-center">
       {isFastPass && (
         <div className="mb-5 w-full max-w-xs rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
           ⚡ Fast Pass enrollment received — we&apos;ll be in touch!
@@ -406,61 +424,33 @@ function MtnMortgageCTAScreen({ lenderChoice, onContinue }: {
       <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-navy text-white font-black text-xl shadow-md">
         M
       </div>
-      <h2 className="text-2xl font-black text-brand-navy">Start your application</h2>
-      <p className="mt-2 mb-7 max-w-xs text-sm leading-relaxed text-gray-400">
-        Mountain Mortgage gets you pre-approved fast. Most applications take under 10 minutes.
+      <h2 className="text-2xl font-black text-brand-navy">Mountain Mortgage it is</h2>
+      <p className="mt-2 max-w-xs text-sm leading-relaxed text-gray-400">
+        Getting pre-approved is your next step — it tells you exactly what you can spend.
+      </p>
+      <p className="mt-3 mb-7 max-w-xs text-sm font-semibold leading-relaxed text-brand-navy">
+        Finish up here first. Your application link will be waiting on your dashboard.
       </p>
 
       <div className="w-full max-w-xs space-y-3">
-        {/* Start Application — opens portal, then shows confirm button */}
-        {!appStarted ? (
-          <button
-            onClick={() => {
-              window.open(MM_URL, '_blank', 'noopener,noreferrer');
-              setAppStarted(true);
-            }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-navy py-4 text-base font-bold text-white transition-all hover:bg-brand-navy/80 active:scale-[0.98]"
-          >
-            Start My Application →
-          </button>
-        ) : (
-          <button
-            onClick={onContinue}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-500 py-4 text-base font-bold text-white transition-all hover:bg-green-600 active:scale-[0.98]"
-          >
-            ✓ Application started — Continue to my dashboard
-          </button>
-        )}
-
-        <div className="flex items-center gap-2 py-1">
-          <div className="h-px flex-1 bg-gray-100" />
-          <span className="flex-shrink-0 text-xs text-gray-300">or prefer to talk first?</span>
-          <div className="h-px flex-1 bg-gray-100" />
-        </div>
-
-        {/* Call Paul — tapping also completes onboarding */}
+        {/* The one action safe to offer mid-questionnaire: a dialer opens over
+            the page, so nothing they have typed is at risk. */}
         <a
-          href="tel:+12054019076"
-          onClick={onContinue}
+          href={MOUNTAIN_MORTGAGE_PHONE_HREF}
           className="flex w-full items-center gap-4 rounded-xl bg-gray-50 px-4 py-4 text-left transition-all hover:bg-gray-100 active:scale-[0.99]"
         >
           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-blue-100 text-xl">
             📞
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-brand-navy">Call Paul Leara</p>
-            <p className="text-sm text-blue-600">(205) 401-9076</p>
+            <p className="font-bold text-brand-navy">Call {MOUNTAIN_MORTGAGE_LOAN_OFFICER}</p>
+            <p className="text-sm text-blue-600">{MOUNTAIN_MORTGAGE_PHONE_DISPLAY}</p>
             <p className="text-xs text-gray-400">Mountain Mortgage · Loan Officer</p>
           </div>
           <ChevronRight size={16} className="flex-shrink-0 text-gray-300" />
         </a>
 
-        <button
-          onClick={onContinue}
-          className="mt-1 w-full text-center text-sm text-gray-400 transition-colors hover:text-gray-600"
-        >
-          I&apos;ll do this later →
-        </button>
+        <ContinueBtn onClick={onContinue} label="Continue" />
       </div>
     </div>
   );
@@ -1001,7 +991,7 @@ export default function BuyerOnboarding() {
       );
     }
 
-    // Screen 20: Mountain Mortgage CTA (mountain + fastpass only)
+    // Screen 20: Mountain Mortgage hand-off (mountain + fastpass only) — #436
     if (screen === 20) {
       return (
         <MtnMortgageCTAScreen
