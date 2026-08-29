@@ -208,6 +208,48 @@ describe("apiDealToFrontend Fast Pass enrollment mapping (#426)", () => {
     expect(JSON.stringify(deal.fastPass)).not.toContain("cs_test_should_not_leak");
   });
 
+  // ── #464: the prices the enrollment was actually sold at ───────────────────
+  it("carries the stored per-add-on prices and the base fee through", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({
+        fast_pass: {
+          ...FULL_FAST_PASS,
+          base_price_cents: 178700,
+          // deep_clean at its pre-#430 price — the point of storing it.
+          upsell_prices: { deep_clean: 19700, utility_setup: 9700 },
+        } as unknown as ApiDeal["fast_pass"],
+      })
+    );
+
+    expect(deal.fastPass?.basePriceCents).toBe(178700);
+    expect(deal.fastPass?.upsellPrices).toEqual({ deep_clean: 19700, utility_setup: 9700 });
+  });
+
+  it("leaves both ABSENT for a pre-#464 enrollment — absent is not zero", () => {
+    // A default here would put today's catalog price back on the card dressed
+    // up as the agreed one, which is the whole bug.
+    const deal = apiDealToFrontend(wireDeal({ fast_pass: FULL_FAST_PASS }));
+
+    expect(deal.fastPass?.basePriceCents).toBeUndefined();
+    expect(deal.fastPass?.upsellPrices).toBeUndefined();
+  });
+
+  it("still drops the checkout session id when per-line prices are present (#464)", () => {
+    const deal = apiDealToFrontend(
+      wireDeal({
+        fast_pass: {
+          ...FULL_FAST_PASS,
+          base_price_cents: 178700,
+          upsell_prices: { deep_clean: 19700 },
+          checkout_session_id: "cs_test_should_not_leak",
+        } as unknown as ApiDeal["fast_pass"],
+      })
+    );
+
+    expect(JSON.stringify(deal.fastPass)).not.toContain("cs_test_should_not_leak");
+    expect(deal.fastPass?.upsellPrices).toEqual({ deep_clean: 19700 });
+  });
+
   it("tolerates a survey blob with holes — null answers become absent, not null", () => {
     const deal = apiDealToFrontend(
       wireDeal({
@@ -300,10 +342,32 @@ describe("pipeline contribution by stage (#459)", () => {
     }
   });
 
-  it("counts the contract price from under_contract onward", () => {
-    for (const stage of ["under_contract", "pre_close", "closing", "post_close"]) {
+  it("counts the contract price from under_contract until the deal closes", () => {
+    for (const stage of ["under_contract", "pre_close", "closing"]) {
       expect(pipelinePrice(priced(stage))).toBe(475000);
       expect(pipelineCommission(priced(stage))).toBe(14250);
+    }
+  });
+
+  // #418 — the other end of the window. Pipeline is money still coming; a
+  // closed deal is money already earned. Leaving `post_close` in meant an
+  // agent's Pipeline Value only ever went UP: nothing marks a closed deal
+  // finished, so every deal they had ever closed stayed in the total forever.
+  it("stops counting once the deal closes (#418)", () => {
+    const deal = priced("post_close");
+    // The price is still on the deal — the deal page still shows what it sold for.
+    expect(deal.property.price).toBe(475000);
+    expect(pipelinePrice(deal)).toBeNull();
+    expect(pipelineCommission(deal)).toBeNull();
+  });
+
+  // Same rule from the other direction: a deal archived or fallen through
+  // mid-pipeline is over too, whatever stage it stopped at.
+  it("stops counting a deal whose lifecycle status is no longer active (#418)", () => {
+    for (const status of ["archived", "fallen_through"]) {
+      const deal = { ...priced("under_contract"), status: status as never };
+      expect(pipelinePrice(deal)).toBeNull();
+      expect(pipelineCommission(deal)).toBeNull();
     }
   });
 

@@ -194,14 +194,28 @@ async function markFastPassPaid(
 // markFeeRefunded's guard: only acts on a currently-paid enrollment
 // (idempotent, and won't flip an unpaid/never-enrolled row). MERGES keys with
 // jsonb_set — flips paid=false, sets refunded=true + refunded_at, and preserves
-// every sibling field (status/selected_upsells/total_cents/…).
+// every sibling field (selected_upsells/total_cents/base_price_cents/
+// upsell_prices/…): the refund reverses the money, not the record of what the
+// client agreed to.
+//
+// #484: it also writes the enrollment's own terminal state, `status:
+// 'refunded'`. Reversing `paid` alone was not enough, because `status` — not
+// `paid` — is what the product reads to decide the service is RUNNING (the
+// agent dashboard's `=== 'active'` count, the deal-header/pipeline badges, the
+// buyer's tracker). A refunded client kept reading as an active Fast Pass
+// forever. `refunded` rather than clearing the enrollment: the agent has to be
+// able to tell "we refunded this one" from "never enrolled" — the first is a
+// conversation, the second is not.
 async function markFastPassRefunded(dealId: string): Promise<void> {
   await prisma.$executeRaw`
     UPDATE deals
     SET fast_pass = jsonb_set(
       jsonb_set(
-        jsonb_set(COALESCE(fast_pass, '{}'::jsonb), '{refunded}', 'true'),
-        '{paid}', 'false'
+        jsonb_set(
+          jsonb_set(COALESCE(fast_pass, '{}'::jsonb), '{refunded}', 'true'),
+          '{paid}', 'false'
+        ),
+        '{status}', '"refunded"'::jsonb
       ),
       '{refunded_at}', to_jsonb(NOW()::text)
     )
@@ -214,6 +228,16 @@ async function markFastPassRefunded(dealId: string): Promise<void> {
 // jsonb_set (#260 clobber guard) — flips upsells_paid=false, sets
 // upsells_refunded=true + upsells_refunded_at, preserving siblings
 // (status/selected_upsells/upsell_total_cents/…).
+//
+// #484: `smooth_exit.status` is deliberately NOT flipped here, and this is the
+// one place the two surfaces diverge. A Fast Pass charge IS the enrollment, so
+// reversing it ends the enrollment. This charge is only the ADD-ON basket — the
+// enrollment's own 1%-of-sale fee comes out of proceeds at closing and was
+// never part of this PaymentIntent. Marking the enrollment `refunded` would
+// drop a seller who is still receiving (and will still be billed for) Smooth
+// Exit off the admin's active list and out of their own portal badge: a worse
+// bug than the one #484 fixes. `upsells_refunded` is the terminal state for the
+// thing that was actually refunded, and the readers key off it.
 async function markSmoothExitUpsellRefunded(dealId: string): Promise<void> {
   await prisma.$executeRaw`
     UPDATE deals

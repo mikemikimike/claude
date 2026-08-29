@@ -44,6 +44,14 @@ function fastPassFromApi(d: FastPassApiData): FastPassEnrollment {
     // unpaid enrollment as already paid upfront.
     paymentOption: (d.payment_option as FastPassEnrollment['paymentOption']) ?? null,
     selectedUpsells: (d.selected_upsells ?? []) as FastPassEnrollment['selectedUpsells'],
+    // #464 — the prices the enrollment was actually sold at. Spread-in rather
+    // than defaulted: absent means "this predates #464", and the cards render
+    // that differently from a stored figure. Defaulting either one would put
+    // today's catalog price back on the card as though it were agreed.
+    ...(d.base_price_cents != null ? { basePriceCents: d.base_price_cents } : {}),
+    ...(d.upsell_prices
+      ? { upsellPrices: d.upsell_prices as FastPassEnrollment['upsellPrices'] }
+      : {}),
     totalPaid: Math.round((d.total_cents ?? 0) / 100),
     // #426 — carried through so the agent's card (and the admin dashboard's
     // survey block, which was rendering against a field nothing ever set) can
@@ -81,6 +89,9 @@ function smoothExitFromApi(d: SmoothExitApiData): SmoothExitEnrollment {
     selectedUpsells: d.selected_upsells ?? [],
     upsellTotalCents: d.upsell_total_cents ?? 0,
     upsellsPaid: d.upsells_paid ?? false,
+    // #484 — "refunded" and "not paid yet" are opposite statements about the
+    // money; the card has to be able to tell them apart.
+    upsellsRefunded: d.upsells_refunded ?? false,
     ...(survey ? { surveyAnswers: survey } : {}),
     ...(nextStep ? { nextStep } : {}),
   };

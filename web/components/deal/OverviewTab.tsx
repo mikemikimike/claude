@@ -33,7 +33,7 @@ import {
 // these display modules, which derive their dollars from the shared catalogs.
 // Never hand-type a price here: that is exactly how displayed copy drifts from
 // what Stripe charges (#78/#430).
-import { fastPassUpsellsFor, fastPassPaymentOptionLabel } from "@/lib/fast-pass-display";
+import { fastPassEnrolledUpsellsFor, fastPassPaymentOptionLabel } from "@/lib/fast-pass-display";
 import {
   smoothExitUpsellsFor,
   smoothExitPaymentOptionLabel,
@@ -1593,27 +1593,44 @@ export function FastPassCard({ deal }: { deal: Deal }) {
     pending_payment: 'bg-amber-100 text-amber-700',
     complete: 'bg-gray-100 text-gray-500',
     collected: 'bg-gray-100 text-gray-500',
+    // #484 — red, not grey: a refund is something the agent has to know about,
+    // not a quietly finished enrollment.
+    refunded: 'bg-red-100 text-red-700',
   };
   const STATUS_LABELS: Record<string, string> = {
     active: 'Active',
     pending_payment: 'Awaiting payment',
     complete: 'Complete',
     collected: 'Collected',
+    refunded: 'Refunded',
   };
 
   if (fp) {
-    const upsells = fastPassUpsellsFor(fp.selectedUpsells);
+    // #464 — each line is priced from what the enrollment STORED, so a later
+    // repricing (#430 moved three add-ons) can never restate what this client
+    // agreed to pay. Anything enrolled before #464 has no stored figure; those
+    // lines fall back to the catalog and say so, rather than quietly presenting
+    // today's price as the agreed one.
+    const upsells = fastPassEnrolledUpsellsFor(fp.selectedUpsells, fp.upsellPrices);
+    const anyUnpriced = upsells.some((u) => u.agreedPriceCents === null);
     const survey = fp.surveyAnswers;
     const enrolledOn = formatEnrollmentDate(fp.enrolledAt);
     const moveDate = formatEnrollmentDate(survey?.targetMoveDate);
     // `paid` and `status` are independent (see the type): an `at_closing`
     // enrollment is Active and unpaid for weeks, so the money line is its own
     // statement rather than something inferred from the status pill.
-    const paidLabel = fp.paid
-      ? 'Paid'
-      : fp.status === 'pending_payment'
-        ? 'Not paid yet'
-        : 'Due at closing';
+    //
+    // #484 — `refunded` is checked FIRST because it also carries `paid: false`,
+    // which would otherwise fall through to "Due at closing": money owed, the
+    // exact opposite of money returned.
+    const refunded = fp.status === 'refunded';
+    const paidLabel = refunded
+      ? 'Refunded'
+      : fp.paid
+        ? 'Paid'
+        : fp.status === 'pending_payment'
+          ? 'Not paid yet'
+          : 'Due at closing';
 
     return (
       <div className="rounded-xl bg-white shadow-sm overflow-hidden">
@@ -1658,7 +1675,15 @@ export function FastPassCard({ deal }: { deal: Deal }) {
               {fastPassPaymentOptionLabel(fp.paymentOption)}
             </span>
             <span className="text-gray-200">·</span>
-            <span className={fp.paid ? 'font-semibold text-green-600' : 'font-semibold text-amber-600'}>
+            <span
+              className={
+                refunded
+                  ? 'font-semibold text-red-600'
+                  : fp.paid
+                    ? 'font-semibold text-green-600'
+                    : 'font-semibold text-amber-600'
+              }
+            >
               {paidLabel}
             </span>
             {fp.promoCode && (
@@ -1672,6 +1697,21 @@ export function FastPassCard({ deal }: { deal: Deal }) {
             )}
           </div>
         </button>
+
+        {/* #484 — a refund is a conversation the agent has to have, so it is
+            stated in words rather than left to a pill. The add-ons and the
+            agreed total stay on screen below: this says the money went back,
+            not that the enrollment never happened. */}
+        {refunded && (
+          <div
+            data-testid="fp-refunded-note"
+            className="border-t border-red-100 bg-red-50/60 px-5 py-3 text-xs text-red-700"
+          >
+            <span className="font-semibold">Refunded.</span> The charge was
+            reversed in Stripe, so Fast Pass is no longer running on this deal.
+            What was enrolled is kept below for the record.
+          </div>
+        )}
 
         {/* Add-ons: always visible. This is the question the agent actually
             walked in with, so it must not be hidden behind the expander. */}
@@ -1689,19 +1729,34 @@ export function FastPassCard({ deal }: { deal: Deal }) {
                     <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />
                     {u.name}
                   </span>
-                  <span className="text-xs font-semibold text-gray-400 flex-shrink-0">
-                    ${u.price.toLocaleString()}
+                  {/* Marker and figure are SIBLINGS so the price element's own
+                      text stays exactly the price — a caveat glued into the
+                      same node would read as part of the number. */}
+                  <span className="flex flex-shrink-0 items-center gap-1.5">
+                    {u.agreedPriceCents === null && (
+                      <span
+                        data-testid="fp-unpriced-line"
+                        className="text-[10px] font-medium uppercase tracking-wide text-gray-300"
+                      >
+                        today&apos;s list
+                      </span>
+                    )}
+                    <span className="text-xs font-semibold text-gray-400">
+                      ${(u.displayPriceCents / 100).toLocaleString()}
+                    </span>
                   </span>
                 </li>
               ))}
             </ul>
           )}
-          {/* List prices, not the agreed ones: the enrollment stores its own
-              total (that is what Stripe charges), and a later repricing — #430
-              moved three of these — must not silently restate what the client
-              agreed to pay. */}
+          {/* The stored total is the only figure that is authoritative for an
+              enrollment; per-line figures agree with it only when the
+              enrollment recorded them (#464). Pre-#464 enrollments are marked
+              line by line above, and this line says why. */}
           <p className="mt-2 text-[10px] text-gray-300">
-            Current list prices. The client&apos;s agreed total is ${fp.totalPaid.toLocaleString()}.
+            {anyUnpriced
+              ? `Lines marked “today's list” were never priced on this enrollment — that is the current catalog price, not what was agreed. The client's agreed total is $${fp.totalPaid.toLocaleString()}.`
+              : `Prices as agreed at enrollment. The client's agreed total is $${fp.totalPaid.toLocaleString()}.`}
           </p>
         </div>
 
@@ -1824,8 +1879,24 @@ export function SmoothExitCard({ deal }: { deal: Deal }) {
             {upsells.length > 0 && (
               <>
                 <span className="text-gray-200">·</span>
-                <span className={se.upsellsPaid ? 'font-semibold text-green-600' : 'font-semibold text-amber-600'}>
-                  {se.upsellsPaid ? 'Add-ons paid' : 'Add-ons not paid'}
+                {/* #484 — refunded is checked first: it also carries
+                    `upsellsPaid: false`, and "not paid" reads as money still
+                    owed, the opposite of money returned. The enrollment itself
+                    is untouched — only this basket was refunded. */}
+                <span
+                  className={
+                    se.upsellsRefunded
+                      ? 'font-semibold text-red-600'
+                      : se.upsellsPaid
+                        ? 'font-semibold text-green-600'
+                        : 'font-semibold text-amber-600'
+                  }
+                >
+                  {se.upsellsRefunded
+                    ? 'Add-ons refunded'
+                    : se.upsellsPaid
+                      ? 'Add-ons paid'
+                      : 'Add-ons not paid'}
                 </span>
               </>
             )}

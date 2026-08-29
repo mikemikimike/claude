@@ -187,6 +187,14 @@ export function DealHeader({
                 <Zap size={10} /> Fast Pass
               </span>
             )}
+            {/* #484 — a refunded enrollment is not running, but it is also not
+                "never enrolled": with no badge at all the two look identical
+                here, and the agent walks into the call without knowing. */}
+            {deal.fastPass?.status === 'refunded' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[11px] font-bold text-red-700">
+                <Zap size={10} /> Fast Pass refunded
+              </span>
+            )}
             {deal.smoothExit?.status === 'active' && (
               <span className="rounded-full bg-purple-100 border border-purple-200 px-2 py-0.5 text-[11px] font-bold text-purple-700">
                 Smooth Exit

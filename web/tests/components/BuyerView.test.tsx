@@ -17,6 +17,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MyDeal } from "@/hooks/useMyDeals";
 import type { AppNotification } from "@/hooks/useNotifications";
 import type { MLSErrorKind, MLSListing } from "@/hooks/useMLS";
+import type { InspectionItem } from "@/hooks/useInspectionItems";
 import type { Task } from "@/lib/types";
 
 // ─── Shared mocks (mirror buyer-fastpass-price.test.tsx) ──────────────────────
@@ -110,6 +111,24 @@ vi.mock("@/hooks/useDocuments", () => ({
   getSigningUrl: vi.fn(),
   requestUploadUrl: vi.fn(),
   confirmUpload: vi.fn(),
+}));
+
+// #429 slice (c) — the buyer's inspection follow-up. Read lazily inside the
+// hook body so a case can set the deal's findings before rendering.
+let mockInspectionItems: InspectionItem[] = [];
+let mockInspectionLoading = false;
+let mockInspectionError: unknown = null;
+
+vi.mock("@/hooks/useInspectionItems", () => ({
+  useInspectionItems: () => ({
+    items: mockInspectionItems,
+    loading: mockInspectionLoading,
+    error: mockInspectionError,
+    refresh: vi.fn(),
+    addItem: vi.fn(),
+    updateItem: vi.fn(),
+    deleteItem: vi.fn(),
+  }),
 }));
 
 // The notifications source under test — each case controls what the bell returns
@@ -211,6 +230,9 @@ beforeEach(() => {
   mockTasks = [];
   mockCompletedIds = new Set<string>();
   mockMLS = { listings: [], loading: false, error: null, errorKind: "none" };
+  mockInspectionItems = [];
+  mockInspectionLoading = false;
+  mockInspectionError = null;
   vi.mocked(useMyDeals).mockReturnValue({
     deals: [DEAL],
     loading: false,
@@ -415,6 +437,43 @@ describe("BuyerView — Fast Pass payment card (#440)", () => {
     useDeal({ ...DEAL, fastPass: undefined });
     renderView(<BuyerView />);
     expect(screen.queryByText(/payment needed/i)).toBeNull();
+  });
+
+  // ── #464 (FF24): itemise at the prices the buyer was actually sold ─────────
+  it("itemises the add-on at its stored price, not today's catalog price", () => {
+    // deep_clean was $197 before #430 repriced it to $425. An enrollment from
+    // before that reprice carries 19700 and must keep showing $197 — the total
+    // it is sitting next to was computed from exactly that number.
+    const AGREED_DEEP_CLEAN_CENTS = 19700;
+    useDeal(
+      dealWithFastPass({
+        ...PENDING_FAST_PASS,
+        selectedUpsells: ["deep_clean"],
+        basePriceCents: 178700,
+        upsellPrices: { deep_clean: AGREED_DEEP_CLEAN_CENTS },
+        totalCents: 178700 + AGREED_DEEP_CLEAN_CENTS,
+        totalPaid: 1984,
+      })
+    );
+    renderView(<BuyerView />);
+
+    expect(screen.getByText("$197")).toBeTruthy();
+    expect(screen.queryByText("$425")).toBeNull();
+    // Nothing is hedged when every line has a recorded price.
+    expect(screen.queryAllByTestId("fp-unpriced-line")).toHaveLength(0);
+    // The itemisation adds up to the total the server will charge.
+    expect(screen.getAllByText("$1,984").length).toBeGreaterThan(0);
+  });
+
+  it("labels a legacy enrollment's lines instead of passing today's price off as agreed", () => {
+    // PENDING_FAST_PASS carries no per-line prices — enrolled before #464.
+    useDeal(dealWithFastPass(PENDING_FAST_PASS));
+    renderView(<BuyerView />);
+
+    expect(screen.getAllByTestId("fp-unpriced-line")).toHaveLength(1);
+    expect(screen.getByText(/what you agreed to and what you'll be charged/i)).toBeTruthy();
+    // The authoritative total is unchanged by any of this.
+    expect(screen.getAllByText(NOW_DISPLAY).length).toBeGreaterThan(0);
   });
 });
 
@@ -1453,5 +1512,191 @@ describe("BuyerView — buyer marks the pre-approval applied (#437)", () => {
 
     // `canOffer` is `preApproved || financingType === 'cash'` — and stays false.
     expect(screen.getByText(/get pre-approved to make an offer/i)).toBeTruthy();
+  });
+});
+
+/**
+ * #429 (FF25, slice c) — the buyer sees the Inspection Follow-Up they paid for.
+ *
+ * The add-on is $147 and promises "every item on your inspection report tracked
+ * to completion", but the tracker row was derived from the deal's stage index
+ * alone: reach `pre_close` and the service changed state whether or not a single
+ * repair had been chased. Slices (a) and (b) built the real record
+ * (`deal_inspection_items` + the agent's entry UI); this is the buyer's half.
+ *
+ * Two rules these cases exist to hold:
+ *   - "Complete" is a claim about WORK, not about a stage. It requires at least
+ *     one tracked finding and every one of them closed out.
+ *   - Zero findings is not completion. A deal with the add-on and nothing
+ *     entered stays on the honest stage-derived ladder (#420), whose top is
+ *     `unconfirmed` — never `complete`.
+ */
+describe("BuyerView — inspection follow-up drives the tracker off real state (#429)", () => {
+  const FP_WITH_INSPECTION: NonNullable<MyDeal["fastPass"]> = {
+    enrolledAt: "2026-08-01T00:00:00.000Z",
+    status: "active",
+    paymentOption: "now",
+    // deep_clean rides along as the untouched control: it has no per-item
+    // record, so it must keep behaving exactly as it did before this ticket.
+    selectedUpsells: ["inspection_followup", "deep_clean"],
+    totalPaid: 2031,
+    totalCents: 203100,
+  };
+
+  function item(overrides: Partial<InspectionItem> = {}): InspectionItem {
+    return {
+      id: "item-1",
+      deal_id: DEAL_ID,
+      document_id: null,
+      sort_order: 0,
+      category: "Roof",
+      description: "Cracked flashing above the chimney",
+      severity: "major",
+      status: "open",
+      owner: "seller",
+      notes: null,
+      resolved_at: null,
+      created_at: "2026-08-10T00:00:00.000Z",
+      updated_at: "2026-08-10T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  function enrolled(stage: MyDeal["stage"], extra: Partial<MyDeal> = {}) {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [{ ...DEAL, stage, fastPass: FP_WITH_INSPECTION, ...extra }],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+  }
+
+  function serviceRow(match: RegExp): HTMLElement {
+    const row = screen
+      .getAllByTestId("fp-service")
+      .find((s) => match.test(s.textContent ?? ""));
+    expect(row).toBeTruthy();
+    return row!;
+  }
+
+  it("reads Complete only when every tracked finding is closed out", () => {
+    // Deliberately NOT at pre_close — the deal is only under_contract, so the
+    // old stage ladder would never have said complete here. The work is what
+    // makes it complete.
+    enrolled("under_contract");
+    mockInspectionItems = [
+      item({ id: "a", status: "resolved" }),
+      item({ id: "b", status: "resolved" }),
+      // 'waived' is terminal too: a credit taken or accepted as-is is closed.
+      item({ id: "c", status: "waived" }),
+    ];
+    renderView(<BuyerView />);
+
+    const row = serviceRow(/inspection report follow-up/i);
+    expect(row.getAttribute("data-status")).toBe("complete");
+    expect(row.textContent).toMatch(/3 of 3/i);
+  });
+
+  it("does NOT read Complete at pre_close when the findings are still open", () => {
+    enrolled("pre_close");
+    mockInspectionItems = [
+      item({ id: "a", status: "resolved" }),
+      item({ id: "b", status: "requested" }),
+      item({ id: "c", status: "open" }),
+    ];
+    renderView(<BuyerView />);
+
+    const row = serviceRow(/inspection report follow-up/i);
+    expect(row.getAttribute("data-status")).not.toBe("complete");
+    // …and it shows the real count rather than a stage-derived label.
+    expect(row.textContent).toMatch(/1 of 3 resolved/i);
+  });
+
+  it("never reads Complete with the add-on bought and zero findings entered", () => {
+    // The worst case the old code got wrong: post_close, top of the ladder,
+    // nobody ever entered the report.
+    enrolled("post_close");
+    mockInspectionItems = [];
+    renderView(<BuyerView />);
+
+    const row = serviceRow(/inspection report follow-up/i);
+    expect(row.getAttribute("data-status")).not.toBe("complete");
+    // Zero findings falls back to the honest stage ladder (#420) — past due,
+    // unconfirmed — and says so rather than implying a clean report.
+    expect(row.getAttribute("data-status")).toBe("unconfirmed");
+    expect(row.textContent).toMatch(/no findings tracked yet/i);
+  });
+
+  it("shows the buyer the findings themselves — description, area and severity", () => {
+    enrolled("under_contract");
+    mockInspectionItems = [
+      item({ id: "a", description: "Cracked flashing above the chimney", category: "Roof", severity: "major", status: "requested" }),
+      item({ id: "b", description: "GFCI outlet missing in kitchen", category: "Electrical", severity: "safety", status: "resolved" }),
+    ];
+    renderView(<BuyerView />);
+
+    const card = screen.getByTestId("buyer-inspection-items");
+    expect(card.textContent).toMatch(/cracked flashing above the chimney/i);
+    expect(card.textContent).toMatch(/gfci outlet missing in kitchen/i);
+    expect(card.textContent).toMatch(/roof/i);
+    expect(card.textContent).toMatch(/safety/i);
+    // Progress, in the buyer's own words.
+    expect(card.textContent).toMatch(/1 of 2 resolved/i);
+  });
+
+  it("gives the buyer no way to change an item — the list is read-only", () => {
+    enrolled("under_contract");
+    mockInspectionItems = [item({ id: "a", status: "open" })];
+    renderView(<BuyerView />);
+
+    const card = screen.getByTestId("buyer-inspection-items");
+    // No status/owner dropdowns, no delete, no add — the agent's tab owns those.
+    expect(card.querySelectorAll("select")).toHaveLength(0);
+    expect(card.querySelectorAll("input")).toHaveLength(0);
+    expect(card.querySelectorAll("textarea")).toHaveLength(0);
+    expect(card.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("does not show the findings card to a buyer who did not buy the add-on", () => {
+    vi.mocked(useMyDeals).mockReturnValue({
+      deals: [
+        {
+          ...DEAL,
+          stage: "under_contract",
+          fastPass: { ...FP_WITH_INSPECTION, selectedUpsells: ["deep_clean"] },
+        },
+      ],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockInspectionItems = [item()];
+    renderView(<BuyerView />);
+
+    expect(screen.queryByTestId("buyer-inspection-items")).toBeNull();
+  });
+
+  it("leaves the other add-ons' stage-driven statuses exactly as they were", () => {
+    enrolled("post_close");
+    mockInspectionItems = [item({ status: "resolved" })];
+    renderView(<BuyerView />);
+
+    // deep_clean has no per-item record: still the #420 ladder, still topping
+    // out at 'unconfirmed' rather than claiming completion.
+    expect(serviceRow(/deep clean/i).getAttribute("data-status")).toBe("unconfirmed");
+    // …and the base services are untouched too.
+    expect(serviceRow(/dedicated concierge assigned/i).getAttribute("data-status"))
+      .toBe("unconfirmed");
+  });
+
+  it("keeps the other add-ons pending early in the deal", () => {
+    enrolled("active_search");
+    mockInspectionItems = [];
+    renderView(<BuyerView />);
+
+    expect(serviceRow(/deep clean/i).getAttribute("data-status")).toBe("pending");
+    // Inspection hasn't happened yet either — pending, with nothing claimed.
+    expect(serviceRow(/inspection report follow-up/i).getAttribute("data-status"))
+      .toBe("pending");
   });
 });

@@ -1081,8 +1081,12 @@ describe("POST /api/stripe/webhook — fast_pass / smooth_exit refund / dispute 
     `;
     expect(rows[0].paid).toBe(false);
     expect(rows[0].refunded).toBe(true);
-    // Sibling enrollment fields survive the merge (no clobber).
-    expect(rows[0].status).toBe("active");
+    // #484 — `status` is no longer a sibling that must survive untouched: the
+    // enrollment's own terminal state IS part of the reversal now, because
+    // `status === 'active'` is what every reader treats as "service running".
+    // This assertion previously read `toBe("active")` and was pinning the bug.
+    expect(rows[0].status).toBe("refunded");
+    // The rest of the enrollment still survives the merge (no clobber).
     expect(rows[0].selected).toEqual(["staging_consult"]);
     expect(rows[0].total_cents).toBe(322400);
   });
@@ -1150,7 +1154,11 @@ describe("POST /api/stripe/webhook — fast_pass / smooth_exit refund / dispute 
     `;
     expect(rows[0].upsells_paid).toBe(false);
     expect(rows[0].upsells_refunded).toBe(true);
-    // Sibling enrollment fields survive the merge (#260 clobber guard).
+    // Sibling enrollment fields survive the merge (#260 clobber guard). Unlike
+    // Fast Pass, `status` genuinely IS just a sibling here (#484): only the
+    // add-on basket was refunded — the enrollment's 1%-of-sale fee comes out of
+    // proceeds at closing and was never part of this charge, so the Smooth Exit
+    // itself is still running.
     expect(rows[0].status).toBe("active");
     expect(rows[0].selected).toEqual(["staging_consult"]);
     expect(rows[0].total_cents).toBe(24700);

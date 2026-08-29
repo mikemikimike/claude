@@ -38,7 +38,16 @@ export type InspectionItemPatch = Partial<InspectionItemInput> & {
   status?: InspectionItemStatus;
 };
 
-export function useInspectionItems(dealId: string): {
+/**
+ * `enabled` (#429 slice c) lets a caller mount the hook unconditionally — React
+ * forbids a conditional hook — while still not issuing the request. The buyer
+ * portal's Fast Pass tracker needs the items only for buyers who bought the
+ * `inspection_followup` add-on; everyone else should cost zero round trips.
+ */
+export function useInspectionItems(
+  dealId: string,
+  options: { enabled?: boolean } = {}
+): {
   items: InspectionItem[];
   loading: boolean;
   error: unknown;
@@ -54,7 +63,7 @@ export function useInspectionItems(dealId: string): {
     queryKey,
     queryFn: () =>
       api.get<InspectionItem[]>(`/deals/${dealId}/inspection-items`),
-    enabled: Boolean(dealId),
+    enabled: Boolean(dealId) && (options.enabled ?? true),
   });
 
   async function addItem(input: InspectionItemInput): Promise<InspectionItem> {

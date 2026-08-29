@@ -116,6 +116,14 @@ export const fastPassApiDataSchema = z.object({
    */
   payment_option: z.string().nullish(),
   selected_upsells: z.array(z.string()).optional(),
+  /**
+   * #464 — the figures this enrollment was actually priced from, snapshotted at
+   * enroll time. Both are ABSENT on anything enrolled before #464, which is a
+   * meaningful state, not a hole to default: the card must not fall back to
+   * today's catalog price as though it were the agreed one (#430 moved three).
+   */
+  base_price_cents: z.number().nullish(),
+  upsell_prices: z.record(z.string(), z.number()).nullish(),
   total_cents: z.number().optional(),
   enrolled_at: z.string().optional(),
   /**
@@ -157,6 +165,12 @@ export const smoothExitApiDataSchema = z.object({
   selected_upsells: z.array(z.string()).optional(),
   upsell_total_cents: z.number().optional(),
   upsells_paid: z.boolean().optional(),
+  /**
+   * #484 — the Stripe webhook has written this since #366, but nothing read it:
+   * a zod object strips unknown keys, so a refunded add-on basket reached the UI
+   * indistinguishable from one that simply hadn't been paid for yet.
+   */
+  upsells_refunded: z.boolean().nullish(),
   /** #426 — dropped here until now, same as the Fast Pass side. */
   survey_answers: smoothExitSurveyAnswersSchema.nullish(),
 });

@@ -24,6 +24,11 @@ import VendorDirectory from "@/components/VendorDirectory";
 import { useProperties, TrackedProperty, PropertyStatus } from "@/hooks/useProperties";
 import { useMLSListings, MLSListing } from "@/hooks/useMLS";
 import PortalDealDocuments from "@/components/portal/PortalDealDocuments";
+// #429 (FF25) — the Inspection Follow-Up add-on's actual deliverable: the
+// buyer's read-only view of every finding and where it stands.
+import PortalInspectionItems from "@/components/portal/PortalInspectionItems";
+import { useInspectionItems } from "@/hooks/useInspectionItems";
+import { summarizeInspectionItems } from "@/lib/inspection-items";
 import ClientIntakeCard from "@/components/portal/ClientIntakeCard";
 import ClientPreferencesCard from "@/components/portal/ClientPreferencesCard";
 // #422 — the orienting frame. The stage header answers "where am I" and "who
@@ -40,7 +45,13 @@ import { useDocuments, getSigningUrl, requestUploadUrl, confirmUpload } from "@/
 import { uploadFileToStorage } from "@/lib/direct-upload";
 import ClientNotifications from "@/components/ClientNotifications";
 import { useNotifications } from "@/hooks/useNotifications";
-import { FAST_PASS_BASE_PRICE, FAST_PASS_UPSELLS, FastPassUpsellId } from "@/lib/fast-pass-display";
+import {
+  FAST_PASS_BASE_PRICE,
+  FAST_PASS_UPSELLS,
+  FastPassUpsellId,
+  fastPassBaseCentsFor,
+  fastPassEnrolledUpsellsFor,
+} from "@/lib/fast-pass-display";
 // #440 — the payment card prices every option through the SAME helper the
 // /fastpass/pay route charges from, so the buyer is never shown a figure that
 // differs from what Stripe takes. The +15% premium math stays in the catalog.
@@ -2013,8 +2024,15 @@ function LenderCard({ deal }: { deal: Deal }) {
  * signal — a per-service status the concierge sets (#429 builds exactly that
  * for `inspection_followup`). Until then, `complete` is not a value this union
  * can hold, on purpose.
+ *
+ * #429 (FF25) — and now `inspection_followup` HAS that signal, so `complete` is
+ * back in the union. Read the rule before reusing it: `complete` is reachable
+ * ONLY from real per-item state (see `inspectionFollowupStatus` below), never
+ * from `fpStatusAt`, which remains stage-derived and still tops out at
+ * `unconfirmed`. Adding a second `complete` producer without a real fulfilment
+ * record behind it would reintroduce exactly the lie #420 removed.
  */
-type FPStatus = 'pending' | 'scheduled' | 'in_progress' | 'unconfirmed';
+type FPStatus = 'pending' | 'scheduled' | 'in_progress' | 'unconfirmed' | 'complete';
 
 // `textCls` was dropped here: nothing has ever read it (the row's own text
 // colour is set inline), so adding a fourth dead entry to it was noise.
@@ -2023,6 +2041,7 @@ const FP_STATUS_CFG: Record<FPStatus, { label: string; dotCls: string; badgeCls:
   scheduled:   { label: 'Scheduled',   dotCls: 'bg-amber-400', badgeCls: 'bg-amber-100 text-amber-700' },
   in_progress: { label: 'In Progress', dotCls: 'bg-blue-400',  badgeCls: 'bg-blue-100 text-blue-700' },
   unconfirmed: { label: 'Unconfirmed', dotCls: 'bg-slate-400', badgeCls: 'bg-slate-100 text-slate-600' },
+  complete:    { label: 'Complete',    dotCls: 'bg-green-500', badgeCls: 'bg-green-100 text-green-700' },
 };
 
 const FP_STAGE_IDX: Record<DealStage, number> = {
@@ -2061,6 +2080,8 @@ const FP_UPSELL_THRESHOLDS: Record<FastPassUpsellId, Parameters<typeof fpStatusA
   moving_coordination: { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
   refi_monitoring:     { scheduled: 'closing',   in_progress: 'post_close', expected: 'post_close' },
   home_warranty:       { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
+  // Fallback only (#429). Real per-item state overrides this whenever findings
+  // exist — see `inspectionFollowupStatus`.
   inspection_followup: { in_progress: 'under_contract', expected: 'pre_close' },
   address_change:      { scheduled: 'closing',   in_progress: 'post_close', expected: 'post_close' },
   storage_research:    { in_progress: 'pre_close', expected: 'closing' },
@@ -2068,26 +2089,69 @@ const FP_UPSELL_THRESHOLDS: Record<FastPassUpsellId, Parameters<typeof fpStatusA
   staging_consult:     { scheduled: 'pre_close', in_progress: 'closing',  expected: 'post_close' },
 };
 
+/**
+ * #429 — the one service whose status comes from work, not from the calendar.
+ *
+ * The rules, in the order they matter:
+ *   1. ZERO findings is never completion. It is genuinely ambiguous — the
+ *      report may have come back clean, or nobody may have entered it — so the
+ *      row falls back to the honest stage ladder, whose ceiling is
+ *      `unconfirmed` ("due, and nobody has confirmed it"). Claiming a clean
+ *      report on an empty list is the same false completion #420 removed, just
+ *      sourced from a different guess. The caption says so out loud.
+ *   2. Findings exist and every one is closed out (resolved or waived) → the
+ *      only genuine `complete` in this tracker.
+ *   3. Findings exist with work left → `in_progress`, whatever the stage says.
+ *      A deal at `pre_close` with three open repairs is not "unconfirmed"; it
+ *      is visibly, countably in progress, and the caption gives the count.
+ */
+function inspectionFollowupStatus(
+  summary: { total: number; closed: number; allClosed: boolean },
+  stageStatus: FPStatus
+): { status: FPStatus; detail: string } {
+  if (summary.total === 0) {
+    return { status: stageStatus, detail: 'No findings tracked yet' };
+  }
+  return {
+    status: summary.allClosed ? 'complete' : 'in_progress',
+    detail: `${summary.closed} of ${summary.total} resolved`,
+  };
+}
+
 function FastPassTracker({ deal }: { deal: Deal }) {
   const fp = deal.fastPass;
+  const selectedUpsells = fp?.selectedUpsells ?? [];
+  // #429 — only fetched for buyers who actually bought the add-on. The hook is
+  // mounted unconditionally (React forbids a conditional hook) and gated with
+  // `enabled`, so everyone else costs zero round trips.
+  const tracksInspection = selectedUpsells.includes('inspection_followup');
+  const { items: inspectionItems } = useInspectionItems(deal.id, {
+    enabled: tracksInspection,
+  });
+
   if (!fp) return null;
 
   const stage = deal.stage;
   const moveDate = fp.surveyAnswers?.targetMoveDate;
-  const selectedUpsells = fp.selectedUpsells ?? [];
   const enrolledUpsells = FAST_PASS_UPSELLS.filter((u) => selectedUpsells.includes(u.id));
+  const inspectionSummary = summarizeInspectionItems(inspectionItems);
 
-  const allServices = [
+  const allServices: { name: string; status: FPStatus; detail?: string; isUpsell: boolean }[] = [
     ...FP_BASE_SERVICES.map((s) => ({
       name: s.name,
       status: fpStatusAt(stage, s.thresholds),
       isUpsell: false,
     })),
-    ...enrolledUpsells.map((u) => ({
-      name: u.name,
-      status: fpStatusAt(stage, FP_UPSELL_THRESHOLDS[u.id]),
-      isUpsell: true,
-    })),
+    ...enrolledUpsells.map((u) => {
+      const stageStatus = fpStatusAt(stage, FP_UPSELL_THRESHOLDS[u.id]);
+      // Every other add-on stays stage-derived — they have no per-service
+      // fulfilment record yet, and inventing one for them is a separate ticket.
+      if (u.id !== 'inspection_followup') {
+        return { name: u.name, status: stageStatus, isUpsell: true };
+      }
+      const { status, detail } = inspectionFollowupStatus(inspectionSummary, stageStatus);
+      return { name: u.name, status, detail, isUpsell: true };
+    }),
   ];
 
   return (
@@ -2129,6 +2193,12 @@ function FastPassTracker({ deal }: { deal: Deal }) {
                 {svc.name}
                 {svc.isUpsell && (
                   <span className="ml-1.5 text-[10px] font-bold text-green-600 uppercase tracking-wide">Add-on</span>
+                )}
+                {/* #429 — the count behind the badge. Only a service with a
+                    real fulfilment record has one, so its presence is itself
+                    the signal that this row is not a stage guess. */}
+                {svc.detail && (
+                  <span className="block text-[11px] text-gray-400">{svc.detail}</span>
                 )}
               </span>
               <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${cfg.badgeCls}`}>
@@ -2218,7 +2288,13 @@ function FastPassPaymentCard({ deal, onSettled }: { deal: Deal; onSettled: () =>
   if (!fp) return null;
 
   const selectedUpsells = fp.selectedUpsells ?? [];
-  const enrolledUpsells = FAST_PASS_UPSELLS.filter((u) => selectedUpsells.includes(u.id));
+  // #464 — itemise at the prices this enrollment was SOLD at, not today's
+  // catalog. #430 repriced three add-ons, so a buyer who enrolled before that
+  // would otherwise see a breakdown that contradicts the total they are about
+  // to be charged. Lines an older enrollment never recorded are labelled.
+  const enrolledUpsells = fastPassEnrolledUpsellsFor(selectedUpsells, fp.upsellPrices);
+  const anyUnpricedLine =
+    fp.basePriceCents == null || enrolledUpsells.some((u) => u.agreedPriceCents === null);
   // The authoritative, already-discounted total the server persisted at enroll.
   const enrolledCents = fp.totalCents;
   const totalFor = (option: FastPassPaymentOptionId) =>
@@ -2271,12 +2347,24 @@ function FastPassPaymentCard({ deal, onSettled }: { deal: Deal; onSettled: () =>
       <div className="divide-y divide-gray-50">
         <div className="flex items-center justify-between px-5 py-2.5">
           <span className="text-sm text-gray-700">Fast Pass concierge</span>
-          <span className="text-sm text-gray-500">${FAST_PASS_BASE_PRICE.toLocaleString()}</span>
+          <span className="text-sm text-gray-500">
+            ${fpMoney(fastPassBaseCentsFor(fp.basePriceCents))}
+          </span>
         </div>
         {enrolledUpsells.map((u) => (
           <div key={u.id} className="flex items-center justify-between px-5 py-2.5">
             <span className="text-sm text-gray-700">{u.name}</span>
-            <span className="text-sm text-gray-500">${u.price.toLocaleString()}</span>
+            <span className="flex items-center gap-1.5">
+              {u.agreedPriceCents === null && (
+                <span
+                  data-testid="fp-unpriced-line"
+                  className="text-[10px] uppercase tracking-wide text-gray-300"
+                >
+                  today&apos;s list
+                </span>
+              )}
+              <span className="text-sm text-gray-500">${fpMoney(u.displayPriceCents)}</span>
+            </span>
           </div>
         ))}
         <div className="flex items-center justify-between px-5 py-3 bg-gray-50">
@@ -2286,6 +2374,17 @@ function FastPassPaymentCard({ deal, onSettled }: { deal: Deal; onSettled: () =>
           </span>
         </div>
       </div>
+      {/* #464 — an enrollment from before per-line prices were stored can show
+          a breakdown that does not add up to the (authoritative) total above.
+          Say that, rather than let the buyer reconcile two numbers we know
+          disagree. */}
+      {anyUnpricedLine && (
+        <p className="px-5 pb-3 text-[11px] leading-relaxed text-gray-400">
+          Lines marked &ldquo;today&apos;s list&rdquo; show the current price, not the one
+          recorded on your enrollment. The total above is what you agreed to and what
+          you&apos;ll be charged.
+        </p>
+      )}
 
       {/* How to pay */}
       <div className="px-5 py-4 space-y-2">
@@ -2483,6 +2582,9 @@ export default function BuyerView() {
   // ── #422: what goes in which section, and which section leads ──────────────
   const hasOverdue = buyerTasks.some((t) => t.status === 'overdue');
   const fastPassNeedsPayment = deal.fastPass?.status === 'pending_payment';
+  // #484 — refunded is neither "running" nor "never enrolled". It suppresses
+  // both the tracker and the pitch below.
+  const fastPassRefunded = deal.fastPass?.status === 'refunded';
   const stageFocus = STAGE_FOCUS[deal.stage];
   // The tab bar (and with it the task list) is hidden at post_close, exactly as
   // before. Without it the actions section would be a heading over nothing —
@@ -2647,12 +2749,30 @@ export default function BuyerView() {
 
       {/* Fast Pass tracker (enrolled) or pitch (unenrolled). An enrollment that
           still owes money is handled in the actions section above, so it never
-          gets pitched something it already bought. */}
-      {deal.stage !== 'intake' && !fastPassNeedsPayment && (
+          gets pitched something it already bought.
+
+          #484 — a REFUNDED enrollment gets neither. The tracker would run a
+          service they no longer have; the pitch would try to re-sell, on their
+          own portal, the thing they were just refunded for. That second failure
+          is the whole point of giving a refund its own status instead of
+          clearing the enrollment: `!== 'active'` is not the same question as
+          "never enrolled". Re-enrolment is a conversation with their agent
+          (#484 puts it out of scope), not a button here. */}
+      {deal.stage !== 'intake' && !fastPassNeedsPayment && !fastPassRefunded && (
         deal.fastPass?.status === 'active'
           ? <FastPassTracker deal={deal} />
           : deal.stage !== 'post_close' && <FastPassPitch dealId={deal.id} />
       )}
+
+      {/* #429 — the findings themselves, directly under the tracker row that
+          counts them. Gated on the add-on: the API lets any participant READ a
+          deal's items, but the buyer-facing presentation of them is what the
+          $147 buys (the agent tracks repairs on every deal regardless). A buyer
+          without the add-on sees the agent's work through their agent. */}
+      {deal.fastPass?.status === 'active' &&
+        (deal.fastPass.selectedUpsells ?? []).includes('inspection_followup') && (
+          <PortalInspectionItems dealId={deal.id} />
+        )}
     </PortalSection>
   );
 

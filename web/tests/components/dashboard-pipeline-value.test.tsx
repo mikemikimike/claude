@@ -149,16 +149,29 @@ describe("AgentDashboard headline stats (#411 / #459)", () => {
     expect(statValue(/est\. commission/i)).toBe("$14K");
   });
 
-  it("counts pre_close, closing and post_close too", () => {
+  it("counts pre_close and closing too", () => {
+    deals = [pricedDeal("pre_close", 300000), pricedDeal("closing", 700000)];
+    render(<AgentDashboard />);
+
+    expect(statValue(/pipeline value/i)).toBe("$1.00M");
+    expect(statValue(/est\. commission/i)).toBe("$30K");
+  });
+
+  // #418 — but NOT post_close. That deal's money is earned, not pipeline, and
+  // it is no longer one of the agent's active deals either. This used to read
+  // "$1.00M / 3 active deals": nothing marks a closed deal finished, so it sat
+  // in both numbers forever.
+  it("drops a closed deal out of the money AND out of Active Deals (#418)", () => {
     deals = [
       pricedDeal("pre_close", 300000),
-      pricedDeal("closing", 400000),
+      pricedDeal("closing", 700000),
       pricedDeal("post_close", 300000),
     ];
     render(<AgentDashboard />);
 
     expect(statValue(/pipeline value/i)).toBe("$1.00M");
     expect(statValue(/est\. commission/i)).toBe("$30K");
+    expect(statValue(/active deals/i)).toBe("2");
   });
 
   it("totals the under-contract deals only, ignoring the rest", () => {

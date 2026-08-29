@@ -16,7 +16,21 @@ export type DealStatus = 'active' | 'archived' | 'fallen_through';
 
 // ── Fast Pass enrollment (deal.fastPass) ─────────────────────────────────────
 
-export type FastPassEnrollmentStatus = 'pending_payment' | 'active' | 'complete' | 'collected';
+/**
+ * `refunded` is TERMINAL (#484): the Stripe charge was fully reversed or
+ * disputed, so the service is no longer running. It is deliberately a status of
+ * its own rather than a cleared enrollment — every reader here is an
+ * `=== 'active'` check, and without a distinct state a refunded client would
+ * collapse into "never enrolled" and get pitched Fast Pass all over again.
+ * Re-enrolment after a refund is out of scope (#484) — it goes through a fresh
+ * enrollment, not by rewinding this one.
+ */
+export type FastPassEnrollmentStatus =
+  | 'pending_payment'
+  | 'active'
+  | 'complete'
+  | 'collected'
+  | 'refunded';
 
 export type FastPassPaymentOption = 'now' | 'at_closing' | 'seller_concession';
 
@@ -51,6 +65,23 @@ export type FastPassEnrollment = {
    */
   paymentOption: FastPassPaymentOption | null;
   selectedUpsells: FastPassUpsellId[];
+  /**
+   * The base fee this enrollment was priced from, in CENTS (#464). Absent on
+   * anything enrolled before #464 — see `upsellPrices`.
+   */
+  basePriceCents?: number;
+  /**
+   * What each selected add-on actually cost at enrollment, in CENTS (#464),
+   * keyed by add-on id. Pre-discount and pre-premium, so
+   * `basePriceCents + Σ upsellPrices − discountCents`, times the at_closing
+   * premium where one applies, is `totalCents`.
+   *
+   * Absent — or missing a key — on enrollments that predate #464, and there is
+   * then NO agreed per-line figure to show. #430 repriced three add-ons, so
+   * today's catalog price is a current estimate, not what the client agreed to;
+   * `fastPassEnrolledUpsellsFor()` marks that case rather than papering over it.
+   */
+  upsellPrices?: Partial<Record<FastPassUpsellId, number>>;
   totalPaid: number;
   surveyAnswers?: FastPassSurveyAnswers;
   /**
@@ -104,6 +135,12 @@ export type SmoothExitSurveyAnswers = {
   notes?: string;
 };
 
+/**
+ * No `refunded` member, on purpose (#484). The only Smooth Exit charge Stripe
+ * can reverse is the ADD-ON basket; the enrollment's 1%-of-sale fee is billed
+ * from proceeds at closing and is not part of it. A refunded basket therefore
+ * leaves the enrollment running — see `upsellsRefunded` below.
+ */
 export type SmoothExitEnrollmentStatus = 'pending' | 'active' | 'complete';
 
 export type SmoothExitEnrollment = {
@@ -118,6 +155,13 @@ export type SmoothExitEnrollment = {
   selectedUpsells?: string[];
   upsellTotalCents?: number;
   upsellsPaid?: boolean;
+  /**
+   * The add-on charge was fully refunded or disputed (#484). Distinct from
+   * `upsellsPaid === false`, which means the money has not arrived YET — the
+   * opposite reading. `upsellTotalCents` and `selectedUpsells` stay put: the
+   * refund reverses the money, not the record of what was agreed.
+   */
+  upsellsRefunded?: boolean;
 };
 
 // ── Deal view model ──────────────────────────────────────────────────────────
